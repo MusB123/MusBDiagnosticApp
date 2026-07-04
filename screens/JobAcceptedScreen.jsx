@@ -1,0 +1,343 @@
+// src/screens/JobAcceptedScreen.jsx
+import React, { useState } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ScrollView,
+  Platform,
+  StatusBar,
+  Linking,
+  Alert,
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
+
+const PRIMARY = '#18377D';
+const GREEN = '#1B7A4D';
+
+export default function JobAcceptedScreen({ route, navigation }) {
+  const { job } = route.params || {};
+   console.log('JOB OBJECT:', JSON.stringify(job, null, 2));
+
+  const [opening, setOpening] = useState(false);
+
+  // `job` is the broadcast object from the dashboard's `broadcasts` list —
+  // NOT a separate "job details" response (accept_broadcast returns none).
+  // Fields come straight from dashboard_stats() in views.py.
+  const patientName = job?.patientName || 'Patient';
+  const patientPhone = job?.patientPhone || '';
+  const address = job?.address || job?.location || 'Address not provided';
+  const testName = job?.testName || 'Clinical Test';
+  const testPrice = job?.testPrice;
+  const preferredDate = job?.preferredDate || '';
+  const preferredTime = job?.time || 'ASAP';
+  const visitType = job?.visitType || 'home';
+  const paymentMethod = job?.paymentMethod || 'N/A';
+  const isStat = !!job?.isStat;
+
+  const doctorOrder = job?.documents?.doctorOrder || null;
+  const insuranceFront = job?.documents?.insuranceFront || null;
+  const insuranceBack = job?.documents?.insuranceBack || null;
+
+  const initials = patientName
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((n) => n[0]?.toUpperCase())
+    .join('') || 'PT';
+
+  const handleCall = () => {
+    if (!patientPhone) {
+      Alert.alert('No phone number', 'This patient has no phone number on file.');
+      return;
+    }
+    Linking.openURL(`tel:${patientPhone}`);
+  };
+
+  const handleMessage = () => {
+    if (!patientPhone) {
+      Alert.alert('No phone number', 'This patient has no phone number on file.');
+      return;
+    }
+    Linking.openURL(`sms:${patientPhone}`);
+  };
+
+  const handleNavigate = () => {
+    const query = encodeURIComponent(address);
+    const url =
+      Platform.OS === 'ios' ? `maps://?q=${query}` : `geo:0,0?q=${query}`;
+    Linking.openURL(url);
+  };
+
+  const handleStartCollection = () => {
+    navigation.navigate('CollectComplete', { job });
+  };
+
+  // Base64 docs need to be written to disk before they can be opened/shared —
+  // Linking.openURL can't render a raw base64 string.
+  const openBase64Doc = async (doc, label) => {
+    if (!doc?.base64) {
+      Alert.alert(
+        `${label} not available`,
+        'The patient has not uploaded this document yet.'
+      );
+      return;
+    }
+    setOpening(true);
+    try {
+      const isPdf = (doc.name || '').toLowerCase().endsWith('.pdf');
+      const ext = isPdf ? 'pdf' : 'jpg';
+      const fileUri = `${FileSystem.cacheDirectory}${label.replace(/\s/g, '_')}.${ext}`;
+
+      // Strip a data URI prefix if present (e.g. "data:image/jpeg;base64,")
+      const raw = doc.base64.includes(',') ? doc.base64.split(',')[1] : doc.base64;
+
+      await FileSystem.writeAsStringAsync(fileUri, raw, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+
+      const canShare = await Sharing.isAvailableAsync();
+      if (canShare) {
+        await Sharing.shareAsync(fileUri);
+      } else {
+        Alert.alert('Saved', `File saved to ${fileUri}`);
+      }
+    } catch (err) {
+      Alert.alert('Error', 'Could not open this document.');
+    } finally {
+      setOpening(false);
+    }
+  };
+
+  return (
+    <View style={styles.outer}>
+      <StatusBar barStyle="light-content" backgroundColor={GREEN} />
+
+      <View style={styles.header}>
+        <Ionicons name="checkmark-circle" size={20} color="#FFFFFF" />
+        <Text style={styles.headerTitle}>Request accepted</Text>
+        {isStat && (
+          <View style={styles.statPill}>
+            <Text style={styles.statText}>STAT</Text>
+          </View>
+        )}
+      </View>
+
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Patient Information */}
+        <Text style={styles.sectionLabel}>PATIENT INFORMATION</Text>
+        <View style={styles.card}>
+          <View style={styles.patientRow}>
+            <View style={styles.avatar}>
+              <Text style={styles.avatarText}>{initials}</Text>
+            </View>
+            <View style={styles.patientMeta}>
+              <Text style={styles.patientName}>{patientName}</Text>
+              <Text style={styles.patientSub}>{visitType} visit</Text>
+            </View>
+            <View style={styles.contactButtons}>
+              <TouchableOpacity style={styles.iconButton} onPress={handleCall} activeOpacity={0.8}>
+                <Ionicons name="call-outline" size={18} color={PRIMARY} />
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.iconButton} onPress={handleMessage} activeOpacity={0.8}>
+                <Ionicons name="chatbubble-outline" size={18} color={PRIMARY} />
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <View style={styles.divider} />
+
+          <InfoRow label="Phone" value={patientPhone || '—'} />
+          <InfoRow label="Address" value={address} />
+          <InfoRow
+            label="Requested for"
+            value={`${preferredDate || 'Today'} · ${preferredTime}`}
+          />
+          <InfoRow label="Payment method" value={paymentMethod} last />
+        </View>
+
+        {/* Order */}
+        <Text style={[styles.sectionLabel, { marginTop: 20 }]}>ORDER</Text>
+        <View style={styles.card}>
+          <InfoRow label="Test" value={testName} />
+          <InfoRow
+            label="Price"
+            value={testPrice ? `$${testPrice}` : 'N/A'}
+            last
+          />
+        </View>
+
+        {/* Documents */}
+        <Text style={[styles.sectionLabel, { marginTop: 20 }]}>DOCUMENTS</Text>
+        <View style={styles.card}>
+          <DocRow
+            icon="document-text-outline"
+            label="Doctor's order"
+            available={!!doctorOrder}
+            onPress={() => openBase64Doc(doctorOrder, 'Doctor Order')}
+            disabled={opening}
+          />
+          <DocRow
+            icon="card-outline"
+            label="Insurance (front)"
+            available={!!insuranceFront}
+            onPress={() => openBase64Doc(insuranceFront, 'Insurance Front')}
+            disabled={opening}
+          />
+          <DocRow
+            icon="card-outline"
+            label="Insurance (back)"
+            available={!!insuranceBack}
+            onPress={() => openBase64Doc(insuranceBack, 'Insurance Back')}
+            disabled={opening}
+            last
+          />
+        </View>
+
+        {/* Actions */}
+        <View style={styles.actionRow}>
+          <TouchableOpacity
+            style={styles.navigateButton}
+            activeOpacity={0.9}
+            onPress={handleNavigate}
+          >
+            <Ionicons name="navigate" size={18} color="#FFFFFF" />
+            <Text style={styles.navigateText}>Navigate now</Text>
+          </TouchableOpacity>
+        </View>
+
+        <TouchableOpacity
+          style={styles.startCollectionButton}
+          activeOpacity={0.9}
+          onPress={handleStartCollection}
+        >
+          <Ionicons name="clipboard-outline" size={18} color="#FFFFFF" />
+          <Text style={styles.startCollectionText}>I've Arrived — Start Collection</Text>
+        </TouchableOpacity>
+      </ScrollView>
+    </View>
+  );
+}
+
+function InfoRow({ label, value, last }) {
+  return (
+    <View style={[styles.infoRow, last && { marginBottom: 0 }]}>
+      <Text style={styles.infoLabel}>{label}</Text>
+      <Text style={styles.infoValue}>{value}</Text>
+    </View>
+  );
+}
+
+function DocRow({ icon, label, available, onPress, disabled, last }) {
+  return (
+    <TouchableOpacity
+      style={[styles.docRow, last && { marginBottom: 0 }]}
+      onPress={onPress}
+      disabled={disabled}
+      activeOpacity={0.7}
+    >
+      <View style={styles.docIconWrap}>
+        <Ionicons name={icon} size={18} color={PRIMARY} />
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.docLabel}>{label}</Text>
+        <Text style={styles.docStatus}>
+          {available ? 'Tap to view' : 'Not uploaded'}
+        </Text>
+      </View>
+      {available && <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />}
+    </TouchableOpacity>
+  );
+}
+
+const TOP_PADDING =
+  Platform.OS === 'android' ? (StatusBar.currentHeight || 24) + 8 : 54;
+
+const styles = StyleSheet.create({
+  outer: { flex: 1, backgroundColor: '#F6F8FC' },
+  header: {
+    backgroundColor: GREEN,
+    paddingTop: TOP_PADDING,
+    paddingBottom: 18,
+    paddingHorizontal: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  headerTitle: { color: '#FFFFFF', fontSize: 17, fontWeight: '700', flex: 1 },
+  statPill: {
+    backgroundColor: '#F87171',
+    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  statText: { color: '#FFFFFF', fontSize: 12, fontWeight: '800' },
+  scroll: { flex: 1 },
+  scrollContent: { paddingHorizontal: 20, paddingTop: 22, paddingBottom: 36 },
+  sectionLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#6B7280',
+    letterSpacing: 0.6,
+    marginBottom: 10,
+  },
+  card: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+  patientRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 14 },
+  avatar: {
+    width: 44, height: 44, borderRadius: 22,
+    backgroundColor: '#FDE68A', alignItems: 'center', justifyContent: 'center',
+  },
+  avatarText: { fontSize: 15, fontWeight: '800', color: '#92400E' },
+  patientMeta: { flex: 1 },
+  patientName: { fontSize: 16, fontWeight: '800', color: '#111827' },
+  patientSub: { fontSize: 13, color: '#6B7280', marginTop: 2, textTransform: 'capitalize' },
+  contactButtons: { flexDirection: 'row', gap: 8 },
+  iconButton: {
+    width: 36, height: 36, borderRadius: 10, borderWidth: 1.5,
+    borderColor: '#E5E7EB', alignItems: 'center', justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
+  },
+  divider: { height: 1, backgroundColor: '#F1F5F9', marginBottom: 12 },
+  infoRow: {
+    flexDirection: 'row', justifyContent: 'space-between',
+    alignItems: 'flex-start', marginBottom: 10, gap: 8,
+  },
+  infoLabel: { fontSize: 13.5, color: '#6B7280', flexShrink: 0 },
+  infoValue: { fontSize: 13.5, fontWeight: '700', color: '#111827', textAlign: 'right', flexShrink: 1 },
+  docRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 14 },
+  docIconWrap: {
+    width: 36, height: 36, borderRadius: 10, backgroundColor: '#EEF2FF',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  docLabel: { fontSize: 14, fontWeight: '700', color: '#111827' },
+  docStatus: { fontSize: 12.5, color: '#6B7280', marginTop: 2 },
+  actionRow: { flexDirection: 'row', gap: 12, marginTop: 18 },
+  navigateButton: {
+    flex: 1, flexDirection: 'row', gap: 8, backgroundColor: GREEN,
+    paddingVertical: 14, borderRadius: 14, alignItems: 'center', justifyContent: 'center',
+  },
+  navigateText: { color: '#FFFFFF', fontWeight: '700', fontSize: 15 },
+  startCollectionButton: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: PRIMARY, paddingVertical: 16, borderRadius: 14, marginTop: 14,
+    shadowColor: PRIMARY, shadowOpacity: 0.25, shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 }, elevation: 4,
+  },
+  startCollectionText: { color: '#FFFFFF', fontWeight: '700', fontSize: 15 },
+});

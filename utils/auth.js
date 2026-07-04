@@ -1,0 +1,437 @@
+// utils/auth.js
+import * as SecureStore from 'expo-secure-store';
+import { AUTH_ENDPOINTS, PATIENT_ENDPOINTS, PHLEB_ENDPOINTS, CATALOG_ENDPOINTS } from '../config/api';
+
+const PHLEB_TOKEN_KEY   = 'musb_phleb_token';
+const PHLEB_USER_KEY    = 'musb_phleb_user';
+const PATIENT_TOKEN_KEY = 'musb_patient_token';
+const PATIENT_USER_KEY  = 'musb_patient_user';
+
+async function postJson(url, body) {
+  let response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    throw new Error('NETWORK_ERROR');
+  }
+
+  let data;
+  try {
+    data = await response.json();
+  } catch {
+    throw new Error('BAD_RESPONSE');
+  }
+
+  if (!response.ok) {
+    throw new Error(data?.message || data?.error || `Request failed (${response.status})`);
+  }
+  return data;
+}
+
+// ── multipart POST helper (kept for endpoints that genuinely accept files —
+// NOT used by applyPhleb, since submit_application expects JSON/base64) ────
+// Do NOT set 'Content-Type' manually for FormData — fetch/RN needs to set
+// its own multipart boundary, or the backend won't be able to parse parts.
+async function postFormData(url, formData) {
+  let response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers: { Accept: 'application/json' },
+      body: formData,
+    });
+  } catch {
+    throw new Error('NETWORK_ERROR');
+  }
+
+  let data;
+  try {
+    data = await response.json();
+  } catch {
+    throw new Error('BAD_RESPONSE');
+  }
+
+  if (!response.ok) {
+    throw new Error(data?.message || data?.error || `Request failed (${response.status})`);
+  }
+  return data;
+}
+
+// ── Phlebotomist application (steps 1+2 merged, submitted once) ─────────
+// POST /api/phleb/apply/ as JSON. Documents are base64-encoded strings,
+// not multipart files — this matches submit_application's
+// request.data.get('dlFront') / 'dlBack' / 'certificate' / 'insuranceDoc'
+// pattern on the Django side exactly.
+//
+// Response shape from the real view: { message, specialist_id, status }.
+// There is no applicant_id — specialist_id (e.g. "PHL-004") is the only
+// identifier returned, and nothing in the backend currently supports
+// looking an application back up by it, so it's just passed along for
+// display purposes on the next screen.
+export async function applyPhleb({
+  fullName,
+  email,
+  phone,
+  address,
+  website,
+  password,
+  dlFront,
+  dlBack,
+  certificate,
+  insuranceDoc,
+  zipCodes,
+}) {
+  return postJson(PHLEB_ENDPOINTS.apply, {
+    fullName,
+    email,
+    phone,
+    address,
+    website: website || '',
+    password,
+    dlFront: dlFront || null,
+    dlBack: dlBack || null,
+    certificate: certificate || null,
+    insuranceDoc: insuranceDoc || null,
+    zipCodes: zipCodes || [],
+  });
+}
+
+// ── Application status polling (public, no auth — used before the
+// account is allowed to log in at all) ──────────────────────────────────
+export async function getApplicationStatus(specialistId) {
+  let response;
+  try {
+    response = await fetch(PHLEB_ENDPOINTS.applicationStatus(specialistId), {
+      method: 'GET',
+    });
+  } catch {
+    throw new Error('NETWORK_ERROR');
+  }
+
+  let data;
+  try {
+    data = await response.json();
+  } catch {
+    throw new Error('BAD_RESPONSE');
+  }
+
+  if (!response.ok) {
+    throw new Error(data?.error || `Request failed (${response.status})`);
+  }
+  return data; // { specialist_id, status, compliance }
+}
+
+// ── Unified login ─────────────────────────────────────────────────────
+export async function login(email, password) {
+  const data = await postJson(AUTH_ENDPOINTS.login, { email, password });
+
+  if (data.role === 'phlebotomist') {
+    if (data.token) await SecureStore.setItemAsync(PHLEB_TOKEN_KEY, data.token);
+    if (data.user)  await SecureStore.setItemAsync(PHLEB_USER_KEY, JSON.stringify(data.user));
+  } else if (data.role === 'patient') {
+    if (data.token) await SecureStore.setItemAsync(PATIENT_TOKEN_KEY, data.token);
+    if (data.user)  await SecureStore.setItemAsync(PATIENT_USER_KEY, JSON.stringify(data.user));
+  } else {
+    throw new Error(`Unknown role in login response: ${data.role}`);
+  }
+
+  return data;
+}
+
+export async function getActiveSession() {
+  const [phlebToken, patientToken] = await Promise.all([
+    SecureStore.getItemAsync(PHLEB_TOKEN_KEY),
+    SecureStore.getItemAsync(PATIENT_TOKEN_KEY),
+  ]);
+
+  if (phlebToken) {
+    const raw = await SecureStore.getItemAsync(PHLEB_USER_KEY);
+    return { role: 'phlebotomist', token: phlebToken, user: raw ? JSON.parse(raw) : null };
+  }
+  if (patientToken) {
+    const raw = await SecureStore.getItemAsync(PATIENT_USER_KEY);
+    return { role: 'patient', token: patientToken, user: raw ? JSON.parse(raw) : null };
+  }
+  return null;
+}
+
+export async function loginPhleb(email, password) {
+  const data = await postJson(PHLEB_ENDPOINTS.login, { email, password });
+  if (data.token) await SecureStore.setItemAsync(PHLEB_TOKEN_KEY, data.token);
+  if (data.user)  await SecureStore.setItemAsync(PHLEB_USER_KEY, JSON.stringify(data.user));
+  return data;
+}
+
+export async function getStoredPhlebToken() {
+  return SecureStore.getItemAsync(PHLEB_TOKEN_KEY);
+}
+
+export async function getStoredPhlebUser() {
+  const raw = await SecureStore.getItemAsync(PHLEB_USER_KEY);
+  return raw ? JSON.parse(raw) : null;
+}
+
+export async function logoutPhleb() {
+  await SecureStore.deleteItemAsync(PHLEB_TOKEN_KEY);
+  await SecureStore.deleteItemAsync(PHLEB_USER_KEY);
+}
+
+export async function authFetch(url, options = {}, role = 'phleb') {
+  const token = role === 'patient'
+    ? await SecureStore.getItemAsync(PATIENT_TOKEN_KEY)
+    : await SecureStore.getItemAsync(PHLEB_TOKEN_KEY);
+
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(options.headers || {}),
+  };
+
+  const response = await fetch(url, { ...options, headers });
+  const data = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw { status: response.status, data };
+  }
+  return data;
+}
+
+export const authGet   = (url, role = 'phleb') => authFetch(url, { method: 'GET' }, role);
+export const authPost  = (url, body, role = 'phleb') => authFetch(url, { method: 'POST', body: JSON.stringify(body) }, role);
+export const authPut   = (url, body, role = 'phleb') => authFetch(url, { method: 'PUT', body: JSON.stringify(body) }, role);
+export const authPatch = (url, body, role = 'phleb') => authFetch(url, { method: 'PATCH', body: JSON.stringify(body) }, role);
+
+// ── Patient (MusB App) ───────────────────────────────────────────────────
+export async function requestOtp(email) {
+  return postJson(PATIENT_ENDPOINTS.requestOtp, { email });
+}
+
+export async function verifyOtpAndCreateAccount({ email, token, name, password }) {
+  const data = await postJson(PATIENT_ENDPOINTS.verifyOtp, { method: 'email', email, token, name, password });
+  if (data.token) await SecureStore.setItemAsync(PATIENT_TOKEN_KEY, data.token);
+  if (data.user)  await SecureStore.setItemAsync(PATIENT_USER_KEY, JSON.stringify(data.user));
+  return data;
+}
+
+export async function loginPatient(email, password) {
+  const data = await postJson(PATIENT_ENDPOINTS.login, { email, password });
+  if (data.token) await SecureStore.setItemAsync(PATIENT_TOKEN_KEY, data.token);
+  if (data.user)  await SecureStore.setItemAsync(PATIENT_USER_KEY, JSON.stringify(data.user));
+  return data;
+}
+
+export async function getStoredPatientToken() {
+  return SecureStore.getItemAsync(PATIENT_TOKEN_KEY);
+}
+
+export async function getStoredPatientUser() {
+  const raw = await SecureStore.getItemAsync(PATIENT_USER_KEY);
+  return raw ? JSON.parse(raw) : null;
+}
+
+export async function logoutPatient() {
+  await SecureStore.deleteItemAsync(PATIENT_TOKEN_KEY);
+  await SecureStore.deleteItemAsync(PATIENT_USER_KEY);
+}
+
+export async function fetchPatientDashboard() {
+  const token = await getStoredPatientToken();
+  if (!token) throw new Error('NOT_LOGGED_IN');
+
+  let response;
+  try {
+    response = await fetch(PATIENT_ENDPOINTS.dashboard, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  } catch {
+    throw new Error('NETWORK_ERROR');
+  }
+
+  let data;
+  try {
+    data = await response.json();
+  } catch {
+    throw new Error('BAD_RESPONSE');
+  }
+
+  if (!response.ok) {
+    throw new Error(data?.message || data?.error || `Request failed (${response.status})`);
+  }
+  return data;
+}
+
+export async function bookAppointment(bookingData) {
+  const token = await getStoredPatientToken();
+  if (!token) throw new Error('NOT_LOGGED_IN');
+
+  let response;
+  try {
+    response = await fetch(PATIENT_ENDPOINTS.bookAppointment, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(bookingData),
+    });
+  } catch {
+    throw new Error('NETWORK_ERROR');
+  }
+
+  let data;
+  try {
+    data = await response.json();
+  } catch {
+    throw new Error('BAD_RESPONSE');
+  }
+
+  if (!response.ok) {
+    throw new Error(data?.message || data?.error || `Request failed (${response.status})`);
+  }
+  return data;
+}
+
+export async function fetchPatientProfile() {
+  const token = await getStoredPatientToken();
+  if (!token) throw new Error('NOT_LOGGED_IN');
+
+  let response;
+  try {
+    response = await fetch(PATIENT_ENDPOINTS.profile, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  } catch {
+    throw new Error('NETWORK_ERROR');
+  }
+
+  let data;
+  try {
+    data = await response.json();
+  } catch {
+    throw new Error('BAD_RESPONSE');
+  }
+
+  if (!response.ok) {
+    throw new Error(data?.error || `Request failed (${response.status})`);
+  }
+  return data;
+}
+
+export async function updatePatientProfile(updates) {
+  const token = await getStoredPatientToken();
+  if (!token) throw new Error('NOT_LOGGED_IN');
+
+  let response;
+  try {
+    response = await fetch(PATIENT_ENDPOINTS.profile, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(updates),
+    });
+  } catch {
+    throw new Error('NETWORK_ERROR');
+  }
+
+  let data;
+  try {
+    data = await response.json();
+  } catch {
+    throw new Error('BAD_RESPONSE');
+  }
+
+  if (!response.ok) {
+    throw new Error(data?.error || `Request failed (${response.status})`);
+  }
+
+  if (data.user) {
+    await SecureStore.setItemAsync(PATIENT_USER_KEY, JSON.stringify(data.user));
+  }
+  return data;
+}
+
+export async function fetchPatientHistory() {
+  const token = await getStoredPatientToken();
+  if (!token) throw new Error('NOT_LOGGED_IN');
+
+  let response;
+  try {
+    response = await fetch(PATIENT_ENDPOINTS.dashboard, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  } catch {
+    throw new Error('NETWORK_ERROR');
+  }
+
+  let data;
+  try {
+    data = await response.json();
+  } catch {
+    throw new Error('BAD_RESPONSE');
+  }
+
+  if (!response.ok) {
+    throw new Error(data?.message || data?.error || `Request failed (${response.status})`);
+  }
+  return data.past ?? [];
+}
+
+// ── Catalog (public, no auth) ────────────────────────────────────────────
+export async function fetchAvailableTests() {
+  let response;
+  try {
+    response = await fetch(CATALOG_ENDPOINTS.tests, { method: 'GET' });
+  } catch {
+    throw new Error('NETWORK_ERROR');
+  }
+
+  let data;
+  try {
+    data = await response.json();
+  } catch {
+    throw new Error('BAD_RESPONSE');
+  }
+
+  if (!response.ok) {
+    throw new Error(data?.error || `Request failed (${response.status})`);
+  }
+  return Array.isArray(data) ? data : [];
+}
+
+export async function fetchPricing({ address, zipCode, bookingDate, bookingTime } = {}) {
+  if (!address && !zipCode) {
+    throw new Error('Address or zip code is required to calculate pricing.');
+  }
+
+  let response;
+  try {
+    response = await fetch(CATALOG_ENDPOINTS.pricingPreview, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        address: address || '',
+        zip_code: zipCode || '',
+        booking_date: bookingDate || '',
+        booking_time: bookingTime || '',
+        provider_type: 'INDEPENDENT_PHLEBOTOMIST',
+      }),
+    });
+  } catch {
+    throw new Error('NETWORK_ERROR');
+  }
+
+  let data;
+  try {
+    data = await response.json();
+  } catch {
+    throw new Error('BAD_RESPONSE');
+  }
+
+  if (!response.ok) {
+    throw new Error(data?.error || `Request failed (${response.status})`);
+  }
+  return data;
+}
