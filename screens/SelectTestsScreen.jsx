@@ -1,8 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
   TouchableOpacity,
+  Pressable,
+  Animated,
   StyleSheet,
   StatusBar,
   ScrollView,
@@ -38,8 +40,79 @@ const ICON_MAP = {
   Truck: 'truck',
 };
 
+// Distinct color per icon type so tests read at a glance (bg = light tint, fg = solid)
+const ICON_COLOR_MAP = {
+  Droplet: { fg: '#2563EB', bg: '#DBEAFE' },      // blue - blood/hematology
+  HeartPulse: { fg: '#DC2626', bg: '#FEE2E2' },   // red - cardiac
+  Activity: { fg: '#F97316', bg: '#FFEDD5' },     // orange - general activity
+  Bone: { fg: '#7C3AED', bg: '#EDE9FE' },         // purple - bone/ortho
+  FileWarning: { fg: '#D97706', bg: '#FEF3C7' },  // amber - flagged/warning
+  Truck: { fg: '#0D9488', bg: '#CCFBF1' },        // teal - logistics/mobile
+  default: { fg: '#64748B', bg: '#F1F5F9' },      // slate - fallback
+};
+
 function getFeatherIcon(iconName) {
   return ICON_MAP[iconName] || 'file-text';
+}
+
+function getIconColors(iconName) {
+  return ICON_COLOR_MAP[iconName] || ICON_COLOR_MAP.default;
+}
+
+function TestRow({ test, isSelected, onToggle }) {
+  const scale = useRef(new Animated.Value(1)).current;
+  const iconColors = getIconColors(test.iconName);
+
+  const animatePress = (toValue) => {
+    Animated.spring(scale, {
+      toValue,
+      speed: 40,
+      bounciness: 6,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  return (
+    <Pressable
+      onPress={onToggle}
+      onPressIn={() => animatePress(0.97)}
+      onPressOut={() => animatePress(1)}
+    >
+      <Animated.View
+        style={[
+          styles.testRow,
+          isSelected && styles.testRowSelected,
+          { transform: [{ scale }] },
+        ]}
+      >
+        <View
+          style={[
+            styles.iconWrap,
+            { backgroundColor: iconColors.bg },
+            isSelected && { borderColor: iconColors.fg, borderWidth: 1.5 },
+          ]}
+        >
+          <Feather name={getFeatherIcon(test.iconName)} size={18} color={iconColors.fg} />
+        </View>
+        <View style={styles.testInfo}>
+          <Text style={[styles.testName, isSelected && styles.testNameSelected]} numberOfLines={1}>
+            {test.name}
+          </Text>
+          <Text style={styles.testMeta} numberOfLines={1}>
+            {test.sampleType ? `${test.sampleType} · ` : ''}{test.turnaround || test.desc}
+          </Text>
+        </View>
+        <View style={styles.testRight}>
+          <Text style={[styles.testPrice, isSelected && styles.testPriceSelected]}>
+            ${test.price.toFixed(0)}
+          </Text>
+          <View style={[styles.checkCircle, isSelected && styles.checkCircleActive]}>
+            {isSelected && <Feather name="check" size={12} color={COLORS.white} />}
+          </View>
+        </View>
+      </Animated.View>
+    </Pressable>
+  );
 }
 
 export default function SelectTestsScreen({ navigation, route }) {
@@ -145,25 +218,31 @@ export default function SelectTestsScreen({ navigation, route }) {
         />
       </View>
 
-      {/* Categories */}
+      {/* Categories - underline tab style */}
+      <View style={styles.categoryContainer}>
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.categoryRow}
       >
-        {categories.map((cat) => (
-          <TouchableOpacity
-            key={cat}
-            style={[styles.categoryBtn, activeCategory === cat && styles.categoryBtnActive]}
-            onPress={() => setActiveCategory(cat)}
-            activeOpacity={0.8}
-          >
-            <Text style={[styles.categoryBtnText, activeCategory === cat && styles.categoryBtnTextActive]}>
-              {cat}
-            </Text>
-          </TouchableOpacity>
-        ))}
+        {categories.map((cat) => {
+          const active = activeCategory === cat;
+          return (
+            <TouchableOpacity
+              key={cat}
+              style={styles.categoryTab}
+              onPress={() => setActiveCategory(cat)}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.categoryTabText, active && styles.categoryTabTextActive]}>
+                {cat}
+              </Text>
+              <View style={[styles.categoryTabIndicator, active && styles.categoryTabIndicatorActive]} />
+            </TouchableOpacity>
+          );
+        })}
       </ScrollView>
+      </View>
 
       {/* Tests List */}
       <ScrollView
@@ -183,42 +262,14 @@ export default function SelectTestsScreen({ navigation, route }) {
           <Text style={{ color: COLORS.gray, textAlign: 'center', marginVertical: 20 }}>
             No tests found.
           </Text>
-        ) : filtered.map((test) => {
-          const isSelected = selectedTests.includes(test.id);
-          return (
-            <TouchableOpacity
-              key={test.id}
-              style={[styles.testRow, isSelected && styles.testRowSelected]}
-              onPress={() => toggleTest(test.id)}
-              activeOpacity={0.7}
-            >
-              <View style={[styles.accentBar, isSelected && styles.accentBarActive]} />
-              <View style={[styles.iconWrap, isSelected && styles.iconWrapActive]}>
-                <Feather
-                  name={getFeatherIcon(test.iconName)}
-                  size={17}
-                  color={isSelected ? COLORS.navy : COLORS.gray}
-                />
-              </View>
-              <View style={styles.testInfo}>
-                <Text style={[styles.testName, isSelected && styles.testNameSelected]} numberOfLines={1}>
-                  {test.name}
-                </Text>
-                <Text style={styles.testMeta} numberOfLines={1}>
-                  {test.sampleType ? `${test.sampleType} · ` : ''}{test.turnaround || test.desc}
-                </Text>
-              </View>
-              <View style={styles.testRight}>
-                <Text style={[styles.testPrice, isSelected && styles.testPriceSelected]}>
-                  ${test.price.toFixed(0)}
-                </Text>
-                <View style={[styles.checkCircle, isSelected && styles.checkCircleActive]}>
-                  {isSelected && <Feather name="check" size={11} color={COLORS.white} />}
-                </View>
-              </View>
-            </TouchableOpacity>
-          );
-        })}
+        ) : filtered.map((test) => (
+          <TestRow
+            key={test.id}
+            test={test}
+            isSelected={selectedTests.includes(test.id)}
+            onToggle={() => toggleTest(test.id)}
+          />
+        ))}
 
         {/* Total card */}
         <View style={styles.totalCard}>
@@ -275,48 +326,62 @@ const styles = StyleSheet.create({
   },
   searchInput: { flex: 1, paddingVertical: 12, fontSize: 14, color: COLORS.navyDark },
 
-  categoryRow: { paddingHorizontal: 20, paddingVertical: 10, gap: 6, flexDirection: 'row' },
-  categoryBtn: {
-    paddingHorizontal: 10, paddingVertical: 5,
-    borderRadius: 16, borderWidth: 1.5,
-    borderColor: COLORS.border, backgroundColor: COLORS.white,
+  categoryContainer: { borderBottomWidth: 1, borderBottomColor: COLORS.lightGray },
+  categoryRow: { paddingHorizontal: 20, paddingTop: 14, paddingBottom: 0, gap: 22, flexDirection: 'row' },
+  categoryTab: { alignItems: 'center', paddingBottom: 10 },
+  categoryTabText: { fontSize: 13, fontWeight: '600', color: COLORS.gray },
+  categoryTabTextActive: { color: COLORS.navy, fontWeight: '800' },
+  categoryTabIndicator: {
+    height: 3, width: '100%', minWidth: 20, borderRadius: 2,
+    backgroundColor: 'transparent', marginTop: 8,
   },
-  categoryBtnActive: { backgroundColor: COLORS.navy, borderColor: COLORS.navy },
-  categoryBtnText: { fontSize: 12, fontWeight: '600', color: COLORS.gray },
-  categoryBtnTextActive: { color: COLORS.white },
+  categoryTabIndicatorActive: { backgroundColor: COLORS.navy },
 
   scroll: { flex: 1 },
   scrollContent: { paddingHorizontal: 20, paddingBottom: 20 },
 
   testRow: {
     flexDirection: 'row', alignItems: 'center',
-    backgroundColor: COLORS.white, borderRadius: 12,
-    marginBottom: 8, borderWidth: 1, borderColor: COLORS.lightGray,
-    overflow: 'hidden', paddingVertical: 12, paddingRight: 14,
+    backgroundColor: COLORS.white, borderRadius: 16,
+    marginBottom: 10, borderWidth: 1, borderColor: COLORS.lightGray,
+    paddingVertical: 14, paddingHorizontal: 14,
+    // subtle modern elevation
+    shadowColor: '#0D1F3C',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
   },
-  testRowSelected: { borderColor: COLORS.navy, backgroundColor: '#FAFBFF' },
-  accentBar: { width: 3, height: '100%', backgroundColor: 'transparent' },
-  accentBarActive: { backgroundColor: COLORS.navy },
+  testRowSelected: {
+    borderColor: COLORS.navy,
+    backgroundColor: '#F7F9FF',
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
+  },
   iconWrap: {
-    width: 34, height: 34, borderRadius: 10,
-    backgroundColor: COLORS.offWhite,
+    width: 40, height: 40, borderRadius: 12,
     alignItems: 'center', justifyContent: 'center',
-    marginLeft: 12, marginRight: 12,
+    marginRight: 12,
+    borderWidth: 1.5, borderColor: 'transparent',
   },
-  iconWrapActive: { backgroundColor: '#EBF0FB' },
   testInfo: { flex: 1, paddingRight: 8 },
-  testName: { fontSize: 14, fontWeight: '700', color: COLORS.navyDark, marginBottom: 2 },
+  testName: { fontSize: 14.5, fontWeight: '700', color: COLORS.navyDark, marginBottom: 2 },
   testNameSelected: { color: COLORS.navy },
   testMeta: { fontSize: 11.5, color: COLORS.gray },
-  testRight: { alignItems: 'flex-end', gap: 6 },
+  testRight: { alignItems: 'flex-end', gap: 8 },
   testPrice: { fontSize: 14, fontWeight: '800', color: COLORS.bodyText },
   testPriceSelected: { color: COLORS.navyDark },
   checkCircle: {
-    width: 18, height: 18, borderRadius: 9,
+    width: 20, height: 20, borderRadius: 10,
     borderWidth: 1.5, borderColor: COLORS.border,
     alignItems: 'center', justifyContent: 'center',
+    backgroundColor: COLORS.white,
   },
-  checkCircleActive: { backgroundColor: COLORS.navy, borderColor: COLORS.navy },
+  checkCircleActive: {
+    backgroundColor: COLORS.navy,
+    borderColor: COLORS.navy,
+  },
 
   totalCard: {
     backgroundColor: COLORS.offWhite, borderRadius: 14,
