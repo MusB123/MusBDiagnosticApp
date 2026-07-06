@@ -109,12 +109,12 @@ export default function SelectTestsScreen({ navigation, route }) {
 
   const handleConfirm = () => {
     if (returnTo) {
-      navigation.navigate(returnTo, { selectedTestsData, testsTotal });
+      navigation.navigate(returnTo, { selectedTestsData, testsTotal});
     } else {
       navigation.navigate('Checkout', {
         labTestsTotal: testsTotal,
         labTestsNames: selectedTestsData.map(t => t.name).join(', '),
-      });
+     });
     }
   };
 

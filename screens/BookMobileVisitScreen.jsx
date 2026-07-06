@@ -6,10 +6,13 @@ import {
   StyleSheet,
   StatusBar,
   ScrollView,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as DocumentPicker from 'expo-document-picker';
-import { getBookingDraft } from '../utils/bookingDraft';
+import { Ionicons } from '@expo/vector-icons';
+import { fetchPricing } from '../utils/auth';
+import { getBookingDraft, setBookingDraft } from '../utils/bookingDraft';
 
 const COLORS = {
   navy: '#1B3A8C',
@@ -103,11 +106,11 @@ export default function BookMobileVisitScreen({ navigation, route }) {
   const [selectedMinute, setSelectedMinute] = useState('00');
   const [selectedPeriod, setSelectedPeriod] = useState('AM');
 
-  const [doctorOrder, setDoctorOrder] = useState('self');
-  const [prescriptionFile, setPrescriptionFile] = useState(null);
+  const [doctorOrder, setDoctorOrder] = useState(bookingDraft.doctorOrder || 'self');
+  const [prescriptionFile, setPrescriptionFile] = useState(bookingDraft.prescriptionFile || null);
 
-  const [selectedTests, setSelectedTests] = useState([]);
-  const [testsTotal, setTestsTotal] = useState(0);
+  const [selectedTests, setSelectedTests] = useState(bookingDraft.selectedTestsData || []);
+  const [testsTotal, setTestsTotal] = useState(bookingDraft.testsTotal || 0);
 
   // Pick up tests returned from SelectTests
   useEffect(() => {
@@ -116,6 +119,10 @@ export default function BookMobileVisitScreen({ navigation, route }) {
       if (params?.selectedTestsData) {
         setSelectedTests(params.selectedTestsData);
         setTestsTotal(params.testsTotal ?? 0);
+        setBookingDraft({
+          selectedTestsData: params.selectedTestsData,
+          testsTotal: params.testsTotal ?? 0,
+        });
       }
     });
     return unsubscribe;
@@ -132,8 +139,10 @@ export default function BookMobileVisitScreen({ navigation, route }) {
       });
       if (result.canceled === false && result.assets?.length > 0) {
         setPrescriptionFile(result.assets[0]);
+        setBookingDraft({ prescriptionFile: result.assets[0] });
       } else if (result.type === 'success') {
         setPrescriptionFile(result);
+        setBookingDraft({ prescriptionFile: result });
       }
     } catch (err) {
       console.warn('Document pick error:', err);
@@ -142,12 +151,15 @@ export default function BookMobileVisitScreen({ navigation, route }) {
 
   const handleSelectDoctorOrder = (value) => {
     setDoctorOrder(value);
+    setBookingDraft({ doctorOrder: value });
     if (value === 'order') {
       setSelectedTests([]);
       setTestsTotal(0);
+      setBookingDraft({ selectedTestsData: [], testsTotal: 0 });
     }
     if (value === 'self') {
       setPrescriptionFile(null);
+      setBookingDraft({ prescriptionFile: null });
     }
   };
 
@@ -304,7 +316,7 @@ export default function BookMobileVisitScreen({ navigation, route }) {
           <TouchableOpacity
             style={[
               styles.selectTestsBtn,
-              doctorOrder === 'order' && styles.selectTestsBtnOptional,
+              doctorOrder === 'order' && selectedTests.length === 0 && styles.selectTestsBtnOptional,
             ]}
             activeOpacity={0.85}
             onPress={() =>
@@ -376,8 +388,9 @@ export default function BookMobileVisitScreen({ navigation, route }) {
 
         {/* Mobile visit note */}
         <View style={styles.mobileNote}>
+          <Ionicons name="medkit-outline" size={18} color={COLORS.navyDark} style={{ marginRight: 10 }} />
           <Text style={styles.mobileNoteText}>
-            🧑‍⚕️ A licensed phlebotomist will be assigned automatically after booking.
+            A licensed phlebotomist will be assigned automatically after booking.
           </Text>
         </View>
 
@@ -395,45 +408,44 @@ export default function BookMobileVisitScreen({ navigation, route }) {
           style={styles.confirmBtn}
           activeOpacity={0.85}
           onPress={async () => {
-            try {
-              const response = await fetch(
-                'https://musb-diagnostic-website.onrender.com/api/pricing/preview/',
-                {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    address,
-                    booking_date: selectedDate.isoDate,
-                    booking_time: formattedTime,
-                    provider_type: 'INDEPENDENT_PHLEBOTOMIST',
-                  }),
-                }
-              );
-              const preview = await response.json();
+           try {
+            const preview = await fetchPricing({
+             address,
+             zipCode,
+             bookingDate: selectedDate.isoDate,
+             bookingTime: formattedTime,
+            });
 
-              navigation.navigate('Checkout', {
-                labTestsTotal: testsTotal,
-                labTestsNames: selectedTests.map((t) => t.name).join(', '),
-                selectedTests,
-                address,
-                zipCode,
-                visitType: 'mobile',
-                preferredDate: selectedDate.isoDate,
-                preferredTime: formattedTime,
-                distanceMiles: Number(preview.distanceMiles || 0),
-                doctorOrder,
-                prescriptionFile,
-              });
-            } catch (err) {
-              console.error(err);
-            }
-          }}
-        >
-          <Text style={styles.confirmBtnText}>
-            Confirm booking{testsTotal > 0 ? ` · $${testsTotal.toFixed(0)} tests` : ''}
-          </Text>
+            navigation.navigate('Checkout', {
+              labTestsTotal: testsTotal,
+              labTestsNames: selectedTests.map((t) => t.name).join(', '),
+              selectedTests,
+              address,
+              zipCode,
+              visitType: 'mobile',
+              preferredDate: selectedDate.isoDate,
+              preferredTime: formattedTime,
+              baseFee: Number(preview.baseFee) || 0,
+              mileageRate: Number(preview.mileageRate) || 0,
+              distanceMiles: Number(preview.distanceMiles) || 0,
+              dynamicFeesTotal: Number(preview.dynamicFees?.total) || 0,
+              doctorOrder,
+              prescriptionFile,
+            });
+           } catch (err) {
+             console.error(err);
+              Alert.alert(
+               'Pricing unavailable',
+              err.message || 'Could not calculate pricing. Please try again.'
+           );
+          }
+       }}
+      >
+         <Text style={styles.confirmBtnText}>
+           Confirm booking{testsTotal > 0 ? ` · $${testsTotal.toFixed(0)} tests` : ''}
+         </Text>
         </TouchableOpacity>
-      </View>
+       </View>
     </SafeAreaView>
   );
 }
@@ -755,6 +767,8 @@ const styles = StyleSheet.create({
   pickerTextSelected: { fontSize: 19, color: COLORS.navyDark, fontWeight: '900' },
   colon: { fontSize: 20, fontWeight: '900', color: COLORS.navyDark },
   mobileNote: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
     backgroundColor: '#EBF0FB',
     borderRadius: 12,
     padding: 14,
@@ -762,7 +776,7 @@ const styles = StyleSheet.create({
     borderColor: '#C7D4F5',
     marginTop: 20,
   },
-  mobileNoteText: { fontSize: 13, color: COLORS.bodyText, lineHeight: 20 },
+  mobileNoteText: {flex:1, fontSize: 13,fontWeight:'600', color: COLORS.bodyText, lineHeight: 20 },
   summaryBox: {
     backgroundColor: '#EBF0FB',
     borderRadius: 14,

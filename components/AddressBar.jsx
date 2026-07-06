@@ -10,6 +10,7 @@ import {
   Alert,
 } from 'react-native';
 import * as Location from 'expo-location';
+import { Ionicons } from '@expo/vector-icons';
 
 const COLORS = {
   navy: '#1B3A8C',
@@ -109,11 +110,11 @@ export default function AddressBar({ value, onChange }) {
         onPress={() => setShowModal(true)}
         activeOpacity={0.8}
       >
-        <Text style={styles.locationIcon}>📍</Text>
+        <Ionicons name="location" size={16} color={COLORS.navyDark} />
         <Text style={styles.addressText} numberOfLines={1}>
           {value || 'Set your address'}
         </Text>
-        <Text style={styles.chevron}>✏️</Text>
+        <Ionicons name="create-outline" size={16} color={COLORS.navyDark} />
       </TouchableOpacity>
 
       {/* Modal */}
@@ -142,16 +143,16 @@ export default function AddressBar({ value, onChange }) {
               {loading ? (
                 <ActivityIndicator color={COLORS.navy} size="small" />
               ) : (
-                <Text style={styles.currentLocationIcon}>🎯</Text>
-              )}
-              <View>
-                <Text style={styles.currentLocationTitle}>
-                  Use current location
-                </Text>
-                <Text style={styles.currentLocationSub}>
-                  Auto-detect via GPS
-                </Text>
-              </View>
+                 <Ionicons name="navigate" size={24} color={COLORS.navyDark} />
+               )}
+               <View>
+                 <Text style={styles.currentLocationTitle}>
+                   Use current location
+                 </Text>
+                 <Text style={styles.currentLocationSub}>
+                   Auto-detect via GPS
+                 </Text>
+               </View>
             </TouchableOpacity>
 
             {/* Divider */}

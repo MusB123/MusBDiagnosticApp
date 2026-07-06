@@ -435,3 +435,60 @@ export async function fetchPricing({ address, zipCode, bookingDate, bookingTime 
   }
   return data;
 }
+export async function changePatientPassword({ currentPassword, newPassword }) {
+  const token = await getStoredPatientToken();
+  if (!token) throw new Error('NOT_LOGGED_IN');
+
+  let response;
+  try {
+    response = await fetch(PATIENT_ENDPOINTS.changePassword, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        current_password: currentPassword,
+        new_password: newPassword,
+      }),
+    });
+  } catch {
+    throw new Error('NETWORK_ERROR');
+  }
+
+  let data;
+  try {
+    data = await response.json();
+  } catch {
+    throw new Error('BAD_RESPONSE');
+  }
+
+  if (!response.ok) {
+    throw new Error(data?.message || data?.error || `Request failed (${response.status})`);
+  }
+  return data;
+}
+export async function rateAppointment(appointmentId, rating, comment = '') {
+  const token = await getStoredPatientToken();
+  if (!token) throw new Error('NOT_LOGGED_IN');
+
+  let response;
+  try {
+    response = await fetch(PATIENT_ENDPOINTS.rateAppointment(appointmentId), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ rating, comment }),
+    });
+  } catch {
+    throw new Error('NETWORK_ERROR');
+  }
+
+  let data;
+  try {
+    data = await response.json();
+  } catch {
+    throw new Error('BAD_RESPONSE');
+  }
+
+  if (!response.ok) {
+    throw new Error(data?.error || `Request failed (${response.status})`);
+  }
+  return data;
+}

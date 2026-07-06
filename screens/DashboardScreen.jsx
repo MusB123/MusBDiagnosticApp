@@ -36,6 +36,7 @@ export default function DashboardScreen({ route, navigation }) {
   const fetchRequests = async () => {
     try {
       const data = await authGet(PHLEB_ENDPOINTS.dashboard);
+  
       setRequests(data.broadcasts || []);
     } catch {
       // fail silently, keep last known data

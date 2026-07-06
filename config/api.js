@@ -24,6 +24,8 @@ export const PATIENT_ENDPOINTS = {
   tracking: `${PATIENT_PREFIX}/tracking/`,
   trackingFor: (appointmentId) => `${PATIENT_PREFIX}/tracking/${appointmentId}/`,
   profile: `${PATIENT_PREFIX}/profile/`,
+  changePassword: `${PATIENT_PREFIX}/change-password/`,
+  rateAppointment: (appointmentId) => `${PATIENT_PREFIX}/appointments/${appointmentId}/rate/`,
 };
 
 // ── Phlebotomist endpoints (full version, from phleb app) ───────────────────

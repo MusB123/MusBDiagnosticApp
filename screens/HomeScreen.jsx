@@ -7,11 +7,15 @@ import {
   StatusBar,
   ScrollView,
   ActivityIndicator,
+  Linking,
+  Alert,
+  TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import AddressBar from '../components/AddressBar';
 import { setBookingDraft } from '../utils/bookingDraft';
-import { fetchPatientDashboard, getStoredPatientUser } from '../utils/auth';
+import { fetchPatientDashboard, getStoredPatientUser, rateAppointment } from '../utils/auth';
 
 const COLORS = {
   navy: '#1B3A8C',
@@ -62,13 +66,9 @@ const getGreeting = () => {
 function BellIcon({ hasUnread }) {
   return (
     <View style={bellStyles.wrap}>
-      {/* Bell top knob */}
       <View style={bellStyles.knob} />
-      {/* Bell dome */}
       <View style={bellStyles.dome} />
-      {/* Bell base bar */}
       <View style={bellStyles.base} />
-      {/* Clapper */}
       <View style={bellStyles.clapper} />
       {hasUnread && <View style={bellStyles.badge} />}
     </View>
@@ -76,57 +76,19 @@ function BellIcon({ hasUnread }) {
 }
 
 const bellStyles = StyleSheet.create({
-  wrap: {
-    width: 24,
-    height: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  knob: {
-    position: 'absolute',
-    top: 0,
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: COLORS.navyDark,
-  },
+  wrap: { width: 24, height: 24, alignItems: 'center', justifyContent: 'center' },
+  knob: { position: 'absolute', top: 0, width: 4, height: 4, borderRadius: 2, backgroundColor: COLORS.navyDark },
   dome: {
-    position: 'absolute',
-    top: 3,
-    width: 16,
-    height: 13,
-    borderTopLeftRadius: 8,
-    borderTopRightRadius: 8,
-    borderBottomLeftRadius: 2,
-    borderBottomRightRadius: 2,
+    position: 'absolute', top: 3, width: 16, height: 13,
+    borderTopLeftRadius: 8, borderTopRightRadius: 8,
+    borderBottomLeftRadius: 2, borderBottomRightRadius: 2,
     backgroundColor: COLORS.navyDark,
   },
-  base: {
-    position: 'absolute',
-    top: 15,
-    width: 20,
-    height: 3,
-    borderRadius: 1.5,
-    backgroundColor: COLORS.navyDark,
-  },
-  clapper: {
-    position: 'absolute',
-    bottom: 0,
-    width: 5,
-    height: 5,
-    borderRadius: 2.5,
-    backgroundColor: COLORS.navyDark,
-  },
+  base: { position: 'absolute', top: 15, width: 20, height: 3, borderRadius: 1.5, backgroundColor: COLORS.navyDark },
+  clapper: { position: 'absolute', bottom: 0, width: 5, height: 5, borderRadius: 2.5, backgroundColor: COLORS.navyDark },
   badge: {
-    position: 'absolute',
-    top: -1,
-    right: -1,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: COLORS.unreadDot,
-    borderWidth: 1.5,
-    borderColor: COLORS.white,
+    position: 'absolute', top: -1, right: -1, width: 8, height: 8, borderRadius: 4,
+    backgroundColor: COLORS.unreadDot, borderWidth: 1.5, borderColor: COLORS.white,
   },
 });
 
@@ -144,42 +106,85 @@ export default function HomeScreen({ navigation, route }) {
   const [dashboardError, setDashboardError] = useState('');
   const [hasUnreadNotifs] = useState(true);
 
+  // ── Rating modal state ─────────────────────────────────────────────────
+  const [ratingAppt, setRatingAppt] = useState(null); // appointment being rated, or null
+  const [ratingValue, setRatingValue] = useState(5);
+  const [ratingComment, setRatingComment] = useState('');
+  const [submittingRating, setSubmittingRating] = useState(false);
+
   const initials = firstName.slice(0, 2).toUpperCase();
 
-  useEffect(() => {
-    let isMounted = true;
-    async function loadDashboard() {
-      try {
-        const storedUser = await getStoredPatientUser();
-        if (isMounted && storedUser?.name) {
-          setFirstName(storedUser.name.split(' ')[0]);
-        }
-        const data = await fetchPatientDashboard();
-        if (isMounted) setDashboard(data);
-      } catch (err) {
-        if (isMounted) {
-          setDashboardError(
-            err.message === 'NETWORK_ERROR'
-              ? "Can't reach the server."
-              : err.message === 'NOT_LOGGED_IN'
-              ? 'Please log in again.'
-              : err.message
-          );
-        }
-      } finally {
-        if (isMounted) setLoadingDashboard(false);
+  const loadDashboardData = async (isMountedRef) => {
+    try {
+      const storedUser = await getStoredPatientUser();
+      if (isMountedRef.current && storedUser?.name) {
+        setFirstName(storedUser.name.split(' ')[0]);
       }
+      const data = await fetchPatientDashboard();
+      if (isMountedRef.current) setDashboard(data);
+    } catch (err) {
+      if (isMountedRef.current) {
+        setDashboardError(
+          err.message === 'NETWORK_ERROR'
+            ? "Can't reach the server."
+            : err.message === 'NOT_LOGGED_IN'
+            ? 'Please log in again.'
+            : err.message
+        );
+      }
+    } finally {
+      if (isMountedRef.current) setLoadingDashboard(false);
     }
-    loadDashboard();
-    return () => { isMounted = false; };
+  };
+
+  useEffect(() => {
+    const isMountedRef = { current: true };
+    loadDashboardData(isMountedRef);
+    return () => { isMountedRef.current = false; };
   }, []);
 
   const tabs = [
-    { name: 'Home', icon: '🏠' },
-    { name: 'History', icon: '🕐' },
-    { name: 'Results', icon: '📋' },
-    { name: 'Profile', icon: '👤' },
+    { name: 'Home', icon: 'home' },
+    { name: 'History', icon: 'time' },
+    { name: 'Results', icon: 'document-text' },
+    { name: 'Profile', icon: 'person' },
   ];
+
+  // ── Contact handlers ───────────────────────────────────────────────────
+  const handleCallPhleb = (phone) => {
+    if (!phone) {
+      Alert.alert('No phone number', 'This specialist has no phone number on file.');
+      return;
+    }
+    Linking.openURL(`tel:${phone}`);
+  };
+
+  const handleMessagePhleb = (phone) => {
+    if (!phone) {
+      Alert.alert('No phone number', 'This specialist has no phone number on file.');
+      return;
+    }
+    Linking.openURL(`sms:${phone}`);
+  };
+
+  // ── Rating handlers ────────────────────────────────────────────────────
+  const handleSubmitRating = async () => {
+    if (!ratingAppt) return;
+    setSubmittingRating(true);
+    try {
+      await rateAppointment(ratingAppt.id, ratingValue, ratingComment);
+      Alert.alert('Thank you!', 'Your rating has been submitted.');
+      setRatingAppt(null);
+      setRatingComment('');
+      setRatingValue(5);
+      const data = await fetchPatientDashboard();
+      setDashboard(data);
+    } catch (err) {
+      Alert.alert('Could not submit rating', err.message || 'Please try again.');
+    } finally {
+      setSubmittingRating(false);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -217,7 +222,7 @@ export default function HomeScreen({ navigation, route }) {
             value={locationData.address}
             onChange={setLocationData}
           />
-        </View>  
+        </View>
 
         {/* ── What do you need ── */}
         <Text style={styles.sectionTitle}>What do you need today?</Text>
@@ -265,18 +270,57 @@ export default function HomeScreen({ navigation, route }) {
         ) : dashboard?.upcoming?.length > 0 ? (
           <>
             <Text style={styles.sectionLabel}>UPCOMING APPOINTMENTS</Text>
-            {dashboard.upcoming.slice(0, 3).map((appt) => (
-              <View key={appt.id} style={styles.apptCard}>
-                <View style={styles.apptDateBox}>
-                  <Text style={styles.apptMonth}>{appt.month}</Text>
-                  <Text style={styles.apptDay}>{appt.day}</Text>
+            {dashboard.upcoming.slice(0, 3).map((appt) => {
+              const status = (appt.status || '').toLowerCase();
+              const isAssignedOrLater = [
+                'assigned', 'in_progress', 'enroute', 'arrived', 'collected',
+              ].includes(status);
+              const isCompleted = status === 'completed';
+
+              return (
+                <View key={appt.id} style={styles.apptCard}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <View style={styles.apptDateBox}>
+                      <Text style={styles.apptMonth}>{appt.month}</Text>
+                      <Text style={styles.apptDay}>{appt.day}</Text>
+                    </View>
+                    <View style={styles.apptInfo}>
+                      <Text style={styles.apptTest}>{appt.test}</Text>
+                      <Text style={styles.apptMeta}>{appt.time} · {appt.phlebotomist}</Text>
+                    </View>
+                  </View>
+
+                  {isAssignedOrLater && !!appt.phlebotomist_phone && (
+                    <View style={styles.phlebContactRow}>
+                      <TouchableOpacity
+                        style={styles.phlebContactBtn}
+                        onPress={() => handleCallPhleb(appt.phlebotomist_phone)}
+                      >
+                        <Ionicons name="call" size={16} color={COLORS.navy} />
+                        <Text style={styles.phlebContactText}>Call</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.phlebContactBtn}
+                        onPress={() => handleMessagePhleb(appt.phlebotomist_phone)}
+                      >
+                        <Ionicons name="chatbubble" size={16} color={COLORS.navy} />
+                        <Text style={styles.phlebContactText}>Message</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+
+                  {isCompleted && !appt.patient_rated && (
+                    <TouchableOpacity
+                      style={styles.rateBtn}
+                      onPress={() => setRatingAppt(appt)}
+                    >
+                      <Ionicons name="star" size={16} color="#FFFFFF" />
+                      <Text style={styles.rateBtnText}>Rate this visit</Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
-                <View style={styles.apptInfo}>
-                  <Text style={styles.apptTest}>{appt.test}</Text>
-                  <Text style={styles.apptMeta}>{appt.time} · {appt.phlebotomist}</Text>
-                </View>
-              </View>
-            ))}
+              );
+            })}
           </>
         ) : null}
 
@@ -284,29 +328,86 @@ export default function HomeScreen({ navigation, route }) {
 
       {/* ── Bottom Tab Bar ── */}
       <View style={styles.tabBar}>
-        {tabs.map((tab) => (
-          <TouchableOpacity
-            key={tab.name}
-            style={styles.tabItem}
-            onPress={() => {
-              if (tab.name === 'History') {
-                navigation.navigate('PatientHistory');
-              } else if (tab.name === 'Profile') {
-                navigation.navigate('PatientProfile');
-              } else {
-                setActiveTab(tab.name);
-              }
-            }}
-            activeOpacity={0.7}
-          >
-            <Text style={styles.tabIcon}>{tab.icon}</Text>
-            <Text style={[styles.tabLabel, activeTab === tab.name && styles.tabLabelActive]}>
-              {tab.name}
-            </Text>
-            {activeTab === tab.name && <View style={styles.tabActiveDot} />}
-          </TouchableOpacity>
-        ))}
+        {tabs.map((tab) => {
+          const isActive = activeTab === tab.name;
+          return (
+            <TouchableOpacity
+              key={tab.name}
+              style={styles.tabItem}
+              onPress={() => {
+                if (tab.name === 'History') {
+                  navigation.navigate('PatientHistory');
+                } else if (tab.name === 'Profile') {
+                  navigation.navigate('PatientProfile');
+                } else {
+                  setActiveTab(tab.name);
+                }
+              }}
+              activeOpacity={0.7}
+            >
+              <Ionicons
+                name={isActive ? tab.icon : `${tab.icon}-outline`}
+                size={22}
+                color={isActive ? COLORS.navyDark : COLORS.gray}
+              />
+              <Text style={[styles.tabLabel, isActive && styles.tabLabelActive]}>
+                {tab.name}
+              </Text>
+              {isActive && <View style={styles.tabActiveDot} />}
+            </TouchableOpacity>
+          );
+        })}
       </View>
+
+      {/* ── Rating modal ── */}
+      {ratingAppt && (
+        <View style={styles.ratingOverlay}>
+          <View style={styles.ratingCard}>
+            <Text style={styles.ratingTitle}>Rate your visit</Text>
+            <Text style={styles.ratingSub}>{ratingAppt.test} · {ratingAppt.phlebotomist}</Text>
+
+            <View style={styles.starsRow}>
+              {[1, 2, 3, 4, 5].map((n) => (
+                <TouchableOpacity key={n} onPress={() => setRatingValue(n)}>
+                  <Ionicons
+                    name={n <= ratingValue ? 'star' : 'star-outline'}
+                    size={32}
+                    color={COLORS.star}
+                  />
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <TextInput
+              style={styles.ratingInput}
+              placeholder="Leave a comment (optional)"
+              placeholderTextColor={COLORS.gray}
+              value={ratingComment}
+              onChangeText={setRatingComment}
+              multiline
+            />
+
+            <View style={styles.ratingButtonRow}>
+              <TouchableOpacity
+                style={styles.ratingCancelBtn}
+                onPress={() => setRatingAppt(null)}
+                disabled={submittingRating}
+              >
+                <Text style={styles.ratingCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.ratingSubmitBtn}
+                onPress={handleSubmitRating}
+                disabled={submittingRating}
+              >
+                {submittingRating
+                  ? <ActivityIndicator color="#FFFFFF" size="small" />
+                  : <Text style={styles.ratingSubmitText}>Submit</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      )}
     </SafeAreaView>
   );
 }
@@ -405,15 +506,12 @@ const styles = StyleSheet.create({
   dashboardError: { color: '#E63946', fontSize: 13, marginBottom: 16, textAlign: 'center' },
 
   apptCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
     backgroundColor: COLORS.white,
     borderRadius: 16,
     padding: 14,
     marginBottom: 10,
     borderWidth: 1,
     borderColor: COLORS.border,
-    gap: 14,
   },
   apptDateBox: {
     width: 48,
@@ -425,9 +523,34 @@ const styles = StyleSheet.create({
   },
   apptMonth: { fontSize: 11, fontWeight: '700', color: COLORS.navy, textTransform: 'uppercase' },
   apptDay: { fontSize: 16, fontWeight: '800', color: COLORS.navyDark },
-  apptInfo: { flex: 1 },
+  apptInfo: { flex: 1, marginLeft: 14 },
   apptTest: { fontSize: 14, fontWeight: '700', color: COLORS.navyDark, marginBottom: 2 },
   apptMeta: { fontSize: 12, color: COLORS.gray },
+
+  phlebContactRow: { flexDirection: 'row', gap: 10, marginTop: 12 },
+  phlebContactBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderWidth: 1.5,
+    borderColor: COLORS.border,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  phlebContactText: { fontSize: 13, fontWeight: '700', color: COLORS.navy },
+
+  rateBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: COLORS.orange,
+    borderRadius: 10,
+    paddingVertical: 10,
+    marginTop: 12,
+  },
+  rateBtnText: { color: '#FFFFFF', fontWeight: '700', fontSize: 13 },
 
   tabBar: {
     flexDirection: 'row',
@@ -438,7 +561,6 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
   },
   tabItem: { flex: 1, alignItems: 'center', gap: 3 },
-  tabIcon: { fontSize: 20 },
   tabLabel: { fontSize: 11, color: COLORS.gray, fontWeight: '500' },
   tabLabelActive: { color: COLORS.navy, fontWeight: '800' },
   tabActiveDot: {
@@ -448,4 +570,51 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.navy,
     marginTop: 2,
   },
+
+  ratingOverlay: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: 'rgba(13,31,60,0.55)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  ratingCard: {
+    width: '100%',
+    backgroundColor: COLORS.white,
+    borderRadius: 20,
+    padding: 22,
+  },
+  ratingTitle: { fontSize: 17, fontWeight: '900', color: COLORS.navyDark, textAlign: 'center' },
+  ratingSub: { fontSize: 13, color: COLORS.gray, textAlign: 'center', marginTop: 4, marginBottom: 18 },
+  starsRow: { flexDirection: 'row', justifyContent: 'center', gap: 6, marginBottom: 18 },
+  ratingInput: {
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 12,
+    padding: 12,
+    fontSize: 14,
+    color: COLORS.navyDark,
+    minHeight: 70,
+    textAlignVertical: 'top',
+    marginBottom: 18,
+  },
+  ratingButtonRow: { flexDirection: 'row', gap: 10 },
+  ratingCancelBtn: {
+    flex: 1,
+    borderWidth: 1.5,
+    borderColor: COLORS.border,
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  ratingCancelText: { color: COLORS.gray, fontWeight: '700' },
+  ratingSubmitBtn: {
+    flex: 1,
+    backgroundColor: COLORS.navy,
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  ratingSubmitText: { color: '#FFFFFF', fontWeight: '700' },
 });

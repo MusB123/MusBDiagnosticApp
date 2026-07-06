@@ -24,23 +24,33 @@ export default function JobAcceptedScreen({ route, navigation }) {
 
   const [opening, setOpening] = useState(false);
 
-  // `job` is the broadcast object from the dashboard's `broadcasts` list —
-  // NOT a separate "job details" response (accept_broadcast returns none).
-  // Fields come straight from dashboard_stats() in views.py.
-  const patientName = job?.patientName || 'Patient';
-  const patientPhone = job?.patientPhone || '';
-  const address = job?.address || job?.location || 'Address not provided';
-  const testName = job?.testName || 'Clinical Test';
-  const testPrice = job?.testPrice;
-  const preferredDate = job?.preferredDate || '';
-  const preferredTime = job?.time || 'ASAP';
-  const visitType = job?.visitType || 'home';
-  const paymentMethod = job?.paymentMethod || 'N/A';
-  const isStat = !!job?.isStat;
+  const patientName = job?.patientName || job?.patient_name || 'Patient';
+  const patientPhone = job?.patientPhone || job?.patient_phone || '';
+  const address = job?.address || job?.patient_address || job?.location || 'Address not provided';
+  const testName = job?.testName || job?.test_name
+    || (Array.isArray(job?.lab_tests) ? job.lab_tests.join(', ') : null)
+    || 'Clinical Test';
+  const testPrice = job?.testPrice || job?.test_price;
+  const preferredDate = job?.preferredDate || job?.preferred_date || '';
+  const preferredTime = job?.time || job?.preferred_time || 'ASAP';
+  const visitType = job?.visitType || job?.visit_type || 'home';
+  const paymentMethod = job?.paymentMethod || job?.payment_method || 'N/A';
+  const isStat = !!(job?.isStat || job?.is_stat);
 
-  const doctorOrder = job?.documents?.doctorOrder || null;
-  const insuranceFront = job?.documents?.insuranceFront || null;
-  const insuranceBack = job?.documents?.insuranceBack || null;
+  const doctorOrder = job?.documents?.doctorOrder
+    || (job?.doctor_order_base64
+        ? { base64: job.doctor_order_base64, name: job.doctor_order_name || 'Doctor Order' }
+        : null);
+
+  const insuranceFront = job?.documents?.insuranceFront
+    || (job?.insurance_front_base64
+        ? { base64: job.insurance_front_base64, name: job.insurance_front_name || 'Insurance Front' }
+        : null);
+
+  const insuranceBack = job?.documents?.insuranceBack
+    || (job?.insurance_back_base64
+        ? { base64: job.insurance_back_base64, name: job.insurance_back_name || 'Insurance Back' }
+        : null);
 
   const initials = patientName
     .split(' ')

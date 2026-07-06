@@ -11,7 +11,12 @@ import {
   Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { fetchPatientProfile, updatePatientProfile, logoutPatient } from '../utils/auth';
+import {
+  fetchPatientProfile,
+  updatePatientProfile,
+  logoutPatient,
+  changePatientPassword,
+} from '../utils/auth';
 
 const COLORS = {
   navy: '#1B3A8C',
@@ -43,6 +48,15 @@ export default function ProfileScreen({ navigation }) {
     address: '',
     emergency_contact_name: '',
     emergency_contact_phone: '',
+  });
+
+  // ── Change password state ────────────────────────────────────────────────
+  const [changingPassword, setChangingPassword] = useState(false);
+  const [savingPassword, setSavingPassword] = useState(false);
+  const [passwordForm, setPasswordForm] = useState({
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: '',
   });
 
   useEffect(() => {
@@ -94,6 +108,35 @@ export default function ProfileScreen({ navigation }) {
     }
   };
 
+  const handleChangePassword = async () => {
+    const { currentPassword, newPassword, confirmPassword } = passwordForm;
+
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      Alert.alert('Missing fields', 'Please fill in all password fields.');
+      return;
+    }
+    if (newPassword.length < 8) {
+      Alert.alert('Password too short', 'New password must be at least 8 characters.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      Alert.alert("Passwords don't match", 'New password and confirmation must match.');
+      return;
+    }
+
+    setSavingPassword(true);
+    try {
+      await changePatientPassword({ currentPassword, newPassword });
+      setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+      setChangingPassword(false);
+      Alert.alert('Success', 'Your password has been changed.');
+    } catch (err) {
+      Alert.alert('Could not change password', err.message || 'Something went wrong. Please try again.');
+    } finally {
+      setSavingPassword(false);
+    }
+  };
+
   const handleLogout = () => {
     Alert.alert('Log out', 'Are you sure you want to log out?', [
       { text: 'Cancel', style: 'cancel' },
@@ -132,6 +175,9 @@ export default function ProfileScreen({ navigation }) {
 
       {/* Header */}
       <View style={styles.header}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+          <Text style={styles.backBtnText}>←</Text>
+        </TouchableOpacity>
         <Text style={styles.headerTitle}>Profile</Text>
         <TouchableOpacity onPress={() => (editing ? handleSave() : setEditing(true))} disabled={saving}>
           <Text style={styles.headerAction}>
@@ -197,6 +243,74 @@ export default function ProfileScreen({ navigation }) {
           </TouchableOpacity>
         )}
 
+        {/* Security / Change Password — hidden while editing profile info */}
+        {!editing && (
+          <>
+            <Text style={styles.sectionLabel}>SECURITY</Text>
+
+            {!changingPassword ? (
+              <TouchableOpacity
+                style={styles.changePasswordBtn}
+                onPress={() => setChangingPassword(true)}
+              >
+                <Text style={styles.changePasswordBtnText}>Change password</Text>
+              </TouchableOpacity>
+            ) : (
+              <View style={styles.passwordCard}>
+                <Field
+                  label="Current password"
+                  value={passwordForm.currentPassword}
+                  editable
+                  onChangeText={(t) => setPasswordForm((p) => ({ ...p, currentPassword: t }))}
+                  placeholder="Enter current password"
+                  secureTextEntry
+                />
+                <Field
+                  label="New password"
+                  value={passwordForm.newPassword}
+                  editable
+                  onChangeText={(t) => setPasswordForm((p) => ({ ...p, newPassword: t }))}
+                  placeholder="At least 8 characters"
+                  secureTextEntry
+                />
+                <Field
+                  label="Confirm new password"
+                  value={passwordForm.confirmPassword}
+                  editable
+                  onChangeText={(t) => setPasswordForm((p) => ({ ...p, confirmPassword: t }))}
+                  placeholder="Re-enter new password"
+                  secureTextEntry
+                />
+
+                <View style={styles.passwordBtnRow}>
+                  <TouchableOpacity
+                    style={[styles.cancelBtn, styles.passwordCancelBtn]}
+                    onPress={() => {
+                      setChangingPassword(false);
+                      setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+                    }}
+                    disabled={savingPassword}
+                  >
+                    <Text style={styles.cancelBtnText}>Cancel</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.savePasswordBtn}
+                    onPress={handleChangePassword}
+                    disabled={savingPassword}
+                  >
+                    {savingPassword ? (
+                      <ActivityIndicator color={COLORS.white} size="small" />
+                    ) : (
+                      <Text style={styles.savePasswordBtnText}>Update password</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+          </>
+        )}
+
         {!editing && (
           <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
             <Text style={styles.logoutBtnText}>Log out</Text>
@@ -207,7 +321,7 @@ export default function ProfileScreen({ navigation }) {
   );
 }
 
-function Field({ label, value, editable, onChangeText, placeholder, keyboardType, multiline }) {
+function Field({ label, value, editable, onChangeText, placeholder, keyboardType, multiline, secureTextEntry }) {
   return (
     <View style={styles.fieldWrap}>
       <Text style={styles.fieldLabel}>{label}</Text>
@@ -220,6 +334,7 @@ function Field({ label, value, editable, onChangeText, placeholder, keyboardType
           placeholderTextColor={COLORS.gray}
           keyboardType={keyboardType || 'default'}
           multiline={multiline}
+          secureTextEntry={secureTextEntry}
         />
       ) : (
         <View style={styles.staticField}>
@@ -236,14 +351,23 @@ const styles = StyleSheet.create({
 
   header: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
     paddingVertical: 16,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.lightGray,
+    gap: 12,
   },
-  headerTitle: { fontSize: 20, fontWeight: '900', color: COLORS.navyDark },
+  backBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: COLORS.offWhite,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  backBtnText: { fontSize: 18, color: COLORS.navyDark, fontWeight: '700' },
+  headerTitle: { flex: 1, fontSize: 20, fontWeight: '900', color: COLORS.navyDark },
   headerAction: { fontSize: 15, fontWeight: '700', color: COLORS.navy },
 
   scroll: { flex: 1 },
@@ -315,6 +439,42 @@ const styles = StyleSheet.create({
 
   cancelBtn: { alignItems: 'center', paddingVertical: 14, marginTop: 8 },
   cancelBtnText: { fontSize: 14, fontWeight: '700', color: COLORS.gray },
+
+  changePasswordBtn: {
+    backgroundColor: COLORS.offWhite,
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    marginBottom: 8,
+  },
+  changePasswordBtnText: { fontSize: 14, fontWeight: '700', color: COLORS.navy },
+
+  passwordCard: {
+    backgroundColor: COLORS.offWhite,
+    borderRadius: 14,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    marginBottom: 8,
+  },
+  passwordBtnRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 8,
+    alignItems: 'center',
+  },
+  passwordCancelBtn: { flex: 1, marginTop: 0 },
+  savePasswordBtn: {
+    flex: 1,
+    backgroundColor: COLORS.navy,
+    borderRadius: 12,
+    paddingVertical: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  savePasswordBtnText: { color: COLORS.white, fontSize: 14, fontWeight: '700' },
 
   logoutBtn: {
     alignItems: 'center',

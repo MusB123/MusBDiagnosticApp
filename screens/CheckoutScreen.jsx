@@ -5,7 +5,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useStripe } from '@stripe/stripe-react-native';
-import { getStoredPatientUser, bookAppointment, fetchPricing } from '../utils/auth';
+import { getStoredPatientUser, bookAppointment } from '../utils/auth';
+import * as FileSystem from 'expo-file-system/legacy';
 
 const BACKEND_URL = 'https://musb-diagnostic-website.onrender.com';
 
@@ -17,13 +18,8 @@ const COLORS = {
 
 export default function CheckoutScreen({ navigation, route }) {
   const { initPaymentSheet, presentPaymentSheet } = useStripe();
-  const [loading, setLoading]               = useState(false);
-  const [pricingLoading, setPricingLoading] = useState(true);
-
-  // ── Pricing state (fetched from backend) ──────────────────────────────────
-  const [baseVisitPrice, setBaseVisitPrice] = useState(null);
-  const [perMileRate, setPerMileRate]       = useState(null);
-
+  const [loading, setLoading] = useState(false);
+  
   // ── Route params (all safely coerced) ────────────────────────────────────
   const labTestsTotal = Number(route?.params?.labTestsTotal) || 0;
   const labTestsNames = route?.params?.labTestsNames  || '';
@@ -32,58 +28,44 @@ export default function CheckoutScreen({ navigation, route }) {
   const visitType     = route?.params?.visitType      || 'mobile';
   const preferredTime = route?.params?.preferredTime  || 'Now';
   const preferredDate = route?.params?.preferredDate  || new Date().toISOString().split('T')[0];
-  const [distanceMilesResolved, setDistanceMilesResolved] = useState(0);
   const [patientUser, setPatientUser] = useState(null);
+  const doctorOrder = route?.params?.doctorOrder || 'self';
+  const prescriptionFile = route?.params?.prescriptionFile || null;
 
-  // ── Derived totals (safe — no toFixed on null) ────────────────────────────
-  const [dynamicFeesTotal, setDynamicFeesTotal] = useState(0);
-  const [dynamicFeesBreakdown, setDynamicFeesBreakdown] = useState({});
+  // ── Pricing (already calculated once on the previous screen — no re-fetch) ─
+  const baseVisitPrice = visitType === 'mobile' ? Number(route?.params?.baseFee) || 0 : 0;
+  const perMileRate     = visitType === 'mobile' ? Number(route?.params?.mileageRate) || 0 : 0;
+  const distanceMilesResolved = visitType === 'mobile' ? Number(route?.params?.distanceMiles) || 0 : 0;
+  const dynamicFeesTotal = visitType === 'mobile' ? Number(route?.params?.dynamicFeesTotal) || 0 : 0;
 
   const distanceCharge   = perMileRate    != null ? +(distanceMilesResolved * perMileRate).toFixed(2)  : 0;
   const mobileVisitTotal = baseVisitPrice != null ? +(baseVisitPrice + distanceCharge + dynamicFeesTotal).toFixed(2) : null;
   const grandTotal       = mobileVisitTotal != null ? +(mobileVisitTotal + labTestsTotal).toFixed(2) : null;
-
-  // ── Fetch pricing on mount (mobile visits only — in-person has no base fee) ─
-  useEffect(() => {
-    if (visitType !== 'mobile') {
-      // In-person (or any non-mobile) visit: no base fee, no distance charge
-      setBaseVisitPrice(0);
-      setPerMileRate(0);
-      setDistanceMilesResolved(0);
-      setPricingLoading(false);
-      return;
-    }
-
-    (async () => {
-      try {
-        const pricing = await fetchPricing({
-          address,
-          bookingDate: preferredDate,
-          bookingTime: preferredTime,
-        });
-
-        setBaseVisitPrice(Number(pricing.baseFee));
-        setPerMileRate(Number(pricing.mileageRate));
-        setDistanceMilesResolved(Number(pricing.distanceMiles) || 0);
-        setDynamicFeesTotal(Number(pricing.dynamicFees?.total) || 0);
-        setDynamicFeesBreakdown(pricing.dynamicFees || {});
-      } catch (err) {
-        Alert.alert(
-          'Pricing unavailable',
-          err.message || 'Could not load pricing info. Please try again.',
-          [{ text: 'Go Back', onPress: () => navigation.goBack() }]
-        );
-      } finally {
-        setPricingLoading(false);
-      }
-    })();
-  }, [visitType]);
 
   useEffect(() => {
     getStoredPatientUser().then(setPatientUser);
   }, []);
 
   const patientEmail = patientUser?.email || route?.params?.email || '';
+
+   // Convert the picked prescription file (from DocumentPicker) to base64
+   // so it can be sent to book_appointment and later viewed by the
+   // phlebotomist in JobAcceptedScreen's Documents section.
+  const getPrescriptionBase64 = async () => {
+    if (doctorOrder !== 'order' || !prescriptionFile?.uri) return null;
+    try {
+      const base64 = await FileSystem.readAsStringAsync(prescriptionFile.uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      return {
+        base64,
+        name: prescriptionFile.name || 'Doctor Order',
+      };
+    } catch (err) {
+      console.warn('Could not read prescription file:', err);
+      return null;
+    }
+  };
 
   // ── Pay handler ───────────────────────────────────────────────────────────
   const handlePay = async () => {
@@ -129,6 +111,8 @@ export default function CheckoutScreen({ navigation, route }) {
         }
       } else {
         try {
+          const doctorOrderDoc = await getPrescriptionBase64();
+
           const bookingResult = await bookAppointment({
             test_name: labTestsTotal > 0 ? labTestsNames : 'Mobile Phlebotomy Visit',
             test_price: labTestsTotal > 0 ? labTestsTotal : mobileVisitTotal,
@@ -141,6 +125,8 @@ export default function CheckoutScreen({ navigation, route }) {
             preferred_date: preferredDate,
             preferred_time: preferredTime,
             payment_method: 'Card',
+            doctor_order_base64: doctorOrderDoc?.base64 || null,
+            doctor_order_name: doctorOrderDoc?.name || null,
           });
 
           Alert.alert(
@@ -164,15 +150,6 @@ export default function CheckoutScreen({ navigation, route }) {
     setLoading(false);
   };
 
-  // ── Loading screen ────────────────────────────────────────────────────────
-  if (pricingLoading) {
-    return (
-      <SafeAreaView style={[styles.safeArea, { alignItems: 'center', justifyContent: 'center' }]}>
-        <ActivityIndicator size="large" color={COLORS.navy} />
-        <Text style={{ marginTop: 12, color: COLORS.gray }}>Loading pricing…</Text>
-      </SafeAreaView>
-    );
-  }
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
@@ -199,67 +176,18 @@ export default function CheckoutScreen({ navigation, route }) {
         <View style={styles.summaryCard}>
           <Text style={styles.summaryTitle}>Order summary</Text>
 
-          {/* Mobile Phlebotomy fee — base fee set by super admin */}
+          {/* Mobile Phlebotomy fee — combined: base + distance + any surcharges */}
           {visitType === 'mobile' && (
-            <View style={styles.summaryRow}>
-              <View style={styles.summaryRowLeft}>
-                <Text style={styles.summaryIcon}>🏠</Text>
-                <Text style={styles.summaryLabel}>Mobile Phlebotomy fee</Text>
-              </View>
-              <Text style={styles.summaryValue}>
-                ${baseVisitPrice != null ? baseVisitPrice.toFixed(0) : '—'}
-              </Text>
-            </View>
-          )}
-
-          {/* Distance fee — calculated from address */}
-          {visitType === 'mobile' && (
-            <View style={styles.summaryRow}>
-              <View style={styles.summaryRowLeft}>
-                <Text style={styles.summaryIcon}>📍</Text>
-                <Text style={styles.summaryLabel}>Distance fee</Text>
-              </View>
-              <Text style={styles.summaryValue}>${distanceCharge.toFixed(0)}</Text>
-            </View>
-          )}
-
-          {/* Dynamic surcharges (same-day, urgent, weekend, holiday) */}
-          {visitType === 'mobile' && dynamicFeesBreakdown.same_day_fee > 0 && (
-            <View style={styles.summaryRow}>
-              <View style={styles.summaryRowLeft}>
-                <Text style={styles.summaryIcon}>⏱️</Text>
-                <Text style={styles.summaryLabel}>Same-day booking fee</Text>
-              </View>
-              <Text style={styles.summaryValue}>${dynamicFeesBreakdown.same_day_fee.toFixed(0)}</Text>
-            </View>
-          )}
-          {visitType === 'mobile' && dynamicFeesBreakdown.urgent_fee > 0 && (
-            <View style={styles.summaryRow}>
-              <View style={styles.summaryRowLeft}>
-                <Text style={styles.summaryIcon}>⚡</Text>
-                <Text style={styles.summaryLabel}>Urgent booking fee</Text>
-              </View>
-              <Text style={styles.summaryValue}>${dynamicFeesBreakdown.urgent_fee.toFixed(0)}</Text>
-            </View>
-          )}
-          {visitType === 'mobile' && dynamicFeesBreakdown.weekend_fee > 0 && (
-            <View style={styles.summaryRow}>
-              <View style={styles.summaryRowLeft}>
-                <Text style={styles.summaryIcon}>📅</Text>
-                <Text style={styles.summaryLabel}>Weekend fee</Text>
-              </View>
-              <Text style={styles.summaryValue}>${dynamicFeesBreakdown.weekend_fee.toFixed(0)}</Text>
-            </View>
-          )}
-          {visitType === 'mobile' && dynamicFeesBreakdown.holiday_fee > 0 && (
-            <View style={styles.summaryRow}>
-              <View style={styles.summaryRowLeft}>
-                <Text style={styles.summaryIcon}>🎉</Text>
-                <Text style={styles.summaryLabel}>Holiday fee</Text>
-              </View>
-              <Text style={styles.summaryValue}>${dynamicFeesBreakdown.holiday_fee.toFixed(0)}</Text>
-            </View>
-          )}
+           <View style={styles.summaryRow}>
+             <View style={styles.summaryRowLeft}>
+               <Text style={styles.summaryIcon}>🏠</Text>
+               <Text style={styles.summaryLabel}>Mobile Phlebotomy fee</Text>
+             </View>
+             <Text style={styles.summaryValue}>
+               ${mobileVisitTotal != null ? mobileVisitTotal.toFixed(0) : '—'}
+             </Text>
+           </View>
+           )}
 
           {/* Lab Tests — itemized, one row per test */}
           {labTestsTotal > 0 && (
