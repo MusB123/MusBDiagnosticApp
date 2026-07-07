@@ -1,6 +1,6 @@
 // utils/auth.js
 import * as SecureStore from 'expo-secure-store';
-import { AUTH_ENDPOINTS, PATIENT_ENDPOINTS, PHLEB_ENDPOINTS, CATALOG_ENDPOINTS } from '../config/api';
+import { AUTH_ENDPOINTS, PATIENT_ENDPOINTS, PHLEB_ENDPOINTS, CATALOG_ENDPOINTS, UPLOAD_ENDPOINTS } from '../config/api';
 
 const PHLEB_TOKEN_KEY   = 'musb_phleb_token';
 const PHLEB_USER_KEY    = 'musb_phleb_user';
@@ -61,6 +61,87 @@ async function postFormData(url, formData) {
   return data;
 }
 
+// ── Document upload (S3-backed) ─────────────────────────────────────────
+// Guess a MIME type from a filename/uri extension.
+function guessContentType(name = '') {
+  const ext = (name.split('?')[0].split('.').pop() || '').toLowerCase();
+  const map = {
+    jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
+    heic: 'image/heic', webp: 'image/webp', pdf: 'application/pdf',
+  };
+  return map[ext] || 'application/octet-stream';
+}
+
+// Direct-to-S3 via a presigned POST — the file bytes go straight to S3 and
+// never touch our server. Returns the storage key, or null when the server
+// says direct upload isn't available (409) so the caller can fall back.
+async function presignedUpload({ uri, kind, filename, contentType }) {
+  const type = contentType || guessContentType(filename || uri);
+  const presignRes = await fetch(UPLOAD_ENDPOINTS.presign, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ kind, filename, content_type: type }),
+  });
+  if (presignRes.status === 409) return null; // not available → fallback
+  if (!presignRes.ok) throw new Error(`Presign failed (${presignRes.status})`);
+  const { key, url, fields } = await presignRes.json();
+
+  // Multipart form: policy fields FIRST, the file part LAST (S3 requirement).
+  const form = new FormData();
+  Object.entries(fields || {}).forEach(([k, v]) => form.append(k, v));
+  form.append('file', { uri, name: filename || key.split('/').pop(), type });
+
+  const s3Res = await fetch(url, { method: 'POST', body: form });
+  if (!(s3Res.status === 201 || s3Res.status === 204 || s3Res.ok)) {
+    throw new Error(`S3 upload failed (${s3Res.status})`);
+  }
+  return key;
+}
+
+// Uploads a single document and returns { key, url? }. Persist the `key`.
+// Prefers direct-to-S3 (presigned) when a file uri is available; otherwise
+// (or on any hiccup) falls back to the through-server endpoint.
+export async function uploadDocument({ base64, uri, kind = 'documents', filename, contentType }) {
+  if (uri) {
+    try {
+      const key = await presignedUpload({ uri, kind, filename, contentType });
+      if (key) return { key };
+    } catch (e) {
+      // fall through to the server-side path below
+    }
+  }
+
+  let response;
+  try {
+    if (base64) {
+      response = await fetch(UPLOAD_ENDPOINTS.document, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ base64, kind, filename }),
+      });
+    } else if (uri) {
+      const form = new FormData();
+      form.append('file', { uri, name: filename || 'upload', type: contentType || 'application/octet-stream' });
+      form.append('kind', kind);
+      response = await fetch(UPLOAD_ENDPOINTS.document, {
+        method: 'POST',
+        headers: { Accept: 'application/json' },
+        body: form,
+      });
+    } else {
+      throw new Error('No document provided');
+    }
+  } catch {
+    throw new Error('NETWORK_ERROR');
+  }
+
+  const data = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(data?.error || `Upload failed (${response.status})`);
+  }
+  return data; // { key, url }
+}
+
 // ── Phlebotomist application (steps 1+2 merged, submitted once) ─────────
 // POST /api/phleb/apply/ as JSON. Documents are base64-encoded strings,
 // not multipart files — this matches submit_application's
@@ -83,6 +164,8 @@ export async function applyPhleb({
   dlBack,
   certificate,
   insuranceDoc,
+  w9,
+  certifications,
   zipCodes,
 }) {
   return postJson(PHLEB_ENDPOINTS.apply, {
@@ -92,10 +175,13 @@ export async function applyPhleb({
     address,
     website: website || '',
     password,
+    // Each doc may be base64 (backend offloads to S3) OR a pre-uploaded S3 key.
     dlFront: dlFront || null,
     dlBack: dlBack || null,
     certificate: certificate || null,
     insuranceDoc: insuranceDoc || null,
+    w9: w9 || null,
+    certifications: certifications || [],
     zipCodes: zipCodes || [],
   });
 }

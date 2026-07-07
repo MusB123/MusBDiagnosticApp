@@ -37,20 +37,28 @@ export default function JobAcceptedScreen({ route, navigation }) {
   const paymentMethod = job?.paymentMethod || job?.payment_method || 'N/A';
   const isStat = !!(job?.isStat || job?.is_stat);
 
+  // Documents arrive as { url } (signed S3 link) from the backend; legacy
+  // records may still carry { base64 }. Support both, plus flat *_url/*_base64.
   const doctorOrder = job?.documents?.doctorOrder
-    || (job?.doctor_order_base64
-        ? { base64: job.doctor_order_base64, name: job.doctor_order_name || 'Doctor Order' }
-        : null);
+    || (job?.doctor_order_url
+        ? { url: job.doctor_order_url, name: job.doctor_order_name || 'Doctor Order' }
+        : job?.doctor_order_base64
+          ? { base64: job.doctor_order_base64, name: job.doctor_order_name || 'Doctor Order' }
+          : null);
 
   const insuranceFront = job?.documents?.insuranceFront
-    || (job?.insurance_front_base64
-        ? { base64: job.insurance_front_base64, name: job.insurance_front_name || 'Insurance Front' }
-        : null);
+    || (job?.insurance_front_url
+        ? { url: job.insurance_front_url, name: job.insurance_front_name || 'Insurance Front' }
+        : job?.insurance_front_base64
+          ? { base64: job.insurance_front_base64, name: job.insurance_front_name || 'Insurance Front' }
+          : null);
 
   const insuranceBack = job?.documents?.insuranceBack
-    || (job?.insurance_back_base64
-        ? { base64: job.insurance_back_base64, name: job.insurance_back_name || 'Insurance Back' }
-        : null);
+    || (job?.insurance_back_url
+        ? { url: job.insurance_back_url, name: job.insurance_back_name || 'Insurance Back' }
+        : job?.insurance_back_base64
+          ? { base64: job.insurance_back_base64, name: job.insurance_back_name || 'Insurance Back' }
+          : null);
 
   const initials = patientName
     .split(' ')
@@ -86,14 +94,22 @@ export default function JobAcceptedScreen({ route, navigation }) {
     navigation.navigate('CollectComplete', { job });
   };
 
-  // Base64 docs need to be written to disk before they can be opened/shared —
-  // Linking.openURL can't render a raw base64 string.
-  const openBase64Doc = async (doc, label) => {
-    if (!doc?.base64) {
+  // Prefer a signed S3 URL (open directly). Fall back to legacy base64, which
+  // must be written to disk first — Linking.openURL can't render raw base64.
+  const openDoc = async (doc, label) => {
+    if (!doc?.url && !doc?.base64) {
       Alert.alert(
         `${label} not available`,
         'The patient has not uploaded this document yet.'
       );
+      return;
+    }
+    if (doc.url) {
+      try {
+        await Linking.openURL(doc.url);
+      } catch {
+        Alert.alert('Error', 'Could not open this document.');
+      }
       return;
     }
     setOpening(true);
@@ -191,21 +207,21 @@ export default function JobAcceptedScreen({ route, navigation }) {
             icon="document-text-outline"
             label="Doctor's order"
             available={!!doctorOrder}
-            onPress={() => openBase64Doc(doctorOrder, 'Doctor Order')}
+            onPress={() => openDoc(doctorOrder, 'Doctor Order')}
             disabled={opening}
           />
           <DocRow
             icon="card-outline"
             label="Insurance (front)"
             available={!!insuranceFront}
-            onPress={() => openBase64Doc(insuranceFront, 'Insurance Front')}
+            onPress={() => openDoc(insuranceFront, 'Insurance Front')}
             disabled={opening}
           />
           <DocRow
             icon="card-outline"
             label="Insurance (back)"
             available={!!insuranceBack}
-            onPress={() => openBase64Doc(insuranceBack, 'Insurance Back')}
+            onPress={() => openDoc(insuranceBack, 'Insurance Back')}
             disabled={opening}
             last
           />

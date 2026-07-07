@@ -12,7 +12,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { applyPhleb } from '../utils/auth'; // adjust path if your folder structure differs
+import { applyPhleb, uploadDocument } from '../utils/auth'; // adjust path if your folder structure differs
 
 const W9_FORM_URL = 'https://www.irs.gov/pub/irs-pdf/fw9.pdf';
 
@@ -40,7 +40,7 @@ export default function RegisterStep3({ navigation, route }) {
   const [accountNumber, setAccountNumber] = useState('');
 
   const [method, setMethod] = useState('bank');
-  const [w9File, setW9File] = useState(null); // { name, uri } | null
+  const [w9File, setW9File] = useState(null); // { name, uri, key, busy } | null
   const [submitting, setSubmitting] = useState(false);
 
   const shortName = (uri = '') => {
@@ -70,10 +70,22 @@ export default function RegisterStep3({ navigation, route }) {
       });
       if (result.canceled) return;
       const asset = result.assets ? result.assets[0] : result;
-      setW9File({
-        name: asset.name || shortName(asset.uri),
-        uri: asset.uri,
-      });
+      const name = asset.name || shortName(asset.uri);
+      // Upload immediately to S3 and keep the returned storage key.
+      setW9File({ name, uri: asset.uri, key: null, busy: true });
+      try {
+        const { key } = await uploadDocument({
+          uri: asset.uri,
+          filename: name,
+          kind: 'phleb-docs',
+        });
+        setW9File({ name, uri: asset.uri, key, busy: false });
+      } catch (uploadErr) {
+        setW9File(null);
+        Alert.alert('Upload failed', uploadErr.message === 'NETWORK_ERROR'
+          ? 'Network error while uploading the W9. Please try again.'
+          : (uploadErr.message || 'Could not upload the W9 form.'));
+      }
     } catch (err) {
       Alert.alert('Something went wrong', 'Could not open the file picker. Please try again.');
     }
@@ -84,7 +96,11 @@ export default function RegisterStep3({ navigation, route }) {
       Alert.alert('Missing details', 'Please fill in all bank details to continue.');
       return;
     }
-    if (!w9File) {
+    if (w9File?.busy) {
+      Alert.alert('Please wait', 'Your W9 form is still uploading.');
+      return;
+    }
+    if (!w9File?.key) {
       Alert.alert('W9 form required', 'Please upload your completed W9 form to continue.');
       return;
     }
@@ -92,11 +108,9 @@ export default function RegisterStep3({ navigation, route }) {
     setSubmitting(true);
     try {
       // Single submission point for the whole application: personal info
-      // (Step 1) + licence/certificate/insurance docs (Step 2) + password
-      // (this screen). Bank details and the W9 upload aren't accepted by
-      // submit_application yet on the backend — they're kept in local
-      // state and forwarded to AwaitingApproval for now, but will need a
-      // backend field/endpoint added before they're actually persisted.
+      // (Step 1) + licence/certificate/insurance docs (Step 2, base64) +
+      // password + the W9 (pre-uploaded to S3 above, sent as a storage key).
+      // The backend offloads any base64 docs to S3 and persists keys.
       const data = await applyPhleb({
         fullName,
         email,
@@ -108,6 +122,7 @@ export default function RegisterStep3({ navigation, route }) {
         dlBack,
         certificate,
         insuranceDoc,
+        w9: w9File.key,
       });
 
       navigation.replace('AwaitingApproval', {
@@ -211,17 +226,23 @@ export default function RegisterStep3({ navigation, route }) {
         <View style={styles.w9Card}>
           <View style={styles.w9Row}>
             <View style={styles.w9IconBox}>
-              <Text style={styles.w9IconText}>{w9File ? '✓' : '📄'}</Text>
+              {w9File?.busy
+                ? <ActivityIndicator color="#1E9E5A" />
+                : <Text style={styles.w9IconText}>{w9File?.key ? '✓' : '📄'}</Text>}
             </View>
             <View style={{ flex: 1, marginRight: 8 }}>
               <Text style={styles.w9Title}>
                 {w9File ? w9File.name : 'W9 form required'}
               </Text>
-              <Text style={[styles.w9Subtitle, w9File && { color: '#1E9E5A' }]}>
-                {w9File ? 'Uploaded · tap to replace' : 'Download, fill it out, then upload below'}
+              <Text style={[styles.w9Subtitle, w9File?.key && { color: '#1E9E5A' }]}>
+                {w9File?.busy
+                  ? 'Uploading…'
+                  : w9File?.key
+                    ? 'Uploaded · tap to replace'
+                    : 'Download, fill it out, then upload below'}
               </Text>
             </View>
-            {w9File && (
+            {w9File?.key && (
               <View style={styles.w9Badge}>
                 <Text style={styles.w9BadgeText}>Done</Text>
               </View>
@@ -232,9 +253,9 @@ export default function RegisterStep3({ navigation, route }) {
             <TouchableOpacity style={styles.w9SecondaryButton} onPress={handleDownloadW9}>
               <Text style={styles.w9SecondaryButtonText}>Download W9 form</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.w9PrimaryButton} onPress={handleUploadW9}>
+            <TouchableOpacity style={styles.w9PrimaryButton} onPress={handleUploadW9} disabled={w9File?.busy}>
               <Text style={styles.w9PrimaryButtonText}>
-                {w9File ? 'Replace upload' : 'Upload filled form'}
+                {w9File?.key ? 'Replace upload' : 'Upload filled form'}
               </Text>
             </TouchableOpacity>
           </View>

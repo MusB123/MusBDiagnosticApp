@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useStripe } from '@stripe/stripe-react-native';
-import { getStoredPatientUser, bookAppointment } from '../utils/auth';
+import { getStoredPatientUser, bookAppointment, uploadDocument } from '../utils/auth';
 import * as FileSystem from 'expo-file-system/legacy';
 
 const BACKEND_URL = 'https://musb-diagnostic-website.onrender.com';
@@ -48,21 +48,20 @@ export default function CheckoutScreen({ navigation, route }) {
 
   const patientEmail = patientUser?.email || route?.params?.email || '';
 
-   // Convert the picked prescription file (from DocumentPicker) to base64
-   // so it can be sent to book_appointment and later viewed by the
-   // phlebotomist in JobAcceptedScreen's Documents section.
-  const getPrescriptionBase64 = async () => {
+   // Upload the picked prescription file (from DocumentPicker) straight to S3
+   // and return its storage key, which book_appointment persists. The
+   // phlebotomist later views it via a signed URL in JobAcceptedScreen.
+  const uploadPrescriptionDoc = async () => {
     if (doctorOrder !== 'order' || !prescriptionFile?.uri) return null;
     try {
-      const base64 = await FileSystem.readAsStringAsync(prescriptionFile.uri, {
-        encoding: FileSystem.EncodingType.Base64,
+      const { key } = await uploadDocument({
+        uri: prescriptionFile.uri,
+        filename: prescriptionFile.name || 'doctor-order',
+        kind: 'patient-docs',
       });
-      return {
-        base64,
-        name: prescriptionFile.name || 'Doctor Order',
-      };
+      return { key, name: prescriptionFile.name || 'Doctor Order' };
     } catch (err) {
-      console.warn('Could not read prescription file:', err);
+      console.warn('Could not upload prescription file:', err);
       return null;
     }
   };
@@ -111,7 +110,7 @@ export default function CheckoutScreen({ navigation, route }) {
         }
       } else {
         try {
-          const doctorOrderDoc = await getPrescriptionBase64();
+          const doctorOrderDoc = await uploadPrescriptionDoc();
 
           const bookingResult = await bookAppointment({
             test_name: labTestsTotal > 0 ? labTestsNames : 'Mobile Phlebotomy Visit',
@@ -125,7 +124,8 @@ export default function CheckoutScreen({ navigation, route }) {
             preferred_date: preferredDate,
             preferred_time: preferredTime,
             payment_method: 'Card',
-            doctor_order_base64: doctorOrderDoc?.base64 || null,
+            // Carries the S3 storage key; backend stores it as doctor_order_key.
+            doctor_order_base64: doctorOrderDoc?.key || null,
             doctor_order_name: doctorOrderDoc?.name || null,
           });
 

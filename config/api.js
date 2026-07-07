@@ -13,6 +13,14 @@ export const AUTH_ENDPOINTS = {
   login: `${BASE_URL}/api/login/`,
 };
 
+// ── Document uploads (S3-backed) ────────────────────────────────────────────
+// presign → client uploads DIRECTLY to S3 (no bytes through our server);
+// document → through-server fallback when direct upload isn't available.
+export const UPLOAD_ENDPOINTS = {
+  presign: `${BASE_URL}/api/uploads/presign/`,
+  document: `${BASE_URL}/api/uploads/document/`,
+};
+
 // ── Patient endpoints (unchanged from patient app) ──────────────────────────
 export const PATIENT_ENDPOINTS = {
   login: `${PATIENT_PREFIX}/login/`, // ⚠ legacy — kept in case still referenced elsewhere

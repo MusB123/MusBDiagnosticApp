@@ -9,8 +9,12 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
+  Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import * as ImagePicker from 'expo-image-picker';
+import { uploadDocument, updatePatientProfile } from '../utils/auth';
 
 const COLORS = {
   navy: '#1B3A8C',
@@ -29,8 +33,68 @@ const COLORS = {
 export default function HealthProfileScreen({ navigation,route }) {
   const [insuranceProvider, setInsuranceProvider] = useState('');
   const [memberId, setMemberId] = useState('');
-  const [insuranceUploaded, setInsuranceUploaded] = useState(false);
-  const [photoUploaded, setPhotoUploaded] = useState(false);
+  // Each doc: { key: string|null, busy: bool } — `key` is the S3 storage key.
+  const [insurance, setInsurance] = useState({ key: null, busy: false });
+  const [photoId, setPhotoId] = useState({ key: null, busy: false });
+  const [saving, setSaving] = useState(false);
+
+  // Pick an image (compressed) → upload to S3 → keep the returned key.
+  const pickAndUpload = async (kind, filename, current, setDoc) => {
+    if (current.busy) return;
+    try {
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!perm.granted) {
+        Alert.alert('Permission needed', 'Please allow photo access to upload documents.');
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        quality: 0.5,
+        base64: true,
+      });
+      if (result.canceled) return;
+      const asset = result.assets ? result.assets[0] : result;
+      if (!asset?.base64) {
+        Alert.alert('Upload failed', 'Could not read the selected image. Please try again.');
+        return;
+      }
+      setDoc({ key: current.key, busy: true });
+      const { key } = await uploadDocument({
+        uri: asset.uri,          // enables direct-to-S3 (presigned)
+        base64: asset.base64,    // fallback if direct upload unavailable
+        kind: 'patient-docs',
+        filename,
+      });
+      setDoc({ key, busy: false });
+    } catch (err) {
+      setDoc({ key: current.key, busy: false });
+      Alert.alert('Upload failed', err.message === 'NETWORK_ERROR'
+        ? 'Network error. Please check your connection and try again.'
+        : (err.message || 'Could not upload the document.'));
+    }
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await updatePatientProfile({
+        insurance_provider: insuranceProvider,
+        insurance_member_id: memberId,
+        insurance_doc: insurance.key,   // S3 key or null
+        photo_id: photoId.key,          // S3 key or null
+      });
+    } catch (err) {
+      // Optional step — don't block the user, but let them know if it didn't save.
+      if (err.message !== 'NOT_LOGGED_IN') {
+        Alert.alert('Heads up', 'We could not save your health profile right now. You can add it later from Profile settings.');
+      }
+    } finally {
+      setSaving(false);
+      navigation.navigate('PatientHome', { firstName: route.params?.firstName });
+    }
+  };
+
+  const uploadSubLabel = (doc) =>
+    doc.busy ? 'Uploading…' : doc.key ? '✓ Uploaded' : 'Tap to upload';
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -103,37 +167,42 @@ export default function HealthProfileScreen({ navigation,route }) {
 
           <View style={styles.uploadRow}>
             <TouchableOpacity
-              style={[styles.uploadCard, insuranceUploaded && styles.uploadCardDone]}
+              style={[styles.uploadCard, insurance.key && styles.uploadCardDone]}
               activeOpacity={0.8}
-              onPress={() => setInsuranceUploaded(!insuranceUploaded)}
+              disabled={insurance.busy}
+              onPress={() => pickAndUpload('insurance', 'insurance-card.jpg', insurance, setInsurance)}
             >
-              <Text style={styles.uploadIcon}>📷</Text>
+              {insurance.busy
+                ? <ActivityIndicator color={COLORS.navy} style={{ marginBottom: 4, height: 26 }} />
+                : <Text style={styles.uploadIcon}>📷</Text>}
               <Text style={styles.uploadLabel}>Insurance card</Text>
-              <Text style={styles.uploadSub}>
-                {insuranceUploaded ? '✓ Uploaded' : 'Tap to upload'}
-              </Text>
+              <Text style={styles.uploadSub}>{uploadSubLabel(insurance)}</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[styles.uploadCard, photoUploaded && styles.uploadCardDone]}
+              style={[styles.uploadCard, photoId.key && styles.uploadCardDone]}
               activeOpacity={0.8}
-              onPress={() => setPhotoUploaded(!photoUploaded)}
+              disabled={photoId.busy}
+              onPress={() => pickAndUpload('photo_id', 'photo-id.jpg', photoId, setPhotoId)}
             >
-              <Text style={styles.uploadIcon}>🪪</Text>
+              {photoId.busy
+                ? <ActivityIndicator color={COLORS.navy} style={{ marginBottom: 4, height: 26 }} />
+                : <Text style={styles.uploadIcon}>🪪</Text>}
               <Text style={styles.uploadLabel}>Photo ID</Text>
-              <Text style={styles.uploadSub}>
-                {photoUploaded ? '✓ Uploaded' : 'Tap to upload'}
-              </Text>
+              <Text style={styles.uploadSub}>{uploadSubLabel(photoId)}</Text>
             </TouchableOpacity>
           </View>
 
           {/* Save button */}
           <TouchableOpacity
-            style={styles.saveBtn}
+            style={[styles.saveBtn, (saving || insurance.busy || photoId.busy) && { opacity: 0.6 }]}
             activeOpacity={0.85}
-            onPress={() => navigation.navigate('PatientHome',{firstName: route.params?.firstName})}
+            disabled={saving || insurance.busy || photoId.busy}
+            onPress={handleSave}
           >
-            <Text style={styles.saveBtnText}>Save &amp; finish</Text>
+            {saving
+              ? <ActivityIndicator color={COLORS.white} />
+              : <Text style={styles.saveBtnText}>Save &amp; finish</Text>}
           </TouchableOpacity>
 
           {/* Skip */}

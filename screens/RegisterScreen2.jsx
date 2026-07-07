@@ -12,8 +12,10 @@ import {
   Alert,
   Modal,
   Image,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { uploadDocument } from '../utils/auth';
 
 // ---- Document config (single source of truth) ----
 // ⚠ Keys map directly to the Django submit_application fields
@@ -67,6 +69,7 @@ export default function RegisterStep2({ navigation, route }) {
   // Holds a picked/cropped file waiting for user confirmation before it's
   // actually saved into `documents`. Shape: { key, fileName, base64, uri, isPdf }
   const [pendingUpload, setPendingUpload] = useState(null);
+  const [uploading, setUploading] = useState(false);
 
   const requiredKeys = Object.values(documents).filter((d) => d.required);
   const completedRequired = requiredKeys.filter((d) => d.status === 'done').length;
@@ -210,11 +213,28 @@ export default function RegisterStep2({ navigation, route }) {
 
   // ---------- Confirmation modal actions ----------
 
-  const confirmUpload = () => {
-    if (!pendingUpload) return;
-    const { key, fileName, base64 } = pendingUpload;
-    setDocStatus(key, { status: 'done', fileName, base64 });
-    setPendingUpload(null);
+  // Upload the confirmed file DIRECTLY to S3 and keep only its storage key —
+  // no base64 blob travels with the application anymore.
+  const confirmUpload = async () => {
+    if (!pendingUpload || uploading) return;
+    const { key, fileName, uri, base64 } = pendingUpload;
+    setUploading(true);
+    try {
+      const { key: s3key } = await uploadDocument({
+        uri,                 // direct-to-S3 (presigned)
+        base64,              // fallback if direct upload unavailable
+        kind: 'phleb-docs',
+        filename: fileName,
+      });
+      setDocStatus(key, { status: 'done', fileName, s3key });
+      setPendingUpload(null);
+    } catch (err) {
+      Alert.alert('Upload failed', err.message === 'NETWORK_ERROR'
+        ? 'Network error while uploading. Please try again.'
+        : (err.message || 'Could not upload the document.'));
+    } finally {
+      setUploading(false);
+    }
   };
 
   const cancelUpload = () => {
@@ -237,13 +257,14 @@ export default function RegisterStep2({ navigation, route }) {
 
     navigation.navigate('RegisterScreen3', {
       ...route.params,
-      dlFront: documents.dlFront.base64,
+      // S3 storage keys (uploaded on confirm); submit_application persists them.
+      dlFront: documents.dlFront.s3key,
       dlFrontName: documents.dlFront.fileName,
-      dlBack: documents.dlBack.base64,
+      dlBack: documents.dlBack.s3key,
       dlBackName: documents.dlBack.fileName,
-      certificate: documents.certificate.base64,
+      certificate: documents.certificate.s3key,
       certificateName: documents.certificate.fileName,
-      insuranceDoc: documents.insuranceDoc.base64,
+      insuranceDoc: documents.insuranceDoc.s3key,
       insuranceDocName: documents.insuranceDoc.fileName,
     });
   };
@@ -358,11 +379,13 @@ export default function RegisterStep2({ navigation, route }) {
             </Text>
 
             <View style={styles.modalButtonRow}>
-              <TouchableOpacity style={styles.modalCancelBtn} onPress={cancelUpload}>
+              <TouchableOpacity style={styles.modalCancelBtn} onPress={cancelUpload} disabled={uploading}>
                 <Text style={styles.modalCancelText}>Retake / Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.modalUploadBtn} onPress={confirmUpload}>
-                <Text style={styles.modalUploadText}>Upload</Text>
+              <TouchableOpacity style={styles.modalUploadBtn} onPress={confirmUpload} disabled={uploading}>
+                {uploading
+                  ? <ActivityIndicator color="#FFFFFF" />
+                  : <Text style={styles.modalUploadText}>Upload</Text>}
               </TouchableOpacity>
             </View>
           </View>
