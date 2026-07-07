@@ -1,10 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet,
   StatusBar, ScrollView, Alert, ActivityIndicator,
+  Animated, Easing, Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useStripe } from '@stripe/stripe-react-native';
+import { Ionicons, Feather } from '@expo/vector-icons';
 import { getStoredPatientUser, bookAppointment, uploadDocument } from '../utils/auth';
 import * as FileSystem from 'expo-file-system/legacy';
 
@@ -13,13 +15,196 @@ const BACKEND_URL = 'https://musb-diagnostic-website.onrender.com';
 const COLORS = {
   navy: '#1B3A8C', navyDark: '#0D1F3C', white: '#FFFFFF',
   offWhite: '#F4F7FB', lightGray: '#E8EEF5', gray: '#8A9BB0',
-  bodyText: '#4A5568', border: '#D1DBE8', green: '#22C55E',
+  bodyText: '#4A5568', border: '#D1DBE8', green: '#22C55E', greenLight: '#DCFCE7',
+  blue: '#2563EB', blueLight: '#DBEAFE',
+  purple: '#7C3AED', purpleLight: '#EDE9FE',
+  teal: '#0D9488', tealLight: '#CCFBF1',
+  slate: '#64748B', slateLight: '#F1F5F9',
 };
+
+/** Springy press-scale wrapper, shared across the screen. */
+function AnimatedPressable({ style, onPress, disabled, children, scaleTo = 0.97, ...rest }) {
+  const scale = useRef(new Animated.Value(1)).current;
+  const pressIn = () => {
+    if (disabled) return;
+    Animated.spring(scale, { toValue: scaleTo, useNativeDriver: true, speed: 40, bounciness: 6 }).start();
+  };
+  const pressOut = () => {
+    Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 30, bounciness: 8 }).start();
+  };
+  return (
+    <Animated.View style={{ transform: [{ scale }] }}>
+      <TouchableOpacity
+        activeOpacity={0.9}
+        onPress={onPress}
+        onPressIn={pressIn}
+        onPressOut={pressOut}
+        disabled={disabled}
+        style={style}
+        {...rest}
+      >
+        {children}
+      </TouchableOpacity>
+    </Animated.View>
+  );
+}
+
+/** Fades + slides a section up into place. */
+function FadeInUp({ delay = 0, distance = 14, children, style }) {
+  const anim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(anim, {
+      toValue: 1, duration: 420, delay,
+      easing: Easing.out(Easing.cubic), useNativeDriver: true,
+    }).start();
+  }, []);
+  return (
+    <Animated.View
+      style={[
+        style,
+        {
+          opacity: anim,
+          transform: [{ translateY: anim.interpolate({ inputRange: [0, 1], outputRange: [distance, 0] }) }],
+        },
+      ]}
+    >
+      {children}
+    </Animated.View>
+  );
+}
+
+/** Icon that pops in with a slight overshoot. */
+function IconPop({ delay = 0, children }) {
+  const anim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.sequence([
+      Animated.delay(delay),
+      Animated.spring(anim, { toValue: 1, useNativeDriver: true, speed: 14, bounciness: 14 }),
+    ]).start();
+  }, []);
+  return <Animated.View style={{ transform: [{ scale: anim }] }}>{children}</Animated.View>;
+}
+
+/** Icon badge that gently pulses — draws the eye to the total. */
+function PulsingIconBadge({ children, style, color }) {
+  const pulse = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 1200, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0, duration: 1200, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, []);
+  return (
+    <View style={style}>
+      <Animated.View
+        style={[
+          styles.pulseRing,
+          { backgroundColor: color },
+          {
+            opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.45, 0] }),
+            transform: [{ scale: pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.35] }) }],
+          },
+        ]}
+      />
+      {children}
+    </View>
+  );
+}
+
+/** A single line-item row in the order summary — icon ring pops in, row fades/slides up. */
+function SummaryRow({ icon, iconColor, iconBg, label, value, delay }) {
+  return (
+    <FadeInUp delay={delay} distance={8}>
+      <View style={styles.summaryRow}>
+        <View style={styles.summaryRowLeft}>
+          <View style={[styles.summaryIconRing, { backgroundColor: iconBg }]}>
+            <IconPop delay={delay + 60}>
+              <Ionicons name={icon} size={16} color={iconColor} />
+            </IconPop>
+          </View>
+          <Text style={styles.summaryLabel} numberOfLines={1}>{label}</Text>
+        </View>
+        <Text style={styles.summaryValue}>{value}</Text>
+      </View>
+    </FadeInUp>
+  );
+}
+
+/** Animated checkmark — draws a scaling ring + a springy check icon. */
+function AnimatedCheckmark() {
+  const ringScale = useRef(new Animated.Value(0)).current;
+  const checkScale = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.sequence([
+      Animated.spring(ringScale, { toValue: 1, useNativeDriver: true, speed: 10, bounciness: 12 }),
+      Animated.spring(checkScale, { toValue: 1, useNativeDriver: true, speed: 16, bounciness: 16 }),
+    ]).start();
+  }, []);
+
+  return (
+    <Animated.View style={[styles.successRing, { transform: [{ scale: ringScale }] }]}>
+      <Animated.View style={{ transform: [{ scale: checkScale }] }}>
+        <Ionicons name="checkmark" size={44} color={COLORS.white} />
+      </Animated.View>
+    </Animated.View>
+  );
+}
+
+/** Full-screen success overlay shown after a successful payment. */
+function SuccessOverlay({ visible, amount, onContinue }) {
+  const overlayAnim = useRef(new Animated.Value(0)).current;
+  const cardAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (visible) {
+      Animated.timing(overlayAnim, { toValue: 1, duration: 220, useNativeDriver: true }).start();
+      Animated.spring(cardAnim, { toValue: 1, useNativeDriver: true, speed: 14, bounciness: 8, delay: 80 }).start();
+    } else {
+      overlayAnim.setValue(0);
+      cardAnim.setValue(0);
+    }
+  }, [visible]);
+
+  return (
+    <Modal visible={visible} transparent animationType="none">
+      <Animated.View style={[styles.overlayBg, { opacity: overlayAnim }]}>
+        <Animated.View
+          style={[
+            styles.successCard,
+            {
+              opacity: cardAnim,
+              transform: [
+                { scale: cardAnim.interpolate({ inputRange: [0, 1], outputRange: [0.85, 1] }) },
+                { translateY: cardAnim.interpolate({ inputRange: [0, 1], outputRange: [24, 0] }) },
+              ],
+            },
+          ]}
+        >
+          <AnimatedCheckmark />
+          <Text style={styles.successTitle}>Payment Successful!</Text>
+          <Text style={styles.successAmount}>${amount}</Text>
+          <Text style={styles.successSub}>Your appointment is confirmed</Text>
+
+          <AnimatedPressable style={styles.successBtn} onPress={onContinue} scaleTo={0.97}>
+            <Text style={styles.successBtnText}>View appointment</Text>
+          </AnimatedPressable>
+        </Animated.View>
+      </Animated.View>
+    </Modal>
+  );
+}
 
 export default function CheckoutScreen({ navigation, route }) {
   const { initPaymentSheet, presentPaymentSheet } = useStripe();
   const [loading, setLoading] = useState(false);
-  
+  const [showSuccess, setShowSuccess] = useState(false);
+  const [successData, setSuccessData] = useState({ amount: '0', appointmentId: null });
+
   // ── Route params (all safely coerced) ────────────────────────────────────
   const labTestsTotal = Number(route?.params?.labTestsTotal) || 0;
   const labTestsNames = route?.params?.labTestsNames  || '';
@@ -48,9 +233,6 @@ export default function CheckoutScreen({ navigation, route }) {
 
   const patientEmail = patientUser?.email || route?.params?.email || '';
 
-   // Upload the picked prescription file (from DocumentPicker) straight to S3
-   // and return its storage key, which book_appointment persists. The
-   // phlebotomist later views it via a signed URL in JobAcceptedScreen.
   const uploadPrescriptionDoc = async () => {
     if (doctorOrder !== 'order' || !prescriptionFile?.uri) return null;
     try {
@@ -124,18 +306,15 @@ export default function CheckoutScreen({ navigation, route }) {
             preferred_date: preferredDate,
             preferred_time: preferredTime,
             payment_method: 'Card',
-            // Carries the S3 storage key; backend stores it as doctor_order_key.
             doctor_order_base64: doctorOrderDoc?.key || null,
             doctor_order_name: doctorOrderDoc?.name || null,
           });
 
-          Alert.alert(
-            '✅ Payment Successful!',
-            `$${grandTotal.toFixed(2)} paid successfully.\nYour appointment is confirmed!`,
-            [{ text: 'OK', onPress: () => navigation.navigate('PatientHome', {
-              appointmentId: bookingResult.appointment_id,
-            }) }]
-          );
+          setSuccessData({
+            amount: grandTotal.toFixed(2),
+            appointmentId: bookingResult.appointment_id,
+          });
+          setShowSuccess(true);
         } catch (bookingErr) {
           Alert.alert(
             'Payment received, booking issue',
@@ -150,6 +329,10 @@ export default function CheckoutScreen({ navigation, route }) {
     setLoading(false);
   };
 
+  const handleSuccessContinue = () => {
+    setShowSuccess(false);
+    navigation.navigate('PatientHome', { appointmentId: successData.appointmentId });
+  };
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
@@ -158,13 +341,14 @@ export default function CheckoutScreen({ navigation, route }) {
 
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-          <Text style={styles.backBtnText}>←</Text>
-        </TouchableOpacity>
+        <AnimatedPressable style={styles.backBtn} onPress={() => navigation.goBack()} scaleTo={0.85}>
+          <Ionicons name="arrow-back" size={20} color={COLORS.navyDark} />
+        </AnimatedPressable>
         <View>
           <Text style={styles.headerTitle}>Checkout</Text>
           <Text style={styles.headerSub}>Confirm your order</Text>
         </View>
+        <View style={{ width: 38 }} />
       </View>
 
       <ScrollView
@@ -172,108 +356,139 @@ export default function CheckoutScreen({ navigation, route }) {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* ── Order Summary ── */}
-        <View style={styles.summaryCard}>
-          <Text style={styles.summaryTitle}>Order summary</Text>
-
-          {/* Mobile Phlebotomy fee — combined: base + distance + any surcharges */}
-          {visitType === 'mobile' && (
-           <View style={styles.summaryRow}>
-             <View style={styles.summaryRowLeft}>
-               <Text style={styles.summaryIcon}>🏠</Text>
-               <Text style={styles.summaryLabel}>Mobile Phlebotomy fee</Text>
-             </View>
-             <Text style={styles.summaryValue}>
-               ${mobileVisitTotal != null ? mobileVisitTotal.toFixed(0) : '—'}
-             </Text>
-           </View>
-           )}
-
-          {/* Lab Tests — itemized, one row per test */}
-          {labTestsTotal > 0 && (
-            <>
-              <Text style={styles.summarySectionLabel}>Lab Tests</Text>
-              {route?.params?.selectedTests?.length > 0 ? (
-                route.params.selectedTests.map((test, i) => (
-                  <View key={test.id ?? i} style={styles.summaryRow}>
-                    <View style={styles.summaryRowLeft}>
-                      <Text style={styles.summaryIcon}>🧪</Text>
-                      <Text style={styles.summaryLabel}>{test.name}</Text>
-                    </View>
-                    <Text style={styles.summaryValue}>${test.price.toFixed(0)}</Text>
-                  </View>
-                ))
-              ) : (
-                <View style={styles.summaryRow}>
-                  <View style={styles.summaryRowLeft}>
-                    <Text style={styles.summaryIcon}>🧪</Text>
-                    <Text style={styles.summaryLabel}>{labTestsNames}</Text>
-                  </View>
-                  <Text style={styles.summaryValue}>${labTestsTotal.toFixed(0)}</Text>
-                </View>
-              )}
-            </>
-          )}
-
-          <View style={styles.summaryDivider} />
-
-          <View style={styles.totalRow}>
-            <View>
-              <Text style={styles.totalLabel}>Total due today</Text>
-              <Text style={styles.totalSub}>All fees included</Text>
+        {/* ── Order Summary (main focus) ── */}
+        <FadeInUp delay={0}>
+          <View style={styles.summaryCard}>
+            <View style={styles.summaryTitleRow}>
+              <View style={styles.summaryTitleIconRing}>
+                <Ionicons name="receipt-outline" size={16} color={COLORS.navy} />
+              </View>
+              <Text style={styles.summaryTitle}>Order summary</Text>
             </View>
-            <Text style={styles.totalAmount}>
-              {grandTotal != null ? `$${grandTotal.toFixed(0)}` : '—'}
-            </Text>
+
+            {/* Mobile Phlebotomy fee */}
+            {visitType === 'mobile' && (
+              <SummaryRow
+                icon="home"
+                iconColor={COLORS.blue}
+                iconBg={COLORS.blueLight}
+                label="Mobile Phlebotomy fee"
+                value={`$${mobileVisitTotal != null ? mobileVisitTotal.toFixed(0) : '—'}`}
+                delay={40}
+              />
+            )}
+
+            {/* Lab Tests — itemized, one row per test */}
+            {labTestsTotal > 0 && (
+              <>
+                <FadeInUp delay={80} distance={6}>
+                  <Text style={styles.summarySectionLabel}>Lab Tests</Text>
+                </FadeInUp>
+                {route?.params?.selectedTests?.length > 0 ? (
+                  route.params.selectedTests.map((test, i) => (
+                    <SummaryRow
+                      key={test.id ?? i}
+                      icon="flask"
+                      iconColor={COLORS.purple}
+                      iconBg={COLORS.purpleLight}
+                      label={test.name}
+                      value={`$${test.price.toFixed(0)}`}
+                      delay={100 + i * 40}
+                    />
+                  ))
+                ) : (
+                  <SummaryRow
+                    icon="flask"
+                    iconColor={COLORS.purple}
+                    iconBg={COLORS.purpleLight}
+                    label={labTestsNames}
+                    value={`$${labTestsTotal.toFixed(0)}`}
+                    delay={100}
+                  />
+                )}
+              </>
+            )}
+
+            <View style={styles.summaryDivider} />
+
+            <View style={styles.totalRow}>
+              <View>
+                <Text style={styles.totalLabel}>Total due today</Text>
+                <Text style={styles.totalSub}>All fees included</Text>
+              </View>
+              <Text style={styles.totalAmount}>
+                {grandTotal != null ? `$${grandTotal.toFixed(0)}` : '—'}
+              </Text>
+            </View>
           </View>
-        </View>
+        </FadeInUp>
 
         {/* ── Payment Method ── */}
-        <View style={styles.paymentCard}>
-          <View style={styles.paymentHeader}>
-            <Text style={styles.paymentTitle}>Payment Method</Text>
-            <Text style={styles.paymentChange}>Change</Text>
-          </View>
-          <View style={styles.paymentMethodRow}>
-            <View style={styles.cardIcon}>
-              <Text style={styles.cardIconText}>💳</Text>
+        <FadeInUp delay={140}>
+          <AnimatedPressable style={styles.paymentCard} scaleTo={0.99} onPress={() => {}}>
+            <View style={styles.paymentHeader}>
+              <Text style={styles.paymentTitle}>Payment Method</Text>
+              <View style={styles.paymentChangeBadge}>
+                <Text style={styles.paymentChange}>Change</Text>
+              </View>
             </View>
-            <View style={styles.paymentMethodInfo}>
-              <Text style={styles.paymentMethodTitle}>Card / Apple Pay / Google Pay</Text>
-              <Text style={styles.paymentMethodSub}>Secure payment powered by Stripe</Text>
+            <View style={styles.paymentMethodRow}>
+              <View style={styles.cardIcon}>
+                <IconPop delay={200}>
+                  <Ionicons name="card" size={22} color={COLORS.navy} />
+                </IconPop>
+              </View>
+              <View style={styles.paymentMethodInfo}>
+                <Text style={styles.paymentMethodTitle}>Card / Apple Pay / Google Pay</Text>
+                <Text style={styles.paymentMethodSub}>Secure payment powered by Stripe</Text>
+              </View>
+              <Feather name="chevron-right" size={20} color={COLORS.gray} />
             </View>
-            <Text style={styles.arrow}>›</Text>
-          </View>
-        </View>
+          </AnimatedPressable>
+        </FadeInUp>
 
         {/* ── Stripe Banner ── */}
-        <View style={styles.stripeBanner}>
-          <Text style={styles.stripeIcon}>🔒</Text>
-          <Text style={styles.stripeText}>
-            Secured by Stripe · SSL Encrypted · PCI Compliant.
-            Your card details are never stored on our servers.
-          </Text>
-        </View>
+        <FadeInUp delay={180}>
+          <View style={styles.stripeBanner}>
+            <View style={styles.stripeIconRing}>
+              <Ionicons name="shield-checkmark" size={18} color={COLORS.teal} />
+            </View>
+            <Text style={styles.stripeText}>
+              Secured by Stripe · SSL Encrypted · PCI Compliant.
+              Your card details are never stored on our servers.
+            </Text>
+          </View>
+        </FadeInUp>
       </ScrollView>
 
       {/* ── Footer / Pay Button ── */}
       <View style={styles.footer}>
-        <TouchableOpacity
+        <AnimatedPressable
           style={[styles.payBtn, (loading || grandTotal == null) && styles.payBtnLoading]}
-          activeOpacity={0.85}
           onPress={handlePay}
           disabled={loading || grandTotal == null}
+          scaleTo={0.97}
         >
           {loading
             ? <ActivityIndicator color={COLORS.white} size="small" />
-            : <Text style={styles.payBtnText}>
-                {/* ✅ Safe — never calls toFixed on null */}
-                {grandTotal != null ? `Pay $${grandTotal.toFixed(2)}` : 'Loading…'}
-              </Text>
+            : (
+              <View style={styles.payBtnContent}>
+                <Ionicons name="lock-closed" size={16} color={COLORS.white} style={{ marginRight: 8 }} />
+                <Text style={styles.payBtnText}>
+                  {grandTotal != null ? `Pay $${grandTotal.toFixed(2)}` : 'Loading…'}
+                </Text>
+              </View>
+            )
           }
-        </TouchableOpacity>
+        </AnimatedPressable>
         <Text style={styles.footerNote}>By paying you agree to our Terms & Privacy Policy</Text>
       </View>
+
+      <SuccessOverlay
+        visible={showSuccess}
+        amount={successData.amount}
+        onContinue={handleSuccessContinue}
+      />
     </SafeAreaView>
   );
 }
@@ -281,71 +496,87 @@ export default function CheckoutScreen({ navigation, route }) {
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: COLORS.white },
   header: {
-    flexDirection: 'row', alignItems: 'center',
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 20, paddingVertical: 14,
-    borderBottomWidth: 1, borderBottomColor: COLORS.lightGray, gap: 14,
+    borderBottomWidth: 1, borderBottomColor: COLORS.lightGray,
   },
   backBtn: {
-    width: 36, height: 36, borderRadius: 18,
+    width: 38, height: 38, borderRadius: 19,
     backgroundColor: COLORS.offWhite, alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: COLORS.border,
   },
-  backBtnText: { fontSize: 18, color: COLORS.navyDark, fontWeight: '700' },
-  headerTitle: { fontSize: 20, fontWeight: '900', color: COLORS.navyDark },
-  headerSub: { fontSize: 13, color: COLORS.gray, marginTop: 1 },
+  headerTitle: { fontSize: 18, fontWeight: '900', color: COLORS.navyDark, textAlign: 'center' },
+  headerSub: { fontSize: 12, color: COLORS.gray, marginTop: 1, textAlign: 'center' },
   scroll: { flex: 1 },
   scrollContent: { padding: 20, paddingBottom: 20 },
+
   summaryCard: {
-    backgroundColor: COLORS.offWhite, borderRadius: 16, padding: 18,
-    marginBottom: 20, borderWidth: 1, borderColor: COLORS.border,
+    backgroundColor: COLORS.offWhite, borderRadius: 18, padding: 18,
+    marginBottom: 20, borderWidth: 1.5, borderColor: COLORS.border,
+    shadowColor: '#0D1F3C', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05, shadowRadius: 10, elevation: 2,
   },
-  summaryTitle: { fontSize: 15, fontWeight: '800', color: COLORS.navyDark, marginBottom: 16 },
+  summaryTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16 },
+  summaryTitleIconRing: {
+    width: 30, height: 30, borderRadius: 10,
+    backgroundColor: '#EAF0FB', alignItems: 'center', justifyContent: 'center',
+  },
+  summaryTitle: { fontSize: 15, fontWeight: '800', color: COLORS.navyDark },
   summaryRow: {
     flexDirection: 'row', justifyContent: 'space-between',
     alignItems: 'center', marginBottom: 12,
   },
   summaryRowLeft: { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1, paddingRight: 12 },
-  summaryIcon: { fontSize: 18 },
+  summaryIconRing: {
+    width: 32, height: 32, borderRadius: 10,
+    alignItems: 'center', justifyContent: 'center',
+  },
   summaryLabel: { fontSize: 13, color: COLORS.bodyText, flex: 1, flexWrap: 'wrap' },
   summaryValue: { fontSize: 14, fontWeight: '700', color: COLORS.navyDark },
   summaryDivider: { height: 1, backgroundColor: COLORS.border, marginVertical: 14 },
   summarySectionLabel: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: COLORS.navyDark,
-    marginTop: 4,
-    marginBottom: 10,
+    fontSize: 13, fontWeight: '800', color: COLORS.navyDark,
+    marginTop: 4, marginBottom: 10,
   },
   totalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   totalLabel: { fontSize: 15, fontWeight: '800', color: COLORS.navyDark },
   totalSub: { fontSize: 12, color: COLORS.gray, marginTop: 2 },
   totalAmount: { fontSize: 28, fontWeight: '900', color: COLORS.navy },
+
   paymentCard: {
     backgroundColor: COLORS.white, borderRadius: 16, padding: 18,
-    marginBottom: 20, borderWidth: 1, borderColor: COLORS.border,
+    marginBottom: 20, borderWidth: 1.5, borderColor: COLORS.border,
   },
   paymentHeader: {
     flexDirection: 'row', justifyContent: 'space-between',
     alignItems: 'center', marginBottom: 16,
   },
   paymentTitle: { fontSize: 16, fontWeight: '800', color: COLORS.navyDark },
-  paymentChange: { fontSize: 13, fontWeight: '700', color: COLORS.navy },
+  paymentChangeBadge: {
+    backgroundColor: '#EAF0FB', borderRadius: 8,
+    paddingHorizontal: 10, paddingVertical: 5,
+  },
+  paymentChange: { fontSize: 12, fontWeight: '700', color: COLORS.navy },
   paymentMethodRow: { flexDirection: 'row', alignItems: 'center' },
   cardIcon: {
-    width: 48, height: 48, borderRadius: 12,
+    width: 48, height: 48, borderRadius: 14,
     backgroundColor: '#EEF3FF', alignItems: 'center', justifyContent: 'center', marginRight: 14,
   },
-  cardIconText: { fontSize: 22 },
   paymentMethodInfo: { flex: 1 },
   paymentMethodTitle: { fontSize: 15, fontWeight: '700', color: COLORS.navyDark },
   paymentMethodSub: { fontSize: 12, color: COLORS.gray, marginTop: 3 },
-  arrow: { fontSize: 26, color: COLORS.gray, fontWeight: '300' },
+
   stripeBanner: {
     flexDirection: 'row', alignItems: 'center',
     backgroundColor: '#F8FAFC', borderRadius: 16, padding: 16,
-    borderWidth: 1, borderColor: '#E2E8F0',
+    borderWidth: 1, borderColor: '#E2E8F0', gap: 12,
   },
-  stripeIcon: { fontSize: 20, marginRight: 10 },
+  stripeIconRing: {
+    width: 34, height: 34, borderRadius: 11,
+    backgroundColor: COLORS.tealLight, alignItems: 'center', justifyContent: 'center',
+  },
   stripeText: { flex: 1, fontSize: 12, color: COLORS.gray, lineHeight: 18 },
+
   footer: {
     padding: 20, borderTopWidth: 1,
     borderTopColor: COLORS.lightGray, backgroundColor: COLORS.white,
@@ -354,7 +585,47 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.navy, borderRadius: 14,
     paddingVertical: 17, alignItems: 'center', marginBottom: 10,
   },
-  payBtnLoading: { opacity: 0.7 },
+  payBtnContent: { flexDirection: 'row', alignItems: 'center' },
+  payBtnLoading: { opacity: 0.75 },
   payBtnText: { color: COLORS.white, fontSize: 16, fontWeight: '800' },
   footerNote: { textAlign: 'center', fontSize: 11, color: COLORS.gray },
+
+  // ── Success overlay ──
+  overlayBg: {
+    flex: 1,
+    backgroundColor: 'rgba(13,31,60,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 28,
+  },
+  successCard: {
+    width: '100%',
+    maxWidth: 340,
+    backgroundColor: COLORS.white,
+    borderRadius: 24,
+    paddingVertical: 32,
+    paddingHorizontal: 24,
+    alignItems: 'center',
+  },
+  successRing: {
+    width: 84, height: 84, borderRadius: 42,
+    backgroundColor: COLORS.green,
+    alignItems: 'center', justifyContent: 'center',
+    marginBottom: 18,
+  },
+  pulseRing: {
+    position: 'absolute',
+    width: 44, height: 44, borderRadius: 14,
+  },
+  successTitle: { fontSize: 19, fontWeight: '900', color: COLORS.navyDark, marginBottom: 6 },
+  successAmount: { fontSize: 34, fontWeight: '900', color: COLORS.navy, marginBottom: 4 },
+  successSub: { fontSize: 13, color: COLORS.gray, marginBottom: 26 },
+  successBtn: {
+    width: '100%',
+    backgroundColor: COLORS.navy,
+    borderRadius: 14,
+    paddingVertical: 16,
+    alignItems: 'center',
+  },
+  successBtnText: { color: COLORS.white, fontSize: 15, fontWeight: '800' },
 });

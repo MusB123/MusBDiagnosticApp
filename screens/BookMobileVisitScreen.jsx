@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -7,6 +7,8 @@ import {
   StatusBar,
   ScrollView,
   Alert,
+  Animated,
+  Easing,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as DocumentPicker from 'expo-document-picker';
@@ -31,6 +33,10 @@ const COLORS = {
   amber: '#D97706',
   amberLight: '#FEF3C7',
   amberBorder: '#FCD34D',
+  purple: '#7C3AED',
+  purpleLight: '#EDE9FE',
+  teal: '#0D9488',
+  tealLight: '#CCFBF1',
 };
 
 const generateDates = () => {
@@ -60,6 +66,215 @@ const MINUTES = ['00', '15', '30', '45'];
 const PERIODS = ['AM', 'PM'];
 const ITEM_HEIGHT = 44;
 
+/** Wraps a TouchableOpacity with a springy press-scale animation. */
+function AnimatedPressable({ style, onPress, children, scaleTo = 0.96, ...rest }) {
+  const scale = useRef(new Animated.Value(1)).current;
+
+  const pressIn = () => {
+    Animated.spring(scale, { toValue: scaleTo, useNativeDriver: true, speed: 40, bounciness: 6 }).start();
+  };
+  const pressOut = () => {
+    Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 30, bounciness: 8 }).start();
+  };
+
+  return (
+    <Animated.View style={{ transform: [{ scale }] }}>
+      <TouchableOpacity
+        activeOpacity={0.9}
+        onPress={onPress}
+        onPressIn={pressIn}
+        onPressOut={pressOut}
+        style={style}
+        {...rest}
+      >
+        {children}
+      </TouchableOpacity>
+    </Animated.View>
+  );
+}
+
+/** Fades + slides a section up into place. */
+function FadeInUp({ delay = 0, distance = 16, children, style }) {
+  const anim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(anim, {
+      toValue: 1,
+      duration: 480,
+      delay,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, []);
+
+  return (
+    <Animated.View
+      style={[
+        style,
+        {
+          opacity: anim,
+          transform: [
+            { translateY: anim.interpolate({ inputRange: [0, 1], outputRange: [distance, 0] }) },
+          ],
+        },
+      ]}
+    >
+      {children}
+    </Animated.View>
+  );
+}
+
+/** Icon that pops in with a little overshoot. */
+function IconPop({ delay = 0, children }) {
+  const anim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.sequence([
+      Animated.delay(delay),
+      Animated.spring(anim, { toValue: 1, useNativeDriver: true, speed: 14, bounciness: 14 }),
+    ]).start();
+  }, []);
+
+  return <Animated.View style={{ transform: [{ scale: anim }] }}>{children}</Animated.View>;
+}
+
+/** Icon badge that gently, continuously pulses — used on the scheduled summary card. */
+function PulsingIconBadge({ children, style }) {
+  const pulse = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 1200, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0, duration: 1200, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, []);
+
+  return (
+    <View style={style}>
+      <Animated.View
+        style={[
+          styles.pulseRing,
+          {
+            opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.5, 0] }),
+            transform: [{ scale: pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.35] }) }],
+          },
+        ]}
+      />
+      {children}
+    </View>
+  );
+}
+
+/** Doctor's-order selectable card — icon ring, accent bar, checkmark badge, press animation. */
+function OrderOptionCard({ icon, accent, accentBg, title, subtitle, selected, onPress, delay }) {
+  const check = useRef(new Animated.Value(selected ? 1 : 0)).current;
+
+  useEffect(() => {
+    Animated.spring(check, {
+      toValue: selected ? 1 : 0,
+      useNativeDriver: true,
+      speed: 24,
+      bounciness: 10,
+    }).start();
+  }, [selected]);
+
+  return (
+    <FadeInUp delay={delay} style={{ flex: 1 }}>
+      <AnimatedPressable
+        style={[styles.orderCard, selected && styles.orderCardSelected]}
+        onPress={onPress}
+        scaleTo={0.96}
+      >
+        <View style={[styles.orderAccentBar, { backgroundColor: accent }]} />
+        <View style={[styles.orderIconRing, { backgroundColor: accentBg }]}>
+          <Ionicons name={icon} size={22} color={accent} />
+        </View>
+        <Text style={[styles.orderCardTitle, selected && { color: COLORS.navyDark }]}>{title}</Text>
+        <Text style={styles.orderCardSubtitle}>{subtitle}</Text>
+
+        <Animated.View
+          style={[
+            styles.orderCheckBadge,
+            {
+              opacity: check,
+              transform: [{ scale: check }],
+            },
+          ]}
+        >
+          <Ionicons name="checkmark-circle" size={20} color={COLORS.navy} />
+        </Animated.View>
+      </AnimatedPressable>
+    </FadeInUp>
+  );
+}
+
+/** A single date pill that springs up slightly when selected. */
+function DateCard({ date, isSelected, onPress }) {
+  const lift = useRef(new Animated.Value(isSelected ? 1 : 0)).current;
+
+  useEffect(() => {
+    Animated.spring(lift, {
+      toValue: isSelected ? 1 : 0,
+      useNativeDriver: true,
+      speed: 20,
+      bounciness: 10,
+    }).start();
+  }, [isSelected]);
+
+  return (
+    <AnimatedPressable onPress={onPress} scaleTo={0.94}>
+      <Animated.View
+        style={[
+          styles.dateCard,
+          isSelected && styles.dateCardSelected,
+          {
+            transform: [
+              { translateY: lift.interpolate({ inputRange: [0, 1], outputRange: [0, -4] }) },
+            ],
+          },
+        ]}
+      >
+        <Text style={[styles.dateWeekday, isSelected && styles.dateTextSelected]}>{date.weekday}</Text>
+        <Text style={[styles.dateDay, isSelected && styles.dateTextSelected]}>{date.day}</Text>
+        <Text style={[styles.dateMonth, isSelected && styles.dateTextSelected]}>{date.month}</Text>
+      </Animated.View>
+    </AnimatedPressable>
+  );
+}
+
+/** A single time-picker item that springs into a highlighted pill when selected. */
+function TimePickerItem({ item, isSelected, onSelect }) {
+  const highlight = useRef(new Animated.Value(isSelected ? 1 : 0)).current;
+
+  useEffect(() => {
+    Animated.spring(highlight, {
+      toValue: isSelected ? 1 : 0,
+      useNativeDriver: false,
+      speed: 22,
+      bounciness: 6,
+    }).start();
+  }, [isSelected]);
+
+  const bg = highlight.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['rgba(232,238,245,0)', COLORS.lightGray],
+  });
+
+  return (
+    <TouchableOpacity onPress={() => onSelect(item)} activeOpacity={0.7}>
+      <Animated.View style={[styles.pickerItem, { backgroundColor: bg }]}>
+        <Text style={[styles.pickerText, isSelected && styles.pickerTextSelected]}>
+          {item}
+        </Text>
+      </Animated.View>
+    </TouchableOpacity>
+  );
+}
+
 function ScrollPicker({ data, selected, onSelect }) {
   return (
     <ScrollView
@@ -70,21 +285,14 @@ function ScrollPicker({ data, selected, onSelect }) {
       nestedScrollEnabled={true}
     >
       <View style={{ height: ITEM_HEIGHT }} />
-      {data.map((item) => {
-        const isSelected = item === selected;
-        return (
-          <TouchableOpacity
-            key={item}
-            style={[styles.pickerItem, isSelected && styles.pickerItemSelected]}
-            onPress={() => onSelect(item)}
-            activeOpacity={0.7}
-          >
-            <Text style={[styles.pickerText, isSelected && styles.pickerTextSelected]}>
-              {item}
-            </Text>
-          </TouchableOpacity>
-        );
-      })}
+      {data.map((item) => (
+        <TimePickerItem
+          key={item}
+          item={item}
+          isSelected={item === selected}
+          onSelect={onSelect}
+        />
+      ))}
       <View style={{ height: ITEM_HEIGHT }} />
     </ScrollView>
   );
@@ -169,13 +377,11 @@ export default function BookMobileVisitScreen({ navigation, route }) {
 
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-          <Text style={styles.backBtnText}>←</Text>
-        </TouchableOpacity>
+        <AnimatedPressable style={styles.backBtn} onPress={() => navigation.goBack()} scaleTo={0.85}>
+          <Ionicons name="arrow-back" size={20} color={COLORS.navyDark} />
+        </AnimatedPressable>
         <Text style={styles.headerTitle}>Book mobile visit</Text>
-        <View style={styles.pathBadge}>
-          <Text style={styles.pathBadgeText}>Path A</Text>
-        </View>
+        <View style={{ width: 38 }} />
       </View>
 
       <ScrollView
@@ -184,229 +390,247 @@ export default function BookMobileVisitScreen({ navigation, route }) {
         showsVerticalScrollIndicator={false}
       >
         {/* Visit Address (read-only — set on Home screen) */}
-        <Text style={styles.sectionLabel}>Visit address</Text>
-        <View style={styles.addressDisplay}>
-          <Text style={styles.addressDisplayIcon}>📍</Text>
-          <Text style={styles.addressDisplayText} numberOfLines={2}>
-            {address || 'No address set'}
-          </Text>
-        </View>
+        <FadeInUp delay={0}>
+          <Text style={styles.sectionLabel}>Visit address</Text>
+          <View style={styles.addressCard}>
+            <View style={styles.addressIconRing}>
+              <IconPop delay={80}>
+                <Ionicons name="location" size={20} color={COLORS.navy} />
+              </IconPop>
+            </View>
+            <Text style={styles.addressDisplayText} numberOfLines={2}>
+              {address || 'No address set'}
+            </Text>
+          </View>
+        </FadeInUp>
 
         {/* Doctor's Order */}
-        <Text style={styles.sectionLabel}>Doctor's order</Text>
-        <Text style={styles.sectionSubtitle}>
-          Having a doctor's request order helps us route your tests automatically.
-        </Text>
-        <View style={styles.toggleRow}>
-          <TouchableOpacity
-            style={[styles.toggleBtn, doctorOrder === 'self' && styles.toggleBtnSelected]}
+        <FadeInUp delay={60}>
+          <Text style={styles.sectionLabel}>Doctor's order</Text>
+          <Text style={styles.sectionSubtitle}>
+            Having a doctor's request order helps us route your tests automatically.
+          </Text>
+        </FadeInUp>
+        <View style={styles.orderRow}>
+          <OrderOptionCard
+            icon="person-outline"
+            accent={COLORS.teal}
+            accentBg={COLORS.tealLight}
+            title="Self-referred"
+            subtitle="No doctor's order"
+            selected={doctorOrder === 'self'}
             onPress={() => handleSelectDoctorOrder('self')}
-            activeOpacity={0.8}
-          >
-            <Text style={[styles.toggleBtnText, doctorOrder === 'self' && styles.toggleBtnTextSelected]}>
-              No, self-referred
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.toggleBtn, doctorOrder === 'order' && styles.toggleBtnSelected]}
+            delay={90}
+          />
+          <OrderOptionCard
+            icon="document-text-outline"
+            accent={COLORS.purple}
+            accentBg={COLORS.purpleLight}
+            title="Doctor's order"
+            subtitle="I have a request"
+            selected={doctorOrder === 'order'}
             onPress={() => handleSelectDoctorOrder('order')}
-            activeOpacity={0.8}
-          >
-            <Text style={[styles.toggleBtnText, doctorOrder === 'order' && styles.toggleBtnTextSelected]}>
-              Yes, I have an order
-            </Text>
-          </TouchableOpacity>
+            delay={130}
+          />
         </View>
 
         {/* Upload box — only when doctor's order selected */}
         {doctorOrder === 'order' && (
-          <TouchableOpacity
-            style={[styles.uploadBox, prescriptionFile && styles.uploadBoxDone]}
-            onPress={handlePickDocument}
-            activeOpacity={0.8}
-          >
-            {prescriptionFile ? (
-              <>
-                <View style={styles.uploadDoneIconWrap}>
-                  <Text style={styles.uploadDoneIcon}>✓</Text>
-                </View>
-                <Text style={styles.uploadDoneTitle}>File uploaded</Text>
-                <Text style={styles.uploadDoneText} numberOfLines={1}>
-                  {prescriptionFile.name}
-                </Text>
-                <Text style={styles.uploadChangeText}>Tap to change</Text>
-              </>
-            ) : (
-              <>
-                <View style={styles.uploadIconWrap}>
-                  <Text style={styles.uploadArrowText}>↑</Text>
-                </View>
-                <Text style={styles.uploadTitle}>Click to Upload or Drag File</Text>
-                <Text style={styles.uploadSub}>PDF, PNG, JPG up to 10MB</Text>
-              </>
-            )}
-          </TouchableOpacity>
+          <FadeInUp delay={0}>
+            <AnimatedPressable
+              style={[styles.uploadBox, prescriptionFile && styles.uploadBoxDone]}
+              onPress={handlePickDocument}
+              scaleTo={0.98}
+            >
+              {prescriptionFile ? (
+                <>
+                  <View style={styles.uploadDoneIconWrap}>
+                    <Ionicons name="checkmark" size={24} color={COLORS.white} />
+                  </View>
+                  <Text style={styles.uploadDoneTitle}>File uploaded</Text>
+                  <Text style={styles.uploadDoneText} numberOfLines={1}>
+                    {prescriptionFile.name}
+                  </Text>
+                  <Text style={styles.uploadChangeText}>Tap to change</Text>
+                </>
+              ) : (
+                <>
+                  <View style={styles.uploadIconWrap}>
+                    <Ionicons name="cloud-upload-outline" size={22} color={COLORS.gray} />
+                  </View>
+                  <Text style={styles.uploadTitle}>Click to Upload or Drag File</Text>
+                  <Text style={styles.uploadSub}>PDF, PNG, JPG up to 10MB</Text>
+                </>
+              )}
+            </AnimatedPressable>
+          </FadeInUp>
         )}
 
         {/* Lab Tests Section */}
-        <View style={styles.sectionLabelRow}>
-          <Text style={styles.sectionLabel}>Lab tests</Text>
-          <View style={styles.optionalBadge}>
-            <Text style={styles.optionalBadgeText}>
-              {doctorOrder === 'order' ? 'Optional' : 'optional'}
-            </Text>
-          </View>
-        </View>
-
-        {doctorOrder === 'order' && (
-          <View style={styles.infoBanner}>
-            <Text style={styles.infoBannerIcon}>ℹ️</Text>
-            <Text style={styles.infoBannerText}>
-              Your doctor's order already specifies the tests. You can
-              still add extra tests below if needed — or skip this step.
-            </Text>
-          </View>
-        )}
-
-        <View style={styles.labCard}>
-          <View style={styles.labCardHeader}>
-            <View style={styles.labIconWrap}>
-              <Text style={styles.labIconEmoji}>🧪</Text>
-            </View>
-            <View style={styles.labHeaderText}>
-              <Text style={styles.labTitle}>
-                {doctorOrder === 'order' ? 'Add extra tests (optional)' : 'Do you want to buy a discounted lab test?'}
-              </Text>
-              <Text style={styles.labSub}>
-                {doctorOrder === 'order'
-                  ? 'Your doctor order covers the main tests'
-                  : 'Choose from our full test catalogue'}
+        <FadeInUp delay={180}>
+          <View style={styles.sectionLabelRow}>
+            <Text style={styles.sectionLabel}>Lab tests</Text>
+            <View style={styles.optionalBadge}>
+              <Text style={styles.optionalBadgeText}>
+                {doctorOrder === 'order' ? 'Optional' : 'optional'}
               </Text>
             </View>
-            {selectedTests.length > 0 && (
-              <View style={styles.testCountBadge}>
-                <Text style={styles.testCountText}>{selectedTests.length} selected</Text>
-              </View>
-            )}
           </View>
 
-          {selectedTests.length > 0 && (
-            <>
-              <View style={styles.labDivider} />
-              <View style={styles.labBody}>
-                {selectedTests.map((test, i) => (
-                  <View key={test.id ?? i} style={styles.testPill}>
-                    <View style={styles.testPillLeft}>
-                      <View style={styles.testDot} />
-                      <Text style={styles.testPillName} numberOfLines={1}>
-                        {test.name}
-                      </Text>
-                    </View>
-                    <Text style={styles.testPillPrice}>${test.price.toFixed(0)}</Text>
-                  </View>
-                ))}
-                <View style={styles.testsTotalRow}>
-                  <Text style={styles.testsTotalLabel}>Tests subtotal</Text>
-                  <Text style={styles.testsTotalValue}>${testsTotal.toFixed(0)}</Text>
+          {doctorOrder === 'order' && (
+            <View style={styles.infoBanner}>
+              <Text style={styles.infoBannerIcon}>ℹ️</Text>
+              <Text style={styles.infoBannerText}>
+                Your doctor's order already specifies the tests. You can
+                still add extra tests below if needed — or skip this step.
+              </Text>
+            </View>
+          )}
+
+          <View style={styles.labCard}>
+            <View style={styles.labCardHeader}>
+              <View style={styles.labIconRing}>
+                <View style={styles.labIconWrap}>
+                  <IconPop delay={220}>
+                    <Ionicons name="flask" size={22} color={COLORS.purple} />
+                  </IconPop>
                 </View>
               </View>
-            </>
-          )}
+              <View style={styles.labHeaderText}>
+                <Text style={styles.labTitle}>
+                  {doctorOrder === 'order' ? 'Add extra tests (optional)' : 'Do you want to buy a discounted lab test?'}
+                </Text>
+                <Text style={styles.labSub}>
+                  {doctorOrder === 'order'
+                    ? 'Your doctor order covers the main tests'
+                    : 'Choose from our full test catalogue'}
+                </Text>
+              </View>
+              {selectedTests.length > 0 && (
+                <View style={styles.testCountBadge}>
+                  <Text style={styles.testCountText}>{selectedTests.length} selected</Text>
+                </View>
+              )}
+            </View>
 
-          <TouchableOpacity
-            style={[
-              styles.selectTestsBtn,
-              doctorOrder === 'order' && selectedTests.length === 0 && styles.selectTestsBtnOptional,
-            ]}
-            activeOpacity={0.85}
-            onPress={() =>
-              navigation.push('SelectTests', {
-                returnTo: 'BookMobileVisit',
-                initialSelectedIds: selectedTests.map((t) => t.id),
-              })
-            }
-          >
-            <Text style={[
-              styles.selectTestsBtnText,
-              doctorOrder === 'order' && selectedTests.length === 0 && styles.selectTestsBtnOptionalText,
-            ]}>
-              {selectedTests.length > 0
-                ? '＋ Add or change tests'
-                : doctorOrder === 'order'
-                ? '＋ Add extra tests (optional)'
-                : '＋ Browse and select tests'}
-            </Text>
-          </TouchableOpacity>
+            {selectedTests.length > 0 && (
+              <>
+                <View style={styles.labDivider} />
+                <View style={styles.labBody}>
+                  {selectedTests.map((test, i) => (
+                    <FadeInUp key={test.id ?? i} delay={i * 50} distance={8}>
+                      <View style={styles.testPill}>
+                        <View style={styles.testPillLeft}>
+                          <View style={styles.testDot} />
+                          <Text style={styles.testPillName} numberOfLines={1}>
+                            {test.name}
+                          </Text>
+                        </View>
+                        <Text style={styles.testPillPrice}>${test.price.toFixed(0)}</Text>
+                      </View>
+                    </FadeInUp>
+                  ))}
+                  <View style={styles.testsTotalRow}>
+                    <Text style={styles.testsTotalLabel}>Tests subtotal</Text>
+                    <Text style={styles.testsTotalValue}>${testsTotal.toFixed(0)}</Text>
+                  </View>
+                </View>
+              </>
+            )}
 
-          {doctorOrder === 'order' && selectedTests.length === 0 && (
-            <Text style={styles.skipHint}>
-              You can proceed without selecting extra tests.
-            </Text>
-          )}
-        </View>
+            <AnimatedPressable
+              style={[
+                styles.selectTestsBtn,
+                doctorOrder === 'order' && selectedTests.length === 0 && styles.selectTestsBtnOptional,
+              ]}
+              scaleTo={0.97}
+              onPress={() =>
+                navigation.push('SelectTests', {
+                  returnTo: 'BookMobileVisit',
+                  initialSelectedIds: selectedTests.map((t) => t.id),
+                })
+              }
+            >
+              <Text style={[
+                styles.selectTestsBtnText,
+                doctorOrder === 'order' && selectedTests.length === 0 && styles.selectTestsBtnOptionalText,
+              ]}>
+                {selectedTests.length > 0
+                  ? '＋ Add or change tests'
+                  : doctorOrder === 'order'
+                  ? '＋ Add extra tests (optional)'
+                  : '＋ Browse and select tests'}
+              </Text>
+            </AnimatedPressable>
+
+            {doctorOrder === 'order' && selectedTests.length === 0 && (
+              <Text style={styles.skipHint}>
+                You can proceed without selecting extra tests.
+              </Text>
+            )}
+          </View>
+        </FadeInUp>
 
         {/* Date Picker */}
-        <Text style={styles.sectionLabel}>Select date</Text>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.dateRow}
-        >
-          {dates.map((date) => {
-            const isSelected = selectedDate.id === date.id;
-            return (
-              <TouchableOpacity
+        <FadeInUp delay={220}>
+          <Text style={styles.sectionLabel}>Select date</Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.dateRow}
+          >
+            {dates.map((date) => (
+              <DateCard
                 key={date.id}
-                style={[styles.dateCard, isSelected && styles.dateCardSelected]}
+                date={date}
+                isSelected={selectedDate.id === date.id}
                 onPress={() => setSelectedDate(date)}
-                activeOpacity={0.8}
-              >
-                <Text style={[styles.dateWeekday, isSelected && styles.dateTextSelected]}>
-                  {date.weekday}
-                </Text>
-                <Text style={[styles.dateDay, isSelected && styles.dateTextSelected]}>
-                  {date.day}
-                </Text>
-                <Text style={[styles.dateMonth, isSelected && styles.dateTextSelected]}>
-                  {date.month}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
+              />
+            ))}
+          </ScrollView>
+        </FadeInUp>
 
         {/* Time Picker */}
-        <Text style={styles.sectionLabel}>Select arrival time</Text>
-        <View style={styles.timePickerCard}>
-          <View style={styles.pickerRow}>
-            <ScrollPicker data={HOURS} selected={selectedHour} onSelect={setSelectedHour} />
-            <Text style={styles.colon}>:</Text>
-            <ScrollPicker data={MINUTES} selected={selectedMinute} onSelect={setSelectedMinute} />
-            <ScrollPicker data={PERIODS} selected={selectedPeriod} onSelect={setSelectedPeriod} />
+        <FadeInUp delay={260}>
+          <Text style={styles.sectionLabel}>Select arrival time</Text>
+          <View style={styles.timePickerCard}>
+            <View style={styles.pickerRow}>
+              <ScrollPicker data={HOURS} selected={selectedHour} onSelect={setSelectedHour} />
+              <Text style={styles.colon}>:</Text>
+              <ScrollPicker data={MINUTES} selected={selectedMinute} onSelect={setSelectedMinute} />
+              <ScrollPicker data={PERIODS} selected={selectedPeriod} onSelect={setSelectedPeriod} />
+            </View>
           </View>
-        </View>
+        </FadeInUp>
 
         {/* Mobile visit note */}
-        <View style={styles.mobileNote}>
-          <Ionicons name="medkit-outline" size={18} color={COLORS.navyDark} style={{ marginRight: 10 }} />
-          <Text style={styles.mobileNoteText}>
-            A licensed phlebotomist will be assigned automatically after booking.
-          </Text>
-        </View>
+        <FadeInUp delay={300}>
+          <View style={styles.mobileNote}>
+            <Ionicons name="medkit-outline" size={18} color={COLORS.navyDark} style={{ marginRight: 10 }} />
+            <Text style={styles.mobileNoteText}>
+              A licensed phlebotomist will be assigned automatically after booking.
+            </Text>
+          </View>
+        </FadeInUp>
 
         {/* Summary */}
-        <View style={styles.summaryBox}>
-          <Text style={styles.summaryLabel}>📅 Scheduled for</Text>
-          <Text style={styles.summaryDate}>{formattedDateLabel}</Text>
-          <Text style={styles.summaryTime}>{formattedTime}</Text>
-        </View>
+        <FadeInUp delay={340}>
+          <View style={styles.summaryBox}>
+            <PulsingIconBadge style={styles.summaryIconBadge}>
+              <Ionicons name="calendar" size={22} color={COLORS.white} />
+            </PulsingIconBadge>
+            <Text style={styles.summaryLabel}>Scheduled for</Text>
+            <Text style={styles.summaryDate}>{formattedDateLabel}</Text>
+            <Text style={styles.summaryTime}>{formattedTime}</Text>
+          </View>
+        </FadeInUp>
       </ScrollView>
 
       {/* Confirm Button */}
       <View style={styles.footer}>
-        <TouchableOpacity
+        <AnimatedPressable
           style={styles.confirmBtn}
-          activeOpacity={0.85}
+          scaleTo={0.97}
           onPress={async () => {
            try {
             const preview = await fetchPricing({
@@ -444,7 +668,7 @@ export default function BookMobileVisitScreen({ navigation, route }) {
          <Text style={styles.confirmBtnText}>
            Confirm booking{testsTotal > 0 ? ` · $${testsTotal.toFixed(0)} tests` : ''}
          </Text>
-        </TouchableOpacity>
+        </AnimatedPressable>
        </View>
     </SafeAreaView>
   );
@@ -455,29 +679,23 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 20,
     paddingVertical: 14,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.lightGray,
-    gap: 12,
   },
   backBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
     backgroundColor: COLORS.offWhite,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: COLORS.border,
   },
-  backBtnText: { fontSize: 18, color: COLORS.navyDark, fontWeight: '700' },
-  headerTitle: { flex: 1, fontSize: 16, fontWeight: '800', color: COLORS.navyDark },
-  pathBadge: {
-    backgroundColor: COLORS.pathABg,
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-  },
-  pathBadgeText: { fontSize: 12, fontWeight: '700', color: COLORS.pathA },
+  headerTitle: { fontSize: 16, fontWeight: '800', color: COLORS.navyDark },
   scroll: { flex: 1 },
   scrollContent: { padding: 20, paddingBottom: 20 },
   sectionLabel: {
@@ -501,25 +719,40 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     marginTop: -6,
   },
-  addressDisplay: {
+
+  // ── Visit address card ──
+  addressCard: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    backgroundColor: COLORS.offWhite,
-    borderRadius: 12,
+    alignItems: 'center',
+    backgroundColor: COLORS.white,
+    borderRadius: 16,
     paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderWidth: 1,
+    paddingVertical: 14,
+    borderWidth: 1.5,
     borderColor: COLORS.border,
-    gap: 8,
+    gap: 12,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
   },
-  addressDisplayIcon: { fontSize: 15, marginTop: 1 },
+  addressIconRing: {
+    width: 42,
+    height: 42,
+    borderRadius: 13,
+    backgroundColor: '#EAF0FB',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   addressDisplayText: {
     flex: 1,
     fontSize: 14,
     color: COLORS.navyDark,
-    fontWeight: '500',
+    fontWeight: '600',
     lineHeight: 20,
   },
+
   optionalBadge: {
     backgroundColor: COLORS.amberLight,
     borderRadius: 6,
@@ -559,22 +792,47 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     marginTop: -4,
   },
-  toggleRow: { flexDirection: 'row', gap: 12, marginBottom: 4 },
-  toggleBtn: {
-    flex: 1,
-    paddingVertical: 15,
-    borderRadius: 14,
+
+  // ── Doctor's order option cards ──
+  orderRow: { flexDirection: 'row', gap: 12 },
+  orderCard: {
+    backgroundColor: COLORS.white,
+    borderRadius: 16,
+    padding: 14,
     borderWidth: 1.5,
     borderColor: COLORS.border,
-    backgroundColor: COLORS.white,
+    overflow: 'hidden',
+    elevation: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+  },
+  orderCardSelected: {
+    borderColor: COLORS.navy,
+    borderWidth: 2,
+  },
+  orderAccentBar: {
+    position: 'absolute',
+    left: 0, top: 0, bottom: 0,
+    width: 4,
+  },
+  orderIconRing: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
     alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 10,
   },
-  toggleBtnSelected: {
-    borderColor: COLORS.navyDark,
-    backgroundColor: COLORS.offWhite,
+  orderCardTitle: { fontSize: 14, fontWeight: '800', color: COLORS.bodyText, marginBottom: 2 },
+  orderCardSubtitle: { fontSize: 12, color: COLORS.gray },
+  orderCheckBadge: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
   },
-  toggleBtnText: { fontSize: 14, fontWeight: '700', color: COLORS.gray },
-  toggleBtnTextSelected: { color: COLORS.navyDark },
+
   uploadBox: {
     marginTop: 14,
     borderWidth: 1.5,
@@ -603,12 +861,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: 8,
   },
-  uploadArrowText: {
-    fontSize: 22,
-    color: COLORS.gray,
-    fontWeight: '700',
-    lineHeight: 26,
-  },
   uploadTitle: { fontSize: 15, fontWeight: '800', color: COLORS.navyDark },
   uploadSub: { fontSize: 13, color: COLORS.gray, marginTop: 2 },
   uploadDoneIconWrap: {
@@ -619,12 +871,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 8,
-  },
-  uploadDoneIcon: {
-    fontSize: 22,
-    color: COLORS.white,
-    fontWeight: '900',
-    lineHeight: 26,
   },
   uploadDoneTitle: { fontSize: 15, fontWeight: '800', color: '#15803D' },
   uploadDoneText: {
@@ -649,15 +895,22 @@ const styles = StyleSheet.create({
     padding: 14,
     gap: 12,
   },
+  labIconRing: {
+    width: 54,
+    height: 54,
+    borderRadius: 16,
+    backgroundColor: COLORS.purpleLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   labIconWrap: {
     width: 44,
     height: 44,
     borderRadius: 12,
-    backgroundColor: '#EDE9FE',
+    backgroundColor: COLORS.white,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  labIconEmoji: { fontSize: 22 },
   labHeaderText: { flex: 1 },
   labTitle: {
     fontSize: 14,
@@ -727,7 +980,7 @@ const styles = StyleSheet.create({
   },
   selectTestsBtnText: { color: COLORS.white, fontSize: 14, fontWeight: '800' },
   selectTestsBtnOptionalText: { color: COLORS.navy, fontSize: 14, fontWeight: '800' },
-  dateRow: { gap: 10, paddingRight: 4 },
+  dateRow: { gap: 10, paddingRight: 4, paddingTop: 6 },
   dateCard: {
     width: 70,
     alignItems: 'center',
@@ -737,7 +990,15 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: COLORS.border,
   },
-  dateCardSelected: { borderColor: COLORS.navy, backgroundColor: '#F0F4FF' },
+  dateCardSelected: {
+    borderColor: COLORS.navy,
+    backgroundColor: '#F0F4FF',
+    elevation: 4,
+    shadowColor: COLORS.navy,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.18,
+    shadowRadius: 6,
+  },
   dateWeekday: { fontSize: 11, color: COLORS.gray, fontWeight: '600', marginBottom: 4 },
   dateDay: { fontSize: 18, color: COLORS.navyDark, fontWeight: '900' },
   dateMonth: { fontSize: 12, color: COLORS.gray, fontWeight: '600', marginTop: 2 },
@@ -762,7 +1023,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderRadius: 8,
   },
-  pickerItemSelected: { backgroundColor: COLORS.lightGray },
   pickerText: { fontSize: 17, color: COLORS.gray, fontWeight: '500' },
   pickerTextSelected: { fontSize: 19, color: COLORS.navyDark, fontWeight: '900' },
   colon: { fontSize: 20, fontWeight: '900', color: COLORS.navyDark },
@@ -779,21 +1039,37 @@ const styles = StyleSheet.create({
   mobileNoteText: {flex:1, fontSize: 13,fontWeight:'600', color: COLORS.bodyText, lineHeight: 20 },
   summaryBox: {
     backgroundColor: '#EBF0FB',
-    borderRadius: 14,
-    padding: 14,
+    borderRadius: 18,
+    padding: 18,
     borderWidth: 1,
     borderColor: '#C7D4F5',
     alignItems: 'center',
     marginTop: 12,
   },
-  summaryLabel: { fontSize: 11, color: COLORS.gray, fontWeight: '600', marginBottom: 4 },
+  summaryIconBadge: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: COLORS.navy,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 10,
+  },
+  pulseRing: {
+    position: 'absolute',
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: COLORS.navy,
+  },
+  summaryLabel: { fontSize: 11, color: COLORS.gray, fontWeight: '700', marginBottom: 4, letterSpacing: 0.5, textTransform: 'uppercase' },
   summaryDate: {
-    fontSize: 14,
+    fontSize: 15,
     fontWeight: '800',
     color: COLORS.navyDark,
     marginBottom: 2,
   },
-  summaryTime: { fontSize: 18, fontWeight: '900', color: COLORS.navy },
+  summaryTime: { fontSize: 20, fontWeight: '900', color: COLORS.navy },
   footer: {
     padding: 20,
     borderTopWidth: 1,

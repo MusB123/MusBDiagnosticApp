@@ -29,9 +29,11 @@ import RegisterScreen2       from './screens/RegisterScreen2';
 import RegisterScreen3       from './screens/RegisterScreen3';
 import AwaitingApproval      from './screens/AwaitingApproval';
 import DashboardScreen       from './screens/DashboardScreen';
+import JobHistoryScreen      from './screens/JobHistoryScreen';
 import MapScreen             from './screens/MapScreen';
 import NewRequestScreen      from './screens/NewRequestScreen';
 import JobAcceptedScreen     from './screens/JobAcceptedScreen';
+import PhlebProfileScreen    from './screens/PhlebProfileScreen';
 
 
 const Stack = createNativeStackNavigator();
@@ -74,8 +76,10 @@ export default function App() {
           <Stack.Screen  name="RegisterScreen3"    component={RegisterScreen3} />
           <Stack.Screen  name="AwaitingApproval"   component={AwaitingApproval} />
           <Stack.Screen  name="PatientMap"         component={MapScreen} />
-          <Stack.Screen name="NewRequest"          component={NewRequestScreen} />
-          <Stack.Screen name="JobAccepted"      component={JobAcceptedScreen} />
+          <Stack.Screen  name="NewRequest"         component={NewRequestScreen} />
+          <Stack.Screen  name="JobAccepted"        component={JobAcceptedScreen} />
+          <Stack.Screen  name="PhlebHistory"       component={JobHistoryScreen}/>
+          <Stack.Screen  name="PhlebProfile"       component={PhlebProfileScreen}/>
         </Stack.Navigator>
       </NavigationContainer>
     </StripeProvider>
