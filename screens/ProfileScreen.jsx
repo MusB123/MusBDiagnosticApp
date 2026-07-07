@@ -11,6 +11,7 @@ import {
   Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import {
   fetchPatientProfile,
   updatePatientProfile,
@@ -201,6 +202,32 @@ export default function ProfileScreen({ navigation }) {
           <Text style={styles.avatarName}>{form.name || 'Patient'}</Text>
           <Text style={styles.avatarEmail}>{email}</Text>
         </View>
+         
+
+         {/* My Care — quick links */}
+        <Text style={styles.sectionLabel}>MY CARE</Text>
+
+        <TouchableOpacity
+          style={styles.linkRow}
+          onPress={() => navigation.navigate('PatientHistory')}
+        >
+          <View style={styles.linkIconWrap}>
+            <Ionicons name="time-outline" size={20} color={COLORS.navy} />
+          </View>
+          <Text style={styles.linkText}>Appointment history</Text>
+          <Ionicons name="chevron-forward" size={18} color={COLORS.gray} />
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.linkRow}
+          onPress={() => navigation.navigate('PatientResults')}
+        >
+          <View style={styles.linkIconWrap}>
+            <Ionicons name="document-text-outline" size={20} color={COLORS.navy} />
+          </View>
+          <Text style={styles.linkText}>Test results</Text>
+          <Ionicons name="chevron-forward" size={18} color={COLORS.gray} />
+        </TouchableOpacity>
 
         {/* Personal Info */}
         <Text style={styles.sectionLabel}>PERSONAL INFO</Text>
@@ -484,4 +511,30 @@ const styles = StyleSheet.create({
     borderTopColor: COLORS.lightGray,
   },
   logoutBtnText: { fontSize: 14, fontWeight: '700', color: COLORS.error },
+  linkRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.white,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    marginBottom: 10,
+    gap: 12,
+  },
+  linkIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: COLORS.offWhite,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  linkText: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '600',
+    color: COLORS.navyDark,
+  },
 });
