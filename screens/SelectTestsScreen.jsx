@@ -199,6 +199,8 @@ function TestRow({ test, isSelected, onToggle, delay }) {
     Animated.spring(scale, { toValue, speed: 40, bounciness: 6, useNativeDriver: true }).start();
   };
 
+  const hasDiscount = test.discountPrice != null;
+
   return (
     <FadeInUp delay={delay} distance={10}>
       <Pressable
@@ -229,9 +231,18 @@ function TestRow({ test, isSelected, onToggle, delay }) {
           </View>
 
           <View style={styles.testRight}>
-            <Text style={[styles.testPrice, isSelected && styles.testPriceSelected]}>
-              ${test.price.toFixed(0)}
-            </Text>
+            {hasDiscount ? (
+              <View style={styles.priceRow}>
+                <Text style={styles.strikePrice}>${test.price.toFixed(0)}</Text>
+                <Text style={[styles.testPrice, styles.discountedPrice, isSelected && styles.testPriceSelected]}>
+                  ${test.discountPrice.toFixed(0)}
+                </Text>
+              </View>
+            ) : (
+              <Text style={[styles.testPrice, isSelected && styles.testPriceSelected]}>
+                ${test.price.toFixed(0)}
+              </Text>
+            )}
             <View style={styles.checkCircle}>
               <Animated.View style={{ opacity: check, transform: [{ scale: check }], position: 'absolute' }}>
                 <View style={[styles.checkCircleActive]}>
@@ -264,16 +275,27 @@ export default function SelectTestsScreen({ navigation, route }) {
       try {
         const tests = await fetchAvailableTests();
         if (!isMounted) return;
-        const normalized = tests.map((t) => ({
-          id: String(t.id ?? t._id ?? ''),
-          name: t.title || 'Untitled Test',
-          desc: t.description || '',
-          price: typeof t.price === 'number' ? t.price : parseFloat(t.price) || 0,
-          category: t.category_name || 'General Wellness',
-          iconName: t.icon_name || '',
-          sampleType: t.sample_type || '',
-          turnaround: t.turnaround || '',
-        }));
+        const normalized = tests.map((t) => {
+          const price = typeof t.price === 'number' ? t.price : parseFloat(t.price) || 0;
+          const rawDiscount = t.discount_price;
+          const discountPrice =
+            rawDiscount === null || rawDiscount === undefined || rawDiscount === ''
+              ? null
+              : (typeof rawDiscount === 'number' ? rawDiscount : parseFloat(rawDiscount));
+          const hasDiscount = discountPrice !== null && !isNaN(discountPrice) && discountPrice < price;
+
+          return {
+            id: String(t.id ?? t._id ?? ''),
+            name: t.title || 'Untitled Test',
+            desc: t.description || '',
+            price,
+            discountPrice: hasDiscount ? discountPrice : null,
+            category: t.category_name || 'General Wellness',
+            iconName: t.icon_name || '',
+            sampleType: t.sample_type || '',
+            turnaround: t.turnaround || '',
+          };
+        });
         const uniqueCategories = [...new Set(normalized.map((t) => t.category))];
         setAllTests(normalized);
         setCategories(uniqueCategories);
@@ -309,7 +331,10 @@ export default function SelectTestsScreen({ navigation, route }) {
   });
 
   const selectedTestsData = allTests.filter((t) => selectedTests.includes(t.id));
-  const testsTotal = selectedTestsData.reduce((sum, t) => sum + t.price, 0);
+  const testsTotal = selectedTestsData.reduce(
+    (sum, t) => sum + (t.discountPrice != null ? t.discountPrice : t.price),
+    0
+  );
 
   const handleConfirm = () => {
     if (returnTo) {
@@ -536,6 +561,13 @@ const styles = StyleSheet.create({
   testRight: { alignItems: 'flex-end', gap: 8 },
   testPrice: { fontSize: 14, fontWeight: '800', color: COLORS.bodyText },
   testPriceSelected: { color: COLORS.navyDark },
+  priceRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  strikePrice: {
+    fontSize: 12,
+    color: COLORS.gray,
+    textDecorationLine: 'line-through',
+  },
+  discountedPrice: { color: COLORS.green },
   checkCircle: {
     width: 20, height: 20, borderRadius: 10,
     borderWidth: 1.5, borderColor: COLORS.border,

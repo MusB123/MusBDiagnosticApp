@@ -24,17 +24,18 @@ import HistoryScreen from './screens/HistoryScreen';
 import ProfileScreen from './screens/ProfileScreen';
 
 // Phlebotomist
-import RegisterScreen        from './screens/RegisterScreen';
-import RegisterScreen2       from './screens/RegisterScreen2';
-import RegisterScreen3       from './screens/RegisterScreen3';
-import AwaitingApproval      from './screens/AwaitingApproval';
-import DashboardScreen       from './screens/DashboardScreen';
-import JobHistoryScreen      from './screens/JobHistoryScreen';
-import MapScreen             from './screens/MapScreen';
-import NewRequestScreen      from './screens/NewRequestScreen';
-import JobAcceptedScreen     from './screens/JobAcceptedScreen';
-import PhlebProfileScreen    from './screens/PhlebProfileScreen';
-
+import RegisterScreen from './screens/RegisterScreen';
+import RegisterScreen2 from './screens/RegisterScreen2';
+import RegisterScreen3 from './screens/RegisterScreen3';
+import AwaitingApproval from './screens/AwaitingApproval';
+import DashboardScreen from './screens/DashboardScreen';
+import JobHistoryScreen from './screens/JobHistoryScreen';
+import MapScreen from './screens/MapScreen';
+import NewRequestScreen from './screens/NewRequestScreen';
+import JobAcceptedScreen from './screens/JobAcceptedScreen';
+import PhlebProfileScreen from './screens/PhlebProfileScreen';
+import VerifyArrivalScreen from './screens/VerifyArrivalScreen';
+import CollectCompleteScreen from './screens/CollectCompleteScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -70,16 +71,18 @@ export default function App() {
           <Stack.Screen name="PatientProfile" component={ProfileScreen} />
 
           {/* Phlebotomist */}
-          <Stack.Screen  name="PhlebDashboard"     component={DashboardScreen}/>
-          <Stack.Screen  name="Register"           component={RegisterScreen} />
-          <Stack.Screen  name="RegisterScreen2"    component={RegisterScreen2} />
-          <Stack.Screen  name="RegisterScreen3"    component={RegisterScreen3} />
-          <Stack.Screen  name="AwaitingApproval"   component={AwaitingApproval} />
-          <Stack.Screen  name="PatientMap"         component={MapScreen} />
-          <Stack.Screen  name="NewRequest"         component={NewRequestScreen} />
-          <Stack.Screen  name="JobAccepted"        component={JobAcceptedScreen} />
-          <Stack.Screen  name="PhlebHistory"       component={JobHistoryScreen}/>
-          <Stack.Screen  name="PhlebProfile"       component={PhlebProfileScreen}/>
+          <Stack.Screen name="PhlebDashboard" component={DashboardScreen} />
+          <Stack.Screen name="Register" component={RegisterScreen} />
+          <Stack.Screen name="RegisterScreen2" component={RegisterScreen2} />
+          <Stack.Screen name="RegisterScreen3" component={RegisterScreen3} />
+          <Stack.Screen name="AwaitingApproval" component={AwaitingApproval} />
+          <Stack.Screen name="PatientMap" component={MapScreen} />
+          <Stack.Screen name="NewRequest" component={NewRequestScreen} />
+          <Stack.Screen name="JobAccepted" component={JobAcceptedScreen} />
+          <Stack.Screen name="VerifyArrival" component={VerifyArrivalScreen} />
+          <Stack.Screen name="CollectComplete" component={CollectCompleteScreen} />
+          <Stack.Screen name="PhlebHistory" component={JobHistoryScreen} />
+          <Stack.Screen name="PhlebProfile" component={PhlebProfileScreen} />
         </Stack.Navigator>
       </NavigationContainer>
     </StripeProvider>

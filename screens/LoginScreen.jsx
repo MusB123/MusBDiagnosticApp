@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -9,10 +9,23 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
+  Modal,
+  ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Path, Circle, Line } from 'react-native-svg';
-import { login } from '../utils/auth';
+import * as WebBrowser from 'expo-web-browser';
+import * as Google from 'expo-auth-session/providers/google';
+
+WebBrowser.maybeCompleteAuthSession();
+
+import {
+  login,
+  loginWithGoogle,
+  requestPasswordResetOtp,
+  confirmPasswordReset,
+} from '../utils/auth';
 
 
 const EyeIcon = ({ color = '#8A9BB0', size = 20 }) => (
@@ -69,8 +82,195 @@ const COLORS = {
   inputBg: '#FFFFFF',
   error: '#E63946',
   errorBorder: '#E63946',
+  success: '#22C55E',
 };
 
+// ── Forgot Password modal ──────────────────────────────────────────────────
+// Step 1: pick role + enter email → request OTP.
+// Step 2: enter the 6-digit code + new password → reset.
+function ForgotPasswordModal({ visible, onClose }) {
+  const [role, setRole] = useState('patient'); // 'patient' | 'phlebotomist'
+  const [step, setStep] = useState(1);
+  const [email, setEmail] = useState('');
+  const [code, setCode] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [showPwd, setShowPwd] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [info, setInfo] = useState('');
+
+  const reset = () => {
+    setStep(1);
+    setEmail('');
+    setCode('');
+    setNewPassword('');
+    setError('');
+    setInfo('');
+    setLoading(false);
+  };
+
+  const handleClose = () => {
+    reset();
+    onClose();
+  };
+
+  const handleRequestCode = async () => {
+    setError('');
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email.trim())) {
+      setError('Enter a valid email address');
+      return;
+    }
+    setLoading(true);
+    try {
+      const data = await requestPasswordResetOtp(email.trim().toLowerCase(), role);
+      setInfo(data.message || 'Code sent — check your email.');
+      setStep(2);
+    } catch (err) {
+      setError(err.message || 'Could not send code. Try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResetPassword = async () => {
+    setError('');
+    if (!code.trim()) {
+      setError('Enter the 6-digit code from your email');
+      return;
+    }
+    if (newPassword.length < 6) {
+      setError('Password must be at least 6 characters');
+      return;
+    }
+    setLoading(true);
+    try {
+      await confirmPasswordReset({
+        email: email.trim().toLowerCase(),
+        code: code.trim(),
+        newPassword,
+        role,
+      });
+      Alert.alert('Password reset', 'You can now sign in with your new password.');
+      handleClose();
+    } catch (err) {
+      setError(err.message || 'Could not reset password. Try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={handleClose}>
+      <View style={fpStyles.overlay}>
+        <View style={fpStyles.card}>
+          <View style={fpStyles.headerRow}>
+            <Text style={fpStyles.title}>Reset your password</Text>
+            <TouchableOpacity onPress={handleClose} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+              <Text style={fpStyles.closeX}>✕</Text>
+            </TouchableOpacity>
+          </View>
+
+          {step === 1 && (
+            <>
+              <Text style={fpStyles.label}>I am a</Text>
+              <View style={fpStyles.roleRow}>
+                <TouchableOpacity
+                  style={[fpStyles.roleBtn, role === 'patient' && fpStyles.roleBtnActive]}
+                  onPress={() => setRole('patient')}
+                >
+                  <Text style={[fpStyles.roleBtnText, role === 'patient' && fpStyles.roleBtnTextActive]}>
+                    Patient
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[fpStyles.roleBtn, role === 'phlebotomist' && fpStyles.roleBtnActive]}
+                  onPress={() => setRole('phlebotomist')}
+                >
+                  <Text style={[fpStyles.roleBtnText, role === 'phlebotomist' && fpStyles.roleBtnTextActive]}>
+                    Specialist
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              <Text style={[fpStyles.label, { marginTop: 16 }]}>Email</Text>
+              <TextInput
+                style={fpStyles.input}
+                value={email}
+                onChangeText={setEmail}
+                placeholder="your@email.com"
+                placeholderTextColor={COLORS.gray}
+                keyboardType="email-address"
+                autoCapitalize="none"
+              />
+
+              {!!error && <Text style={fpStyles.errorText}>⚠ {error}</Text>}
+
+              <TouchableOpacity
+                style={[fpStyles.primaryBtn, loading && { opacity: 0.7 }]}
+                onPress={handleRequestCode}
+                disabled={loading}
+              >
+                {loading
+                  ? <ActivityIndicator color="#FFF" size="small" />
+                  : <Text style={fpStyles.primaryBtnText}>Send reset code</Text>}
+              </TouchableOpacity>
+            </>
+          )}
+
+          {step === 2 && (
+            <>
+              {!!info && <Text style={fpStyles.infoText}>{info}</Text>}
+
+              <Text style={fpStyles.label}>6-digit code</Text>
+              <TextInput
+                style={fpStyles.input}
+                value={code}
+                onChangeText={setCode}
+                placeholder="123456"
+                placeholderTextColor={COLORS.gray}
+                keyboardType="number-pad"
+                maxLength={6}
+              />
+
+              <Text style={[fpStyles.label, { marginTop: 16 }]}>New password</Text>
+              <View style={fpStyles.passwordWrap}>
+                <TextInput
+                  style={fpStyles.passwordInput}
+                  value={newPassword}
+                  onChangeText={setNewPassword}
+                  placeholder="Enter a new password"
+                  placeholderTextColor={COLORS.gray}
+                  secureTextEntry={!showPwd}
+                  autoCapitalize="none"
+                />
+                <TouchableOpacity onPress={() => setShowPwd(!showPwd)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                  {showPwd ? <EyeOffIcon color={COLORS.gray} size={18} /> : <EyeIcon color={COLORS.gray} size={18} />}
+                </TouchableOpacity>
+              </View>
+
+              {!!error && <Text style={fpStyles.errorText}>⚠ {error}</Text>}
+
+              <TouchableOpacity
+                style={[fpStyles.primaryBtn, loading && { opacity: 0.7 }]}
+                onPress={handleResetPassword}
+                disabled={loading}
+              >
+                {loading
+                  ? <ActivityIndicator color="#FFF" size="small" />
+                  : <Text style={fpStyles.primaryBtnText}>Reset password</Text>}
+              </TouchableOpacity>
+
+              <TouchableOpacity style={{ marginTop: 12, alignItems: 'center' }} onPress={() => setStep(1)}>
+                <Text style={fpStyles.linkText}>← Use a different email</Text>
+              </TouchableOpacity>
+            </>
+          )}
+        </View>
+      </View>
+    </Modal>
+  );
+}
 
 export default function LoginScreen({ navigation }) {
   const [email, setEmail]           = useState('');
@@ -78,6 +278,9 @@ export default function LoginScreen({ navigation }) {
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
   const [errors, setErrors]         = useState({});
+  const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
+  const [forgotVisible, setForgotVisible] = useState(false);
 
   const validate = () => {
     const newErrors = {};
@@ -89,7 +292,13 @@ export default function LoginScreen({ navigation }) {
     return Object.keys(newErrors).length === 0;
   };
 
-  const [loading, setLoading] = useState(false);
+  const routeAfterLogin = (role) => {
+    if (role === 'phlebotomist') {
+      navigation.reset({ index: 0, routes: [{ name: 'PhlebDashboard' }] });
+    } else {
+      navigation.reset({ index: 0, routes: [{ name: 'PatientHome' }] });
+    }
+  };
 
   const handleSignIn = async () => {
     if (!validate()) return;
@@ -97,13 +306,7 @@ export default function LoginScreen({ navigation }) {
     setLoading(true);
     try {
       const data = await login(email, password);
-      // Route to the correct dashboard based on the role returned by the server
-      if (data.role === 'phlebotomist') {
-        navigation.reset({ index: 0, routes: [{ name: 'PhlebDashboard' }] });
-      } else {
-        // Default: patient
-        navigation.reset({ index: 0, routes: [{ name: 'PatientHome' }] });
-      }
+      routeAfterLogin(data.role);
     } catch (err) {
       if (err.message === 'NETWORK_ERROR') {
         setErrors({ password: "Can't reach the server. Check your connection." });
@@ -115,6 +318,51 @@ export default function LoginScreen({ navigation }) {
     } finally {
       setLoading(false);
     }
+  };
+
+  // ── Google Sign-In ──────────────────────────────────────────────────────
+  // We default new Google sign-ins to the patient role since that's this
+  // screen's primary flow. If you want a role picker before Google auth
+  // too, reuse the same segmented-control pattern as ForgotPasswordModal.
+  const [request, response, promptAsync] = Google.useAuthRequest({
+    webClientId: '591181560891-jm09fm75b83t82f2daqpiqocfoq2899a.apps.googleusercontent.com',
+   
+    androidClientId: 'YOUR_ANDROID_CLIENT_ID.apps.googleusercontent.com',
+
+    iosClientId: 'YOUR_IOS_CLIENT_ID.apps.googleusercontent.com',
+   });
+
+  useEffect(() => {
+    const handleGoogleResponse = async () => {
+      if (response?.type !== 'success') return;
+      setGoogleLoading(true);
+      try {
+        const { authentication } = response;
+        const userInfoRes = await fetch('https://www.googleapis.com/userinfo/v2/me', {
+          headers: { Authorization: `Bearer ${authentication.accessToken}` },
+        });
+        const userInfo = await userInfoRes.json();
+
+        const data = await loginWithGoogle({
+          idToken: authentication.idToken,
+          email: userInfo.email,
+          name: userInfo.name,
+          picture: userInfo.picture,
+          role: 'patient',
+        });
+        routeAfterLogin(data.role);
+      } catch (err) {
+        Alert.alert('Google sign-in failed', err.message || 'Please try again.');
+      } finally {
+        setGoogleLoading(false);
+      }
+    };
+    handleGoogleResponse();
+  }, [response]);
+
+  const handleGooglePress = () => {
+    if (!request) return;
+    promptAsync();
   };
 
   return (
@@ -211,7 +459,7 @@ export default function LoginScreen({ navigation }) {
               </View>
               <Text style={styles.rememberText}>Remember me</Text>
             </TouchableOpacity>
-            <TouchableOpacity activeOpacity={0.7}>
+            <TouchableOpacity activeOpacity={0.7} onPress={() => setForgotVisible(true)}>
               <Text style={styles.forgotText}>Forgot password?</Text>
             </TouchableOpacity>
           </View>
@@ -234,9 +482,20 @@ export default function LoginScreen({ navigation }) {
           </View>
 
           {/* ── Google ── */}
-          <TouchableOpacity style={styles.socialBtn} activeOpacity={0.85}>
-            <Text style={styles.googleG}>G</Text>
-            <Text style={styles.socialBtnText}>Continue with Google</Text>
+          <TouchableOpacity
+            style={[styles.socialBtn, googleLoading && { opacity: 0.6 }]}
+            activeOpacity={0.85}
+            onPress={handleGooglePress}
+            disabled={!request || googleLoading}
+          >
+            {googleLoading
+              ? <ActivityIndicator color={COLORS.navyDark} size="small" />
+              : (
+                <>
+                  <Text style={styles.googleG}>G</Text>
+                  <Text style={styles.socialBtnText}>Continue with Google</Text>
+                </>
+              )}
           </TouchableOpacity>
 
           {/* ── Apple ── */}
@@ -267,9 +526,71 @@ export default function LoginScreen({ navigation }) {
 
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <ForgotPasswordModal visible={forgotVisible} onClose={() => setForgotVisible(false)} />
     </SafeAreaView>
   );
 }
+
+// ─── Forgot-password modal styles ──────────────────────────────────────────
+const fpStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: 'rgba(13,31,60,0.55)',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  card: {
+    backgroundColor: COLORS.white,
+    borderRadius: 20,
+    padding: 22,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  title: { fontSize: 17, fontWeight: '800', color: COLORS.navyDark },
+  closeX: { fontSize: 18, color: COLORS.gray },
+  label: {
+    fontSize: 12, fontWeight: '700', color: COLORS.bodyText,
+    marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5,
+  },
+  roleRow: { flexDirection: 'row', gap: 10 },
+  roleBtn: {
+    flex: 1, borderWidth: 1.5, borderColor: COLORS.border, borderRadius: 12,
+    paddingVertical: 12, alignItems: 'center',
+  },
+  roleBtnActive: { backgroundColor: COLORS.navy, borderColor: COLORS.navy },
+  roleBtnText: { fontSize: 13, fontWeight: '700', color: COLORS.bodyText },
+  roleBtnTextActive: { color: '#FFFFFF' },
+  input: {
+    backgroundColor: COLORS.inputBg,
+    borderWidth: 1.5,
+    borderColor: COLORS.border,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 13,
+    fontSize: 15,
+    color: COLORS.navyDark,
+  },
+  passwordWrap: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: COLORS.white,
+    borderWidth: 1.5, borderColor: COLORS.border, borderRadius: 12,
+    paddingHorizontal: 16,
+  },
+  passwordInput: { flex: 1, paddingVertical: 13, fontSize: 15, color: COLORS.navyDark },
+  errorText: { color: COLORS.error, fontSize: 12, marginTop: 8, fontWeight: '500' },
+  infoText: { color: COLORS.success, fontSize: 12, marginBottom: 14, fontWeight: '600' },
+  primaryBtn: {
+    backgroundColor: COLORS.navyDark, borderRadius: 14, paddingVertical: 15,
+    alignItems: 'center', marginTop: 18,
+  },
+  primaryBtnText: { color: '#FFFFFF', fontSize: 15, fontWeight: '800' },
+  linkText: { fontSize: 13, color: COLORS.navy, fontWeight: '700' },
+});
 
 // ─── Styles — mirrors CreateAccountScreen token-for-token ─────────────────────
 const styles = StyleSheet.create({

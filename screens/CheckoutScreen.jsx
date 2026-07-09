@@ -216,6 +216,9 @@ export default function CheckoutScreen({ navigation, route }) {
   const [patientUser, setPatientUser] = useState(null);
   const doctorOrder = route?.params?.doctorOrder || 'self';
   const prescriptionFile = route?.params?.prescriptionFile || null;
+  const insurance = route?.params?.insurance || 'none';
+  const insuranceFrontFile = route?.params?.insuranceFront || null;
+  const insuranceBackFile = route?.params?.insuranceBack || null;
 
   // ── Pricing (already calculated once on the previous screen — no re-fetch) ─
   const baseVisitPrice = visitType === 'mobile' ? Number(route?.params?.baseFee) || 0 : 0;
@@ -232,6 +235,14 @@ export default function CheckoutScreen({ navigation, route }) {
   }, []);
 
   const patientEmail = patientUser?.email || route?.params?.email || '';
+  // NOTE: patientUser loads asynchronously (SecureStore read). If "Pay" is
+  // tapped before it resolves, patientUser is still null — so name/phone
+  // must fall back to whatever was passed in via route params (e.g. from
+  // the booking form) instead of silently going out blank. This is what
+  // lets the phlebotomist's JobAcceptedScreen reliably show the patient's
+  // real name and phone number.
+  const patientFullName = patientUser?.name || route?.params?.fullName || route?.params?.full_name || '';
+  const patientPhone = patientUser?.phone || route?.params?.phone || '';
 
   const uploadPrescriptionDoc = async () => {
     if (doctorOrder !== 'order' || !prescriptionFile?.uri) return null;
@@ -246,6 +257,40 @@ export default function CheckoutScreen({ navigation, route }) {
       console.warn('Could not upload prescription file:', err);
       return null;
     }
+  };
+
+  const uploadInsuranceDocs = async () => {
+    if (insurance !== 'have') return { front: null, back: null };
+    let front = null;
+    let back = null;
+
+    try {
+      if (insuranceFrontFile?.uri) {
+        const { key } = await uploadDocument({
+          uri: insuranceFrontFile.uri,
+          filename: insuranceFrontFile.name || 'insurance-front',
+          kind: 'patient-docs',
+        });
+        front = { key, name: insuranceFrontFile.name || 'Insurance Front' };
+      }
+    } catch (err) {
+      console.warn('Could not upload insurance front:', err);
+    }
+
+    try {
+      if (insuranceBackFile?.uri) {
+        const { key } = await uploadDocument({
+          uri: insuranceBackFile.uri,
+          filename: insuranceBackFile.name || 'insurance-back',
+          kind: 'patient-docs',
+        });
+        back = { key, name: insuranceBackFile.name || 'Insurance Back' };
+      }
+    } catch (err) {
+      console.warn('Could not upload insurance back:', err);
+    }
+
+    return { front, back };
   };
 
   // ── Pay handler ───────────────────────────────────────────────────────────
@@ -293,13 +338,14 @@ export default function CheckoutScreen({ navigation, route }) {
       } else {
         try {
           const doctorOrderDoc = await uploadPrescriptionDoc();
+          const { front: insuranceFrontDoc, back: insuranceBackDoc } = await uploadInsuranceDocs();
 
           const bookingResult = await bookAppointment({
             test_name: labTestsTotal > 0 ? labTestsNames : 'Mobile Phlebotomy Visit',
             test_price: labTestsTotal > 0 ? labTestsTotal : mobileVisitTotal,
-            full_name: patientUser?.name || '',
-            email: patientUser?.email || patientEmail,
-            phone: patientUser?.phone || '',
+            full_name: patientFullName,
+            email: patientEmail,
+            phone: patientPhone,
             address,
             zipCode,
             visit_type: visitType,
@@ -308,6 +354,10 @@ export default function CheckoutScreen({ navigation, route }) {
             payment_method: 'Card',
             doctor_order_base64: doctorOrderDoc?.key || null,
             doctor_order_name: doctorOrderDoc?.name || null,
+            insurance_front_base64: insuranceFrontDoc?.key || null,
+            insurance_front_name: insuranceFrontDoc?.name || null,
+            insurance_back_base64: insuranceBackDoc?.key || null,
+            insurance_back_name: insuranceBackDoc?.name || null,
           });
 
           setSuccessData({

@@ -9,6 +9,7 @@ import {
   ScrollView,
   ActivityIndicator,
   Alert,
+  Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -17,6 +18,7 @@ import {
   updatePatientProfile,
   logoutPatient,
   changePatientPassword,
+  fetchPatientDashboard,
 } from '../utils/auth';
 
 const COLORS = {
@@ -39,6 +41,8 @@ export default function ProfileScreen({ navigation }) {
   const [loadError, setLoadError] = useState('');
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [documents, setDocuments] = useState([]);
+  const [docsLoading, setDocsLoading] = useState(true);
 
   const [email, setEmail] = useState(''); // read-only
   const [form, setForm] = useState({
@@ -89,6 +93,23 @@ export default function ProfileScreen({ navigation }) {
       }
     }
     load();
+    return () => { isMounted = false; };
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+    async function loadDocs() {
+      try {
+        const data = await fetchPatientDashboard();
+        if (isMounted) setDocuments(data?.documents || []);
+      } catch (err) {
+        // Non-fatal — profile still works without documents
+        console.warn('Could not load documents:', err.message);
+      } finally {
+        if (isMounted) setDocsLoading(false);
+      }
+    }
+    loadDocs();
     return () => { isMounted = false; };
   }, []);
 
@@ -228,6 +249,45 @@ export default function ProfileScreen({ navigation }) {
           <Text style={styles.linkText}>Test results</Text>
           <Ionicons name="chevron-forward" size={18} color={COLORS.gray} />
         </TouchableOpacity>
+
+        {/* Documents */}
+        <Text style={styles.sectionLabel}>DOCUMENTS</Text>
+        {docsLoading ? (
+          <ActivityIndicator color={COLORS.navy} style={{ marginBottom: 16 }} />
+        ) : documents.length === 0 ? (
+          <View style={styles.staticField}>
+            <Text style={styles.staticFieldText}>No documents uploaded yet</Text>
+          </View>
+        ) : (
+          documents.map((doc) => (
+            <TouchableOpacity
+              key={doc.id}
+              style={styles.linkRow}
+              onPress={() => {
+                if (doc.url) {
+                  Linking.openURL(doc.url).catch(() =>
+                    Alert.alert('Error', 'Could not open this document.')
+                  );
+                } else {
+                  Alert.alert('Unavailable', 'This document could not be found.');
+                }
+              }}
+            >
+              <View style={styles.linkIconWrap}>
+                <Ionicons
+                  name={doc.type === 'Insurance Card' ? 'card-outline' : 'document-text-outline'}
+                  size={20}
+                  color={COLORS.navy}
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.linkText} numberOfLines={1}>{doc.name}</Text>
+                <Text style={{ fontSize: 12, color: COLORS.gray, marginTop: 2 }}>{doc.date}</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={COLORS.gray} />
+            </TouchableOpacity>
+          ))
+        )}
 
         {/* Personal Info */}
         <Text style={styles.sectionLabel}>PERSONAL INFO</Text>

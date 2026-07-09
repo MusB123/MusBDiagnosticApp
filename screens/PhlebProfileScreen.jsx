@@ -12,13 +12,15 @@ import {
   ActivityIndicator,
   Animated,
   Easing,
+  Linking,
+  Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import { PHLEB_ENDPOINTS } from '../config/api';
-import { authGet, authPatch, uploadDocument } from '../utils/auth';
+import { authGet, authPut, uploadDocument } from '../utils/auth';
 
 const PRIMARY   = '#18377D';
 const PRIMARY_D = '#0F2557';
@@ -31,17 +33,28 @@ const BG        = '#F6F8FC';
 const CARD_BG   = '#FFFFFF';
 
 // ─── Document definitions ────────────────────────────────────────────────────
+// IDs must exactly match the keys stored in Mongo under phlebotomist.docs
+// (see submit_application / update_profile on the backend). Using any other
+// id means the doc will upload to S3 fine but never show as "Uploaded" here.
 const DOC_DEFS = [
   {
-    id: 'driving_license',
-    title: 'Driving License',
-    subtitle: 'Government-issued photo ID',
+    id: 'dl_front',
+    title: 'Driving License — Front',
+    subtitle: 'Government-issued photo ID (front side)',
     icon: 'card-account-details-outline',
     iconBg: '#EEF2FF',
     iconColor: PRIMARY,
   },
   {
-    id: 'phlebotomy_cert',
+    id: 'dl_back',
+    title: 'Driving License — Back',
+    subtitle: 'Government-issued photo ID (back side)',
+    icon: 'card-account-details-outline',
+    iconBg: '#EEF2FF',
+    iconColor: PRIMARY,
+  },
+  {
+    id: 'certificate',
     title: 'Phlebotomy Certificate',
     subtitle: 'Certification of competency',
     icon: 'shield-check-outline',
@@ -49,7 +62,7 @@ const DOC_DEFS = [
     iconColor: '#059669',
   },
   {
-    id: 'liability_insurance',
+    id: 'insurance',
     title: 'Liability Insurance',
     subtitle: 'Professional indemnity document',
     icon: 'file-document-outline',
@@ -57,13 +70,20 @@ const DOC_DEFS = [
     iconColor: AMBER,
   },
   {
-    id: 'bank_statement',
-    title: 'Bank Statement',
-    subtitle: 'Recent statement for payout verification',
+    id: 'w9',
+    title: 'W9 Form',
+    subtitle: 'Tax form for payout verification',
     icon: 'bank-outline',
     iconBg: '#EFF6FF',
     iconColor: '#2563EB',
   },
+];
+
+// Bottom nav now only has Home, History, Profile.
+const NAV_ITEMS = [
+  { key: 'PhlebDashboard', label: 'Home', icon: 'home-outline', iconActive: 'home' },
+  { key: 'PhlebHistory', label: 'History', icon: 'time-outline', iconActive: 'time' },
+  { key: 'Profile', label: 'Profile', icon: 'person-outline', iconActive: 'person' },
 ];
 
 /* ────────────────────────────────────────────────────────────
@@ -167,6 +187,77 @@ function StatusPill({ uploaded, uploading }) {
   );
 }
 
+/* ────────────────────────────────────────────────────────────
+   Modern animated bottom tab bar
+   - floating pill container
+   - active tab gets a sliding highlight + icon bounce
+──────────────────────────────────────────────────────────── */
+function BottomTabBar({ activeKey, onNavigate }) {
+  const containerWidth = Dimensions.get('window').width - 40; // matches horizontal margin
+  const tabWidth = containerWidth / NAV_ITEMS.length;
+  const activeIndex = Math.max(0, NAV_ITEMS.findIndex((i) => i.key === activeKey));
+
+  const slideAnim = useRef(new Animated.Value(activeIndex)).current;
+  const bounceAnims = useRef(NAV_ITEMS.map(() => new Animated.Value(1))).current;
+
+  useEffect(() => {
+    Animated.spring(slideAnim, {
+      toValue: activeIndex,
+      useNativeDriver: true,
+      speed: 16,
+      bounciness: 8,
+    }).start();
+
+    Animated.sequence([
+      Animated.spring(bounceAnims[activeIndex], { toValue: 1.18, useNativeDriver: true, speed: 30, bounciness: 10 }),
+      Animated.spring(bounceAnims[activeIndex], { toValue: 1, useNativeDriver: true, speed: 20, bounciness: 8 }),
+    ]).start();
+  }, [activeIndex]);
+
+  const translateX = slideAnim.interpolate({
+    inputRange: NAV_ITEMS.map((_, i) => i),
+    outputRange: NAV_ITEMS.map((_, i) => i * tabWidth),
+  });
+
+  return (
+    <View style={styles.tabBarWrap}>
+      <View style={[styles.tabBar, { width: containerWidth }]}>
+        <Animated.View
+          style={[
+            styles.tabHighlight,
+            {
+              width: tabWidth - 12,
+              transform: [{ translateX: Animated.add(translateX, new Animated.Value(6)) }],
+            },
+          ]}
+        />
+        {NAV_ITEMS.map((item, idx) => {
+          const isActive = idx === activeIndex;
+          return (
+            <TouchableOpacity
+              key={item.key}
+              style={styles.tabItem}
+              activeOpacity={0.8}
+              onPress={() => onNavigate(item.key)}
+            >
+              <Animated.View style={{ transform: [{ scale: bounceAnims[idx] }], alignItems: 'center' }}>
+                <Ionicons
+                  name={isActive ? item.iconActive : item.icon}
+                  size={20}
+                  color={isActive ? PRIMARY : GRAY}
+                />
+                <Text style={[styles.tabLabel, isActive && styles.tabLabelActive]}>
+                  {item.label}
+                </Text>
+              </Animated.View>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
 // ─── Main screen ─────────────────────────────────────────────────────────────
 export default function ProfileScreen({ navigation, route }) {
   const { fullName: paramName = '' } = route?.params || {};
@@ -181,36 +272,42 @@ export default function ProfileScreen({ navigation, route }) {
   const [loadingProfile, setLoadingProfile] = useState(true);
   const [saving, setSaving]         = useState(false);
 
-  // { doc_id: { name, uri, type, key, uploading } }
+  // { doc_id: { name, key, uri?, previewUrl?, uploading } }
   const [docs, setDocs] = useState({});
 
   // ── Load profile from backend on mount ────────────────────────────────
+  // NOTE: /api/phleb/profile/ is PUT-only on the backend (update_profile).
+  // The actual profile read lives on the dashboard endpoint, under
+  // `data.specialist` — same source the web portal uses.
   useEffect(() => {
     let isMounted = true;
     (async () => {
       try {
-        const data = await authGet(PHLEB_ENDPOINTS.profile);
+        const data = await authGet(PHLEB_ENDPOINTS.dashboard);
         if (!isMounted || !data) return;
 
-        if (data.full_name || data.fullName) setFullName(data.full_name || data.fullName);
-        if (data.email) setEmail(data.email);
-        if (data.phone) setPhone(data.phone);
-        if (data.specialist_id) setSpecialistId(data.specialist_id);
+        const specialist = data.specialist || {};
+        if (specialist.name) setFullName(specialist.name);
+        if (specialist.email) setEmail(specialist.email);
+        if (specialist.phone) setPhone(specialist.phone);
+        if (specialist.id) setSpecialistId(specialist.id);
 
-        // If the backend returns known document keys/urls, reflect them as uploaded
-        if (data.documents && typeof data.documents === 'object') {
-          const restored = {};
-          DOC_DEFS.forEach((def) => {
-            const entry = data.documents[def.id];
-            if (entry) {
-              restored[def.id] = {
-                name: entry.filename || entry.name || `${def.title}.pdf`,
-                key: entry.key || entry.url,
-              };
-            }
-          });
-          setDocs((prev) => ({ ...restored, ...prev }));
-        }
+        // specialist.docs holds raw S3 keys; specialist.docs_urls holds
+        // freshly signed, viewable URLs for the same keys.
+        const rawDocs = specialist.docs || {};
+        const docUrls = specialist.docs_urls || {};
+        const restored = {};
+        DOC_DEFS.forEach((def) => {
+          const value = rawDocs[def.id];
+          if (value) {
+            restored[def.id] = {
+              name: `${def.title}`,
+              key: value,
+              previewUrl: docUrls[def.id] || null,
+            };
+          }
+        });
+        setDocs((prev) => ({ ...restored, ...prev }));
       } catch (e) {
         // fail silently — keep whatever we had from navigation params
       } finally {
@@ -226,7 +323,8 @@ export default function ProfileScreen({ navigation, route }) {
     return status === 'granted';
   };
 
-  // ── Upload a picked file to the backend ────────────────────────────────
+  // ── Upload a picked file to the backend, then persist the resulting key
+  //    onto the phlebotomist's profile record ───────────────────────────
   const uploadPickedFile = async (docId, { uri, name, mimeType }) => {
     setDocs((prev) => ({
       ...prev,
@@ -239,9 +337,17 @@ export default function ProfileScreen({ navigation, route }) {
         filename: name,
         contentType: mimeType,
       });
+      const key = result?.key;
+
+      if (key) {
+        // Without this PUT, the file sits in S3 with nothing pointing to it
+        // from Mongo — it would disappear from the profile on next load.
+        await authPut(PHLEB_ENDPOINTS.profile, { docs: { [docId]: key } });
+      }
+
       setDocs((prev) => ({
         ...prev,
-        [docId]: { name, uri, type: mimeType, key: result?.key, uploading: false },
+        [docId]: { name, uri, type: mimeType, key, uploading: false },
       }));
     } catch (e) {
       setDocs((prev) => ({
@@ -294,36 +400,73 @@ export default function ProfileScreen({ navigation, route }) {
     }
   };
 
+  // ── Preview an already-uploaded document ───────────────────────────────
+  const handlePreviewDoc = (doc) => {
+    if (doc?.previewUrl) {
+      Linking.openURL(doc.previewUrl).catch(() =>
+        Alert.alert('Could not open', 'This document link could not be opened.')
+      );
+    } else if (doc?.uri) {
+      // Freshly picked in this session, not yet backed by a signed URL.
+      Linking.openURL(doc.uri).catch(() => {});
+    } else {
+      Alert.alert('Preview unavailable', 'No viewable link for this document yet.');
+    }
+  };
+
   // ── Show action sheet ─────────────────────────────────────────────────────
   const handleDocPress = (def) => {
+    const existing = docs[def.id];
+    const options = existing
+      ? ['View Document', 'Replace — Choose from Gallery', 'Replace — Take a Photo', 'Cancel']
+      : ['Choose from Gallery', 'Take a Photo', 'Cancel'];
+
     if (Platform.OS === 'ios') {
       ActionSheetIOS.showActionSheetWithOptions(
         {
           title: def.title,
-          message: 'Choose upload method',
-          options: ['Choose from Gallery', 'Take a Photo', 'Cancel'],
-          cancelButtonIndex: 2,
+          message: existing ? 'View or replace this document' : 'Choose upload method',
+          options,
+          cancelButtonIndex: options.length - 1,
         },
         (idx) => {
-          if (idx === 0) pickFromGallery(def.id);
-          if (idx === 1) pickFromCamera(def.id);
+          if (existing) {
+            if (idx === 0) handlePreviewDoc(existing);
+            if (idx === 1) pickFromGallery(def.id);
+            if (idx === 2) pickFromCamera(def.id);
+          } else {
+            if (idx === 0) pickFromGallery(def.id);
+            if (idx === 1) pickFromCamera(def.id);
+          }
         }
       );
     } else {
+      const buttons = existing
+        ? [
+            { text: 'View Document', onPress: () => handlePreviewDoc(existing) },
+            { text: 'Replace — Gallery', onPress: () => pickFromGallery(def.id) },
+            { text: 'Replace — Camera', onPress: () => pickFromCamera(def.id) },
+            { text: 'Cancel', style: 'cancel' },
+          ]
+        : [
+            { text: 'Choose from Gallery', onPress: () => pickFromGallery(def.id) },
+            { text: 'Take a Photo',        onPress: () => pickFromCamera(def.id)  },
+            { text: 'Cancel', style: 'cancel' },
+          ];
+
       Alert.alert(
         def.title,
-        'Choose upload method\n(Supported: PDF, JPG, JPEG, PNG)',
-        [
-          { text: 'Choose from Gallery', onPress: () => pickFromGallery(def.id) },
-          { text: 'Take a Photo',        onPress: () => pickFromCamera(def.id)  },
-          { text: 'Cancel', style: 'cancel' },
-        ],
+        existing ? 'View or replace this document' : 'Choose upload method\n(Supported: PDF, JPG, JPEG, PNG)',
+        buttons,
         { cancelable: true }
       );
     }
   };
 
   // ── Save profile to backend ───────────────────────────────────────────────
+  // update_profile is a PUT-only view and only persists name/phone
+  // (plus location, company, zip_codes, docs, profile_picture) — email is
+  // not editable here, matching the web portal.
   const handleSave = async () => {
     if (!fullName.trim()) {
       Alert.alert('Name required', 'Please enter your full name.');
@@ -331,9 +474,8 @@ export default function ProfileScreen({ navigation, route }) {
     }
     setSaving(true);
     try {
-      await authPatch(PHLEB_ENDPOINTS.profile, {
-        full_name: fullName,
-        email,
+      await authPut(PHLEB_ENDPOINTS.profile, {
+        name: fullName,
         phone,
       });
       Alert.alert('Saved', 'Your profile has been updated.');
@@ -344,7 +486,8 @@ export default function ProfileScreen({ navigation, route }) {
     }
   };
 
-  // ── Remove a doc ──────────────────────────────────────────────────────────
+  // ── Remove a doc (local only — re-upload a blank slot to actually clear
+  //    it server-side, since there's no dedicated delete endpoint) ──────────
   const handleRemoveDoc = (docId) => {
     Alert.alert('Remove document', 'Remove this uploaded file?', [
       {
@@ -376,7 +519,7 @@ export default function ProfileScreen({ navigation, route }) {
 
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 120, paddingHorizontal: 20 }}
+        contentContainerStyle={{ paddingBottom: 140, paddingHorizontal: 20 }}
       >
         {/* ── Avatar hero ── */}
         <FadeInUp delay={70}>
@@ -417,11 +560,9 @@ export default function ProfileScreen({ navigation, route }) {
             <FieldBlock
               label="Email"
               value={email}
-              onChangeText={setEmail}
-              placeholder="Enter your email"
+              editable={false}
               icon="mail-outline"
-              keyboardType="email-address"
-              autoCapitalize="none"
+              locked
             />
             <View style={styles.fieldDivider} />
             <FieldBlock
@@ -468,7 +609,7 @@ export default function ProfileScreen({ navigation, route }) {
             <Text style={styles.sectionTitle}>Documents</Text>
           </View>
           <Text style={styles.docHint}>
-            Tap a document to upload · Supported: PDF, JPG, JPEG, PNG
+            Tap a document to upload or view · Supported: PDF, JPG, JPEG, PNG
           </Text>
         </FadeInUp>
 
@@ -520,38 +661,18 @@ export default function ProfileScreen({ navigation, route }) {
             <Text style={styles.reuploadText}>Re-upload All Documents</Text>
           </AnimatedPressable>
 
-          <Text style={styles.removeHint}>Long-press an uploaded document to remove it</Text>
+          <Text style={styles.removeHint}>Long-press an uploaded document to remove it locally · Tap it to view</Text>
         </FadeInUp>
       </ScrollView>
 
-      {/* ── Bottom Nav ── */}
-      <View style={styles.bottomNav}>
-        <TouchableOpacity
-          style={styles.navItem}
-          onPress={() => navigation?.navigate('PhlebDashboard', { fullName })}
-        >
-          <Ionicons name="home-outline" size={22} color={GRAY} />
-          <Text style={styles.navLabel}>Home</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.navItem}
-          onPress={() => navigation?.navigate('PhlebHistory', { fullName })}
-        >
-          <Ionicons name="time-outline" size={22} color={GRAY} />
-          <Text style={styles.navLabel}>History</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.navItem}
-          onPress={() => navigation?.navigate('Earnings', { fullName })}
-        >
-          <Ionicons name="bar-chart-outline" size={22} color={GRAY} />
-          <Text style={styles.navLabel}>Earnings</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.navItem}>
-          <Ionicons name="person" size={22} color={PRIMARY} />
-          <Text style={[styles.navLabel, styles.navLabelActive]}>Profile</Text>
-        </TouchableOpacity>
-      </View>
+      {/* ── Bottom Nav (Home / History / Profile only) ── */}
+      <BottomTabBar
+        activeKey="Profile"
+        onNavigate={(key) => {
+          if (key === 'Profile') return;
+          navigation?.navigate(key, { fullName });
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -684,14 +805,42 @@ const styles = StyleSheet.create({
 
   removeHint: { textAlign: 'center', fontSize: 11, color: '#C4CAD4', marginTop: 10 },
 
-  bottomNav: {
+  // ── Modern floating pill tab bar ──
+  tabBarWrap: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    paddingBottom: 18,
+    paddingTop: 6,
+  },
+  tabBar: {
     flexDirection: 'row',
     backgroundColor: '#FFFFFF',
-    borderTopWidth: 1, borderTopColor: '#E5E7EB',
-    paddingVertical: 10,
-    position: 'absolute', bottom: 0, left: 0, right: 0,
+    borderRadius: 26,
+    paddingVertical: 8,
+    paddingHorizontal: 6,
+    shadowColor: PRIMARY_D,
+    shadowOpacity: 0.18,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 10,
   },
-  navItem: { flex: 1, alignItems: 'center', gap: 4 },
-  navLabel: { fontSize: 11, color: GRAY, fontWeight: '500' },
-  navLabelActive: { color: PRIMARY, fontWeight: '700' },
+  tabHighlight: {
+    position: 'absolute',
+    top: 6,
+    left: 0,
+    height: 44,
+    borderRadius: 18,
+    backgroundColor: '#EEF2FF',
+  },
+  tabItem: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+  },
+  tabLabel: { fontSize: 11, color: GRAY, fontWeight: '600', marginTop: 3 },
+  tabLabelActive: { color: PRIMARY, fontWeight: '800' },
 });

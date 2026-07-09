@@ -147,12 +147,6 @@ export async function uploadDocument({ base64, uri, kind = 'documents', filename
 // not multipart files — this matches submit_application's
 // request.data.get('dlFront') / 'dlBack' / 'certificate' / 'insuranceDoc'
 // pattern on the Django side exactly.
-//
-// Response shape from the real view: { message, specialist_id, status }.
-// There is no applicant_id — specialist_id (e.g. "PHL-004") is the only
-// identifier returned, and nothing in the backend currently supports
-// looking an application back up by it, so it's just passed along for
-// display purposes on the next screen.
 export async function applyPhleb({
   fullName,
   email,
@@ -175,7 +169,6 @@ export async function applyPhleb({
     address,
     website: website || '',
     password,
-    // Each doc may be base64 (backend offloads to S3) OR a pre-uploaded S3 key.
     dlFront: dlFront || null,
     dlBack: dlBack || null,
     certificate: certificate || null,
@@ -186,14 +179,11 @@ export async function applyPhleb({
   });
 }
 
-// ── Application status polling (public, no auth — used before the
-// account is allowed to log in at all) ──────────────────────────────────
+// ── Application status polling (public, no auth) ─────────────────────────
 export async function getApplicationStatus(specialistId) {
   let response;
   try {
-    response = await fetch(PHLEB_ENDPOINTS.applicationStatus(specialistId), {
-      method: 'GET',
-    });
+    response = await fetch(PHLEB_ENDPOINTS.applicationStatus(specialistId), { method: 'GET' });
   } catch {
     throw new Error('NETWORK_ERROR');
   }
@@ -208,7 +198,7 @@ export async function getApplicationStatus(specialistId) {
   if (!response.ok) {
     throw new Error(data?.error || `Request failed (${response.status})`);
   }
-  return data; // { specialist_id, status, compliance }
+  return data;
 }
 
 // ── Unified login ─────────────────────────────────────────────────────
@@ -226,6 +216,52 @@ export async function login(email, password) {
   }
 
   return data;
+}
+
+// ── Google Sign-In (role-aware) ───────────────────────────────────────
+// `role` is 'patient' or 'phlebotomist' — the caller picks based on which
+// tab/screen the user is signing in from, since a single Google token has
+// no inherent role and the backend has separate collections per role.
+export async function loginWithGoogle({ idToken, email, name, picture, role = 'patient' }) {
+  const endpoint = role === 'phlebotomist' ? PHLEB_ENDPOINTS.googleLogin : PATIENT_ENDPOINTS.googleLogin;
+  const data = await postJson(endpoint, { id_token: idToken, email, name, picture });
+
+  if (role === 'phlebotomist') {
+    if (data.token) await SecureStore.setItemAsync(PHLEB_TOKEN_KEY, data.token);
+    if (data.user)  await SecureStore.setItemAsync(PHLEB_USER_KEY, JSON.stringify(data.user));
+  } else {
+    if (data.token) await SecureStore.setItemAsync(PATIENT_TOKEN_KEY, data.token);
+    if (data.user)  await SecureStore.setItemAsync(PATIENT_USER_KEY, JSON.stringify(data.user));
+  }
+  return { ...data, role };
+}
+
+// ── Forgot password (role-aware, OTP-based) ────────────────────────────
+// Step 1: request a 6-digit code by email.
+export async function requestPasswordResetOtp(email, role = 'patient') {
+  const endpoint = role === 'phlebotomist' ? PHLEB_ENDPOINTS.requestOtp : PATIENT_ENDPOINTS.requestOtp;
+  // Patient's request-otp endpoint doubles as the signup endpoint, so it
+  // validates name/phone/password only if they're present — sending just
+  // the email is enough to trigger a code for an existing account.
+  return postJson(endpoint, { email });
+}
+
+// Step 2: verify the code and set a new password.
+// Patient's verify-otp expects the new password in `password`;
+// the phlebotomist one (added for this flow) expects `new_password`.
+export async function confirmPasswordReset({ email, code, newPassword, role = 'patient' }) {
+  if (role === 'phlebotomist') {
+    return postJson(PHLEB_ENDPOINTS.verifyOtp, {
+      email,
+      token: code,
+      new_password: newPassword,
+    });
+  }
+  return postJson(PATIENT_ENDPOINTS.verifyOtp, {
+    email,
+    token: code,
+    password: newPassword,
+  });
 }
 
 export async function getActiveSession() {
@@ -292,12 +328,12 @@ export const authPut   = (url, body, role = 'phleb') => authFetch(url, { method:
 export const authPatch = (url, body, role = 'phleb') => authFetch(url, { method: 'PATCH', body: JSON.stringify(body) }, role);
 
 // ── Patient (MusB App) ───────────────────────────────────────────────────
-export async function requestOtp(email) {
-  return postJson(PATIENT_ENDPOINTS.requestOtp, { email });
+export async function requestOtp(email,phone) {
+  return postJson(PATIENT_ENDPOINTS.requestOtp, { email,phone });
 }
 
-export async function verifyOtpAndCreateAccount({ email, token, name, password }) {
-  const data = await postJson(PATIENT_ENDPOINTS.verifyOtp, { method: 'email', email, token, name, password });
+export async function verifyOtpAndCreateAccount({ email, token, name, password,phone }) {
+  const data = await postJson(PATIENT_ENDPOINTS.verifyOtp, { method: 'email', email, token, name, password,phone });
   if (data.token) await SecureStore.setItemAsync(PATIENT_TOKEN_KEY, data.token);
   if (data.user)  await SecureStore.setItemAsync(PATIENT_USER_KEY, JSON.stringify(data.user));
   return data;
@@ -521,6 +557,7 @@ export async function fetchPricing({ address, zipCode, bookingDate, bookingTime 
   }
   return data;
 }
+
 export async function changePatientPassword({ currentPassword, newPassword }) {
   const token = await getStoredPatientToken();
   if (!token) throw new Error('NOT_LOGGED_IN');
@@ -551,6 +588,7 @@ export async function changePatientPassword({ currentPassword, newPassword }) {
   }
   return data;
 }
+
 export async function rateAppointment(appointmentId, rating, comment = '') {
   const token = await getStoredPatientToken();
   if (!token) throw new Error('NOT_LOGGED_IN');

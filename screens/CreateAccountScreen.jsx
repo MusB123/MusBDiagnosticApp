@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { requestOtp } from '../utils/auth';
+import { Ionicons } from '@expo/vector-icons';
 
 const COLORS = {
   navy: '#1B3A8C',
@@ -78,6 +79,7 @@ export default function CreateAccountScreen({ navigation }) {
   const [countryCode, setCountryCode] = useState(COUNTRY_CODES[0]);
   const [showPicker, setShowPicker] = useState(false);
   const [countrySearch, setCountrySearch] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const filteredCountries = COUNTRY_CODES.filter(
   item =>
     item.country.toLowerCase().includes(countrySearch.toLowerCase()) ||
@@ -116,8 +118,8 @@ export default function CreateAccountScreen({ navigation }) {
     } else if (!emailRegex.test(form.email)) {
       newErrors.email = 'Enter a valid email address';
     }
-    if (!form.password.trim() || form.password.length < 6) {
-      newErrors.password = 'Password must be at least 6 characters';
+    if (!form.password.trim() || form.password.length < 10) {
+      newErrors.password = 'Password must be at least 10 characters';
     }
 
     setErrors(newErrors);
@@ -129,12 +131,13 @@ export default function CreateAccountScreen({ navigation }) {
 
     setLoading(true);
     try {
-      await requestOtp(form.email.trim().toLowerCase());
+      await requestOtp(form.email.trim().toLowerCase(), `${countryCode.code}${form.phone}`);
       navigation.navigate('PatientVerifyOtp', {
         firstName: form.firstName,
         lastName: form.lastName,
         email: form.email.trim().toLowerCase(),
         password: form.password,
+        phone: `${countryCode.code}${form.phone}`,
       });
     } catch (err) {
       const msg = err.message === 'NETWORK_ERROR'
@@ -256,16 +259,35 @@ export default function CreateAccountScreen({ navigation }) {
           />
 
           {/* Password - required */}
-          <InputField
-            label="Password"
-            required
-            value={form.password}
-            onChangeText={(t) => { setForm({ ...form, password: t }); if (errors.password) setErrors({ ...errors, password: '' }); }}
-            placeholder="At least 6 characters"
-            autoCapitalize="none"
-            secureTextEntry
-            error={errors.password}
-          />
+          <View style={styles.fieldWrap}>
+            <Text style={styles.label}>
+              Password <Text style={styles.required}>*</Text>
+            </Text>
+            <View style={[styles.passwordRow, errors.password ? styles.inputError : null]}>
+              <TextInput
+                style={styles.passwordInput}
+                value={form.password}
+                onChangeText={(t) => { setForm({ ...form, password: t }); if (errors.password) setErrors({ ...errors, password: '' }); }}
+                placeholder="At least 10 characters"
+                placeholderTextColor={COLORS.gray}
+                autoCapitalize="none"
+                secureTextEntry={!showPassword}
+              />
+              <TouchableOpacity
+                onPress={() => setShowPassword(!showPassword)}
+                style={styles.eyeIcon}
+                activeOpacity={0.7}
+              >
+                <Ionicons
+                  name={showPassword ? 'eye-off' : 'eye'}
+                  size={20}
+                  color={COLORS.gray}
+                />
+              </TouchableOpacity>
+            </View>
+            {errors.password ? <Text style={styles.errorText}>⚠ {errors.password}</Text> : null}
+          </View>
+
         <TouchableOpacity
             style={[styles.continueBtn, loading && { opacity: 0.6 }]}
             activeOpacity={0.85}
@@ -483,6 +505,25 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: COLORS.navyDark,
   },
+  passwordRow: {
+   flexDirection: 'row',
+   alignItems: 'center',
+   backgroundColor: COLORS.inputBg,
+   borderWidth: 1.5,
+   borderColor: COLORS.border,
+   borderRadius: 12,
+   paddingHorizontal: 16,
+ },
+  passwordInput: {
+   flex: 1,
+   paddingVertical: 14,
+   fontSize: 16,
+   color: COLORS.navyDark,
+ },
+  eyeIcon: {
+   padding: 6,
+   marginLeft: 6,
+ },
 
   // Button
   continueBtn: {

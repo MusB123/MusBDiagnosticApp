@@ -20,6 +20,9 @@ const BODY_GRAY = '#6B7280';
 const BORDER    = '#EEF1F7';
 const BG        = '#F6F8FC';
 
+// Max distance (miles) from the office for a request to show on the dashboard.
+const NEARBY_RADIUS_MILES = 50;
+
 const getGreeting = () => {
   const hour = new Date().getHours();
   if (hour < 12) return 'Good morning,';
@@ -172,6 +175,7 @@ export default function DashboardScreen({ route, navigation }) {
   const [requests, setRequests] = useState([]);
   const [loading, setLoading]   = useState(true);
   const [jobsDone, setJobsDone] = useState(0);
+  const [earnedToday, setEarnedToday] = useState('$0.00');
   const tokenRef = useRef(null);
   const pollRef  = useRef(null);
 
@@ -179,8 +183,12 @@ export default function DashboardScreen({ route, navigation }) {
     getActiveSession().then(s => {
       if (s?.token) {
         tokenRef.current = s.token;
-        fetchRequests();
-        pollRef.current = setInterval(fetchRequests, 10000); // every 10s
+        fetchDashboard();
+        fetchNearbyRequests();
+        pollRef.current = setInterval(() => {
+          fetchDashboard();
+          fetchNearbyRequests();
+        }, 10000); // every 10s
       }
     });
 
@@ -194,14 +202,29 @@ export default function DashboardScreen({ route, navigation }) {
     return () => clearInterval(pollRef.current);
   }, []);
 
-  const fetchRequests = async () => {
+  // Jobs done + today's earnings come from the dashboard metrics endpoint.
+  const fetchDashboard = async () => {
     try {
       const data = await authGet(PHLEB_ENDPOINTS.dashboard);
-      setRequests(data.broadcasts || []);
       if (typeof data.jobs_done === 'number') setJobsDone(data.jobs_done);
+      const earnings = data?.metrics?.earnings_today ?? data?.earned_today;
+      if (earnings != null) setEarnedToday(earnings);
       // Dashboard also carries the specialist's name — prefer it if present.
       const nameFromDashboard = data.full_name || data.fullName || data.name;
       if (nameFromDashboard) setFullName(nameFromDashboard);
+    } catch {
+      // fail silently, keep last known data
+    }
+  };
+
+  // Requests within NEARBY_RADIUS_MILES of the office, same source MapScreen uses.
+  const fetchNearbyRequests = async () => {
+    try {
+      const data = await authGet(PHLEB_ENDPOINTS.dispatch.officeNearbyRequests);
+      const withinRadius = (data.requests || []).filter(
+        (r) => r.distance_miles == null || r.distance_miles <= NEARBY_RADIUS_MILES
+      );
+      setRequests(withinRadius);
     } catch {
       // fail silently, keep last known data
     } finally {
@@ -211,7 +234,6 @@ export default function DashboardScreen({ route, navigation }) {
 
   const handleGoOnline = () => navigation.navigate('PatientMap', { fullName });
   const handleHistory  = () => navigation.navigate('PhlebHistory', { fullName });
-  const handleEarnings = () => navigation.navigate('Earnings',   { fullName });
   const handleProfile  = () => navigation.navigate('PhlebProfile',    { fullName });
 
   return (
@@ -258,7 +280,7 @@ export default function DashboardScreen({ route, navigation }) {
           </AnimatedPressable>
         </FadeInUp>
 
-        {/* ── Nearby Requests Section ── */}
+        {/* ── Nearby Requests Section (within 50 miles of office) ── */}
         <FadeInUp delay={160}>
           <View style={styles.sectionHeaderRow}>
             <Text style={styles.sectionTitle}>NEARBY REQUESTS</Text>
@@ -278,7 +300,7 @@ export default function DashboardScreen({ route, navigation }) {
               <View style={styles.emptyIconWrap}>
                 <Ionicons name="radio-outline" size={22} color={GRAY} />
               </View>
-              <Text style={styles.emptyText}>No pending requests nearby right now.</Text>
+              <Text style={styles.emptyText}>No requests within {NEARBY_RADIUS_MILES} miles right now.</Text>
             </View>
           </FadeInUp>
         ) : (
@@ -293,10 +315,11 @@ export default function DashboardScreen({ route, navigation }) {
                   <Ionicons name="medkit-outline" size={20} color={ORANGE} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.requestItemTitle}>{req.testName || 'Clinical Test'}</Text>
+                  <Text style={styles.requestItemTitle}>{req.test_name || req.testName || 'Clinical Test'}</Text>
                   <Text style={styles.requestItemSub}>
                     {req.address || 'Address unknown'}
-                    {req.time ? ` · ${req.time}` : ''}
+                    {req.distance_miles != null ? ` · ${req.distance_miles} mi` : ''}
+                    {req.preferred_time ? ` · ${req.preferred_time}` : ''}
                   </Text>
                 </View>
                 <LiveDot color={ORANGE} />
@@ -305,18 +328,28 @@ export default function DashboardScreen({ route, navigation }) {
           ))
         )}
 
-        {/* ── Today's Summary ── */}
+        {/* ── Today's Summary (compact, two stats side by side) ── */}
         <FadeInUp delay={280}>
           <Text style={styles.sectionTitle}>TODAY'S SUMMARY</Text>
         </FadeInUp>
 
         <FadeInUp delay={320}>
-          <View style={styles.summaryCardFull}>
-            <View style={[styles.summaryIconWrap, { backgroundColor: '#EEF2FF' }]}>
-              <Ionicons name="checkmark-done" size={18} color={PRIMARY} />
+          <View style={styles.summaryRow}>
+            <View style={styles.summaryCard}>
+              <View style={[styles.summaryIconWrap, { backgroundColor: '#EEF2FF' }]}>
+                <Ionicons name="checkmark-done" size={16} color={PRIMARY} />
+              </View>
+              <Text style={styles.summaryLabel}>Jobs done</Text>
+              <CountUp value={jobsDone} style={styles.summaryValue} />
             </View>
-            <Text style={styles.summaryLabel}>Jobs done</Text>
-            <CountUp value={jobsDone} style={styles.summaryValue} />
+
+            <View style={styles.summaryCard}>
+              <View style={[styles.summaryIconWrap, { backgroundColor: GREEN_BG }]}>
+                <Ionicons name="cash-outline" size={16} color={GREEN} />
+              </View>
+              <Text style={styles.summaryLabel}>Today's earning</Text>
+              <Text style={[styles.summaryValue, { color: GREEN }]}>{earnedToday}</Text>
+            </View>
           </View>
         </FadeInUp>
 
@@ -338,10 +371,6 @@ export default function DashboardScreen({ route, navigation }) {
         <TouchableOpacity style={styles.navItem} onPress={handleHistory}>
           <Ionicons name="time-outline" size={22} color={GRAY} />
           <Text style={styles.navLabel}>History</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.navItem} onPress={handleEarnings}>
-          <Ionicons name="bar-chart-outline" size={22} color={GRAY} />
-          <Text style={styles.navLabel}>Earnings</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.navItem} onPress={handleProfile}>
           <Ionicons name="person-outline" size={22} color={GRAY} />
@@ -444,16 +473,20 @@ const styles = StyleSheet.create({
   liveDotRing: { position: 'absolute', width: 16, height: 16, borderRadius: 8, borderWidth: 1.5 },
   liveDotCore: { width: 8, height: 8, borderRadius: 4 },
 
-  summaryCardFull: {
-    marginHorizontal: 20, backgroundColor: '#FFFFFF', borderRadius: 20, paddingVertical: 20, paddingHorizontal: 16,
+  // ── Compact side-by-side summary cards ──
+  summaryRow: {
+    flexDirection: 'row', marginHorizontal: 20, gap: 10,
+  },
+  summaryCard: {
+    flex: 1, backgroundColor: '#FFFFFF', borderRadius: 16, paddingVertical: 14, paddingHorizontal: 14,
     alignItems: 'flex-start', borderWidth: 1, borderColor: BORDER,
-    shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 2,
+    shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 2,
   },
   summaryIconWrap: {
-    width: 34, height: 34, borderRadius: 11, alignItems: 'center', justifyContent: 'center', marginBottom: 12,
+    width: 28, height: 28, borderRadius: 9, alignItems: 'center', justifyContent: 'center', marginBottom: 8,
   },
-  summaryLabel: { fontSize: 12.5, color: BODY_GRAY, fontWeight: '500' },
-  summaryValue: { marginTop: 6, fontSize: 26, fontWeight: '800', color: PRIMARY },
+  summaryLabel: { fontSize: 11.5, color: BODY_GRAY, fontWeight: '500' },
+  summaryValue: { marginTop: 4, fontSize: 20, fontWeight: '800', color: PRIMARY },
 
   infoCard: {
     flexDirection: 'row', alignItems: 'flex-start',

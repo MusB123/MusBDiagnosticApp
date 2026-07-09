@@ -24,6 +24,7 @@ export const UPLOAD_ENDPOINTS = {
 // ── Patient endpoints (unchanged from patient app) ──────────────────────────
 export const PATIENT_ENDPOINTS = {
   login: `${PATIENT_PREFIX}/login/`, // ⚠ legacy — kept in case still referenced elsewhere
+  googleLogin: `${PATIENT_PREFIX}/google-login/`,
   dashboard: `${PATIENT_PREFIX}/dashboard/`,
   bookAppointment: `${PATIENT_PREFIX}/book-appointment/`,
   requestOtp: `${PATIENT_PREFIX}/request-otp/`,
@@ -40,10 +41,14 @@ export const PATIENT_ENDPOINTS = {
 export const PHLEB_ENDPOINTS = {
   // ── Auth ────────────────────────────────────────────────────────────────
   login: `${PHLEB_BASE}/login/`, // ⚠ legacy — kept in case still referenced elsewhere
+  googleLogin: `${PHLEB_BASE}/google-login/`,
   signup: `${PHLEB_BASE}/signup/`,
   apply: `${PHLEB_BASE}/apply/`,
   applicationStatus: (specialistId) => `${PHLEB_BASE}/application-status/${specialistId}/`,
   changePassword: `${PHLEB_BASE}/change-password/`,
+  // Forgot-password (unauthenticated) — request an OTP by email, then reset with it.
+  requestOtp: `${PHLEB_BASE}/request-otp/`,
+  verifyOtp: `${PHLEB_BASE}/verify-otp/`,
 
   // ── Dashboard / Profile ─────────────────────────────────────────────────
   dashboard: `${PHLEB_BASE}/dashboard/`,

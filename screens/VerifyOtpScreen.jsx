@@ -27,7 +27,7 @@ const COLORS = {
 };
 
 export default function VerifyOtpScreen({ navigation, route }) {
-  const { firstName, lastName, email, password } = route.params;
+  const { firstName, lastName, email, password,phone } = route.params;
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -46,6 +46,7 @@ export default function VerifyOtpScreen({ navigation, route }) {
         token: code.trim(),
         name: `${firstName} ${lastName}`.trim(),
         password,
+        phone,
       });
       navigation.navigate('HealthProfile', { firstName });
     } catch (err) {

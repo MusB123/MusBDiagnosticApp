@@ -14,6 +14,8 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
+import * as SecureStore from 'expo-secure-store';
+import { PHLEB_ENDPOINTS } from '../config/api';
 
 const PRIMARY = '#18377D';
 const GREEN = '#1B7A4D';
@@ -27,7 +29,7 @@ export default function JobAcceptedScreen({ route, navigation }) {
   const patientName = job?.patientName || job?.patient_name || 'Patient';
   const patientPhone = job?.patientPhone || job?.patient_phone || '';
   const address = job?.address || job?.patient_address || job?.location || 'Address not provided';
-  const testName = job?.testName || job?.test_name
+  const testName = job?.testName || job?.test_name || job?.tests
     || (Array.isArray(job?.lab_tests) ? job.lab_tests.join(', ') : null)
     || 'Clinical Test';
   const testPrice = job?.testPrice || job?.test_price;
@@ -90,8 +92,28 @@ export default function JobAcceptedScreen({ route, navigation }) {
     Linking.openURL(url);
   };
 
-  const handleStartCollection = () => {
-    navigation.navigate('CollectComplete', { job });
+  const [markingArrived, setMarkingArrived] = useState(false);
+
+  const handleStartCollection = async () => {
+    if (markingArrived) return;
+    setMarkingArrived(true);
+    try {
+      const token = await SecureStore.getItemAsync('musb_phleb_token');
+      await fetch(PHLEB_ENDPOINTS.testStatus(job.id), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ status: 'arrived' }),
+      });
+    } catch (err) {
+      // Non-fatal — proceed anyway so the phlebotomist isn't blocked
+      console.warn('Could not mark arrived:', err);
+    } finally {
+      setMarkingArrived(false);
+      navigation.navigate('VerifyArrival', { job });
+    }
   };
 
   // Prefer a signed S3 URL (open directly). Fall back to legacy base64, which
@@ -143,6 +165,13 @@ export default function JobAcceptedScreen({ route, navigation }) {
       <StatusBar barStyle="light-content" backgroundColor={GREEN} />
 
       <View style={styles.header}>
+        <TouchableOpacity
+          onPress={() => navigation.navigate('Dashboard')}
+          style={styles.backBtn}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="arrow-back" size={20} color="#FFFFFF" />
+        </TouchableOpacity>
         <Ionicons name="checkmark-circle" size={20} color="#FFFFFF" />
         <Text style={styles.headerTitle}>Request accepted</Text>
         {isStat && (
@@ -243,9 +272,12 @@ export default function JobAcceptedScreen({ route, navigation }) {
           style={styles.startCollectionButton}
           activeOpacity={0.9}
           onPress={handleStartCollection}
+          disabled={markingArrived}
         >
           <Ionicons name="clipboard-outline" size={18} color="#FFFFFF" />
-          <Text style={styles.startCollectionText}>I've Arrived — Start Collection</Text>
+          <Text style={styles.startCollectionText}>
+             {markingArrived ? 'Notifying patient...' : "I've Arrived — Start Collection"}
+          </Text>
         </TouchableOpacity>
       </ScrollView>
     </View>
@@ -366,4 +398,12 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 }, elevation: 4,
   },
   startCollectionText: { color: '#FFFFFF', fontWeight: '700', fontSize: 15 },
+  backBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.15)',
+  },
 });

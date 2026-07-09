@@ -316,6 +316,9 @@ export default function BookMobileVisitScreen({ navigation, route }) {
 
   const [doctorOrder, setDoctorOrder] = useState(bookingDraft.doctorOrder || 'self');
   const [prescriptionFile, setPrescriptionFile] = useState(bookingDraft.prescriptionFile || null);
+  const [insurance, setInsurance] = useState(bookingDraft.insurance || 'none');
+  const [insuranceFront, setInsuranceFront] = useState(bookingDraft.insuranceFront || null);
+  const [insuranceBack, setInsuranceBack] = useState(bookingDraft.insuranceBack || null);
 
   const [selectedTests, setSelectedTests] = useState(bookingDraft.selectedTestsData || []);
   const [testsTotal, setTestsTotal] = useState(bookingDraft.testsTotal || 0);
@@ -368,6 +371,52 @@ export default function BookMobileVisitScreen({ navigation, route }) {
     if (value === 'self') {
       setPrescriptionFile(null);
       setBookingDraft({ prescriptionFile: null });
+    }
+  };
+
+  const handleSelectInsurance = (value) => {
+    setInsurance(value);
+    setBookingDraft({ insurance: value });
+    if (value === 'none') {
+      setInsuranceFront(null);
+      setInsuranceBack(null);
+      setBookingDraft({ insuranceFront: null, insuranceBack: null });
+    }
+  };
+
+  const handlePickInsuranceFront = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['application/pdf', 'image/png', 'image/jpeg'],
+        copyToCacheDirectory: true,
+      });
+      if (result.canceled === false && result.assets?.length > 0) {
+        setInsuranceFront(result.assets[0]);
+        setBookingDraft({ insuranceFront: result.assets[0] });
+      } else if (result.type === 'success') {
+        setInsuranceFront(result);
+        setBookingDraft({ insuranceFront: result });
+      }
+    } catch (err) {
+    console.warn('Insurance front pick error:', err);
+    }
+  };
+
+  const handlePickInsuranceBack = async () => {
+    try {
+     const result = await DocumentPicker.getDocumentAsync({
+        type: ['application/pdf', 'image/png', 'image/jpeg'],
+        copyToCacheDirectory: true,
+      });
+      if (result.canceled === false && result.assets?.length > 0) {
+        setInsuranceBack(result.assets[0]);
+        setBookingDraft({ insuranceBack: result.assets[0] });
+      } else if (result.type === 'success') {
+        setInsuranceBack(result);
+        setBookingDraft({ insuranceBack: result });
+      }
+    } catch (err) {
+      console.warn('Insurance back pick error:', err);
     }
   };
 
@@ -463,6 +512,96 @@ export default function BookMobileVisitScreen({ navigation, route }) {
                 </>
               )}
             </AnimatedPressable>
+          </FadeInUp>
+        )}
+
+        {/* Insurance */}
+        <FadeInUp delay={160}>
+          <Text style={styles.sectionLabel}>Insurance</Text>
+          <Text style={styles.sectionSubtitle}>
+            Add your insurance card so we can verify coverage before your visit.
+          </Text>
+        </FadeInUp>
+        <View style={styles.orderRow}>
+          <OrderOptionCard
+            icon="close-circle-outline"
+            accent={COLORS.gray}
+            accentBg={COLORS.lightGray}
+            title="No insurance"
+            subtitle="Self-pay"
+            selected={insurance === 'none'}
+            onPress={() => handleSelectInsurance('none')}
+            delay={170}
+          />
+          <OrderOptionCard
+            icon="card-outline"
+            accent={COLORS.pathA}
+            accentBg={COLORS.pathABg}
+            title="I have insurance"
+            subtitle="Add my card"
+            selected={insurance === 'have'}
+            onPress={() => handleSelectInsurance('have')}
+            delay={210}
+           />
+        </View>
+
+        {insurance === 'have' && (
+          <FadeInUp delay={0}>
+            <View style={{ gap: 12, marginTop: 14 }}>
+              <AnimatedPressable
+                style={[styles.uploadBox, insuranceFront && styles.uploadBoxDone]}
+                onPress={handlePickInsuranceFront}
+                scaleTo={0.98}
+              >
+                {insuranceFront ? (
+                  <>
+                    <View style={styles.uploadDoneIconWrap}>
+                      <Ionicons name="checkmark" size={24} color={COLORS.white} />
+                    </View>
+                    <Text style={styles.uploadDoneTitle}>Front uploaded</Text>
+                    <Text style={styles.uploadDoneText} numberOfLines={1}>
+                      {insuranceFront.name}
+                    </Text>
+                    <Text style={styles.uploadChangeText}>Tap to change</Text>
+                  </>
+                ) : (
+                  <>
+                    <View style={styles.uploadIconWrap}>
+                      <Ionicons name="card-outline" size={22} color={COLORS.gray} />
+                    </View>
+                    <Text style={styles.uploadTitle}>Upload insurance card — front</Text>
+                    <Text style={styles.uploadSub}>PDF, PNG, JPG up to 10MB</Text>
+                  </>
+                )}
+              </AnimatedPressable>
+
+              <AnimatedPressable
+                style={[styles.uploadBox, insuranceBack && styles.uploadBoxDone]}
+                onPress={handlePickInsuranceBack}
+                scaleTo={0.98}
+              >
+                {insuranceBack ? (
+                  <>
+                    <View style={styles.uploadDoneIconWrap}>
+                      <Ionicons name="checkmark" size={24} color={COLORS.white} />
+                    </View>
+                    <Text style={styles.uploadDoneTitle}>Back uploaded</Text>
+                    <Text style={styles.uploadDoneText} numberOfLines={1}>
+                      {insuranceBack.name}
+                    </Text>
+                    <Text style={styles.uploadChangeText}>Tap to change</Text>
+                  </>
+                ) : (
+                  <>
+                    <View style={styles.uploadIconWrap}>
+                      <Ionicons name="card-outline" size={22} color={COLORS.gray} />
+                    </View>
+                    <Text style={styles.uploadTitle}>Upload insurance card — back</Text>
+                    <Text style={styles.uploadSub}>PDF, PNG, JPG up to 10MB</Text>
+                  </>
+                )}
+              </AnimatedPressable>
+            </View>
           </FadeInUp>
         )}
 
@@ -655,6 +794,9 @@ export default function BookMobileVisitScreen({ navigation, route }) {
               dynamicFeesTotal: Number(preview.dynamicFees?.total) || 0,
               doctorOrder,
               prescriptionFile,
+              insurance,
+              insuranceFront,
+              insuranceBack,
             });
            } catch (err) {
              console.error(err);

@@ -12,12 +12,13 @@ import {
 import { Ionicons } from '@expo/vector-icons'; 
 import { PHLEB_ENDPOINTS } from '../config/api';
 import * as SecureStore from 'expo-secure-store';
+import { getStoredPhlebUser } from '../utils/auth';
 
 const PHLEB_TOKEN_KEY = 'musb_phleb_token';
 const PRIMARY = '#18377D';
 const GREEN = '#1B7A4D';
 const RED = '#C0392B';
-const TIMER_SECONDS = 120; // 2 minutes
+const TIMER_SECONDS = 300; // 2 minutes
 
 export default function NewRequestScreen({ route, navigation }) {
   const { request } = route.params || {};
@@ -45,19 +46,19 @@ export default function NewRequestScreen({ route, navigation }) {
     }).start();
 
     intervalRef.current = setInterval(() => {
-      setSecondsLeft((prev) => {
-        if (prev <= 1) {
-          clearInterval(intervalRef.current);
-          // Timer expired with no response — request passes to next phlebotomist
-          navigation.goBack();
-          return 0;
-        }
-        return prev - 1;
-      });
+      setSecondsLeft((prev) => (prev <= 1 ? 0 : prev - 1));
     }, 1000);
 
     return () => clearInterval(intervalRef.current);
   }, []);
+
+  // Separate effect: react to the timer hitting zero, outside the render/update cycle
+  useEffect(() => {
+    if (secondsLeft === 0) {
+      clearInterval(intervalRef.current);
+      navigation.goBack();
+    }
+  }, [secondsLeft]);
 
   const formatTime = (totalSeconds) => {
     const m = Math.floor(totalSeconds / 60);
@@ -106,8 +107,25 @@ export default function NewRequestScreen({ route, navigation }) {
       setSubmitting(false);
       navigation.goBack();
       return;
+    } 
+     const phlebUser = await getStoredPhlebUser();
+    let fullJob = null;
+    if (phlebUser?.id) {
+      const jobsRes = await fetch(PHLEB_ENDPOINTS.phlebJobs(phlebUser.id), {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const jobsData = await jobsRes.json();
+      console.log('PHLEB JOBS RESPONSE:', JSON.stringify(jobsData, null, 2));
+      const jobsList = Array.isArray(jobsData) ? jobsData : jobsData?.jobs || [];
+      fullJob = jobsList.find((j) => String(j.id) === String(job.id)) || jobsList[0];
     }
-    navigation.navigate('JobAccepted', { job });
+    const detailRes = await fetch(PHLEB_ENDPOINTS.testChecklist(job.id), {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const detailData = await detailRes.json();
+    console.log('TEST CHECKLIST RESPONSE:', JSON.stringify(detailData, null, 2));
+
+    navigation.navigate('JobAccepted', { job: fullJob || job });
   } catch (err) {
     Alert.alert('Error', 'Could not accept the job. Please check your connection.');
     setSubmitting(false);

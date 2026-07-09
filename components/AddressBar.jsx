@@ -29,6 +29,7 @@ export default function AddressBar({ value, onChange }) {
   const [manualAddress, setManualAddress] = useState(value || '');
   const [loading, setLoading] = useState(false);
   const [manualZip, setManualZip] = useState('');
+  const [zipError, setZipError] = useState('');
 
   // Keep internal draft in sync if the parent's value changes externally
   // (e.g. on remount, or if address is set from another screen/source)
@@ -88,18 +89,22 @@ export default function AddressBar({ value, onChange }) {
   };
 
   const handleSaveManual = () => {
-    if (manualAddress.trim()) {
-      onChange({
+    if (!manualAddress.trim()) {
+      Alert.alert('Enter Address', 'Please enter a valid address.');
+      return;
+    }
+    if (!manualZip.trim()) {
+      setZipError('Zip / PIN code is required');
+      return;
+    }
+    onChange({
       address: manualAddress.trim(),
       latitude: null,
       longitude: null,
       useGps: false,
       zipCode: manualZip.trim(),
     });
-      setShowModal(false);
-    } else {
-      Alert.alert('Enter Address', 'Please enter a valid address.');
-    }
+    setShowModal(false);
   };
 
   return (
@@ -174,15 +179,23 @@ export default function AddressBar({ value, onChange }) {
               numberOfLines={2}
               autoFocus
             />
-            <Text style={styles.inputLabel}>Zip / PIN code</Text>
+            <Text style={styles.inputLabel}>
+              Zip / PIN code <Text style={styles.required}>*</Text>
+            </Text>
             <TextInput
-              style={[styles.input, { marginBottom: 20 }]}
+              style={[
+                styles.input,
+                zipError ? styles.inputError : null,
+                { marginBottom: zipError ? 6 : 20 },
+              ]}
               value={manualZip}
-              onChangeText={setManualZip}
-              placeholder="e.g. 801503"
+              onChangeText={(t) => { setManualZip(t); if (zipError) setZipError(''); }}
+              placeholder="e.g. 12345"
               placeholderTextColor={COLORS.gray}
               keyboardType="number-pad"
-            />     
+              maxLength={10}
+            />
+            {zipError ? <Text style={styles.errorText}>⚠ {zipError}</Text> : null}
 
             {/* Note about Google Places */}
             <View style={styles.noteBanner}>
@@ -306,6 +319,10 @@ const styles = StyleSheet.create({
     color: COLORS.navyDark,
     marginBottom: 8,
   },
+  required: {
+    color: COLORS.error,
+    fontSize: 13,
+  },
   input: {
     borderWidth: 1.5,
     borderColor: COLORS.border,
@@ -316,6 +333,16 @@ const styles = StyleSheet.create({
     color: COLORS.navyDark,
     marginBottom: 14,
     lineHeight: 22,
+  },
+  inputError: {
+    borderColor: COLORS.error,
+    backgroundColor: '#FFF0F1',
+  },
+  errorText: {
+    color: COLORS.error,
+    fontSize: 12,
+    marginBottom: 14,
+    fontWeight: '500',
   },
 
   // Note Banner

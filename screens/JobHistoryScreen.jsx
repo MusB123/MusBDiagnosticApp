@@ -469,15 +469,7 @@ export default function JobHistoryScreen({ navigation }) {
 
         <TouchableOpacity
           style={styles.navItem}
-          onPress={() => navigation && navigation.navigate('Earnings')}
-        >
-          <Ionicons name="bar-chart-outline" size={22} color={GRAY} />
-          <Text style={styles.navLabel}>Earnings</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.navItem}
-          onPress={() => navigation && navigation.navigate('Profile')}
+          onPress={() => navigation && navigation.navigate('PhlebProfile')}
         >
           <Ionicons name="person-outline" size={22} color={GRAY} />
           <Text style={styles.navLabel}>Profile</Text>
