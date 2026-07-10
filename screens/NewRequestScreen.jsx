@@ -52,11 +52,13 @@ export default function NewRequestScreen({ route, navigation }) {
     return () => clearInterval(intervalRef.current);
   }, []);
 
-  // Separate effect: react to the timer hitting zero, outside the render/update cycle
+  // Separate effect: react to the timer hitting zero, outside the render/update cycle.
+  // Timer expiry should NOT decline the job — it just leaves the phlebotomist's
+  // screen and returns them to the Dashboard, where the pending request still shows.
   useEffect(() => {
     if (secondsLeft === 0) {
       clearInterval(intervalRef.current);
-      navigation.goBack();
+      navigation.navigate('Dashboard');
     }
   }, [secondsLeft]);
 
@@ -64,6 +66,15 @@ export default function NewRequestScreen({ route, navigation }) {
     const m = Math.floor(totalSeconds / 60);
     const s = totalSeconds % 60;
     return `${m}:${s.toString().padStart(2, '0')}`;
+  };
+
+  // Manual back button — just leave this screen and go to the Dashboard.
+  // This is NOT a decline: no API call, the request stays active/pending
+  // and keeps showing up on the Dashboard.
+  const handleGoBack = () => {
+    if (submitting) return;
+    clearInterval(intervalRef.current);
+    navigation.navigate('PhlebDashboard');
   };
 
   const handleDecline = async () => {
@@ -140,6 +151,15 @@ export default function NewRequestScreen({ route, navigation }) {
 
       {/* Top banner with timer */}
       <View style={styles.timerBanner}>
+        <TouchableOpacity
+          style={styles.backButton}
+          activeOpacity={0.8}
+          onPress={handleGoBack}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
+          <Ionicons name="arrow-back" size={22} color="#FFFFFF" />
+        </TouchableOpacity>
+
         <Text style={styles.timerLabel}>New collection request</Text>
         <Text style={styles.timerSubLabel}>Respond within</Text>
 
@@ -248,6 +268,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderBottomLeftRadius: 28,
     borderBottomRightRadius: 28,
+  },
+
+  backButton: {
+    position: 'absolute',
+    top: TOP_PADDING,
+    left: 16,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 10,
   },
 
   timerLabel: {

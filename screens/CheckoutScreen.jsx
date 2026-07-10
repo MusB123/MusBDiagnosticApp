@@ -435,17 +435,22 @@ export default function CheckoutScreen({ navigation, route }) {
                   <Text style={styles.summarySectionLabel}>Lab Tests</Text>
                 </FadeInUp>
                 {route?.params?.selectedTests?.length > 0 ? (
-                  route.params.selectedTests.map((test, i) => (
+                  route.params.selectedTests.map((test, i) => {
+                   const hasDiscount = test.discountPrice != null && test.discountPrice < test.price;
+                   const displayPrice = hasDiscount ? test.discountPrice : test.price;
+                   return (
+
                     <SummaryRow
                       key={test.id ?? i}
                       icon="flask"
                       iconColor={COLORS.purple}
                       iconBg={COLORS.purpleLight}
                       label={test.name}
-                      value={`$${test.price.toFixed(0)}`}
+                      value={`$${displayPrice.toFixed(0)}`}
                       delay={100 + i * 40}
                     />
-                  ))
+                  );
+                })
                 ) : (
                   <SummaryRow
                     icon="flask"

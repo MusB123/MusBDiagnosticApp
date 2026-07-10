@@ -20,7 +20,7 @@ import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import { PHLEB_ENDPOINTS } from '../config/api';
-import { authGet, authPut, uploadDocument } from '../utils/auth';
+import { authGet, authPut, uploadDocument, logout } from '../utils/auth';
 
 const PRIMARY   = '#18377D';
 const PRIMARY_D = '#0F2557';
@@ -31,6 +31,13 @@ const RED       = '#EF4444';
 const GRAY      = '#9CA3AF';
 const BG        = '#F6F8FC';
 const CARD_BG   = '#FFFFFF';
+
+// ─── Support contact ────────────────────────────────────────────────────────
+// 👉 EDIT THIS: once you have a real admin/technician inbox (e.g. a Gmail
+// address), just replace the string below. The "Need Help?" card, the
+// mailto link, and the pre-filled subject/body are already wired up —
+// nothing else needs to change.
+const SUPPORT_EMAIL = 'support@yourdomain.com';
 
 // ─── Document definitions ────────────────────────────────────────────────────
 // IDs must exactly match the keys stored in Mongo under phlebotomist.docs
@@ -191,6 +198,7 @@ function StatusPill({ uploaded, uploading }) {
    Modern animated bottom tab bar
    - floating pill container
    - active tab gets a sliding highlight + icon bounce
+   - icon sits inside its own centered box, label centered below it
 ──────────────────────────────────────────────────────────── */
 function BottomTabBar({ activeKey, onNavigate }) {
   const containerWidth = Dimensions.get('window').width - 40; // matches horizontal margin
@@ -236,17 +244,19 @@ function BottomTabBar({ activeKey, onNavigate }) {
           return (
             <TouchableOpacity
               key={item.key}
-              style={styles.tabItem}
+              style={[styles.tabItem, { width: tabWidth }]}
               activeOpacity={0.8}
               onPress={() => onNavigate(item.key)}
             >
-              <Animated.View style={{ transform: [{ scale: bounceAnims[idx] }], alignItems: 'center' }}>
-                <Ionicons
-                  name={isActive ? item.iconActive : item.icon}
-                  size={20}
-                  color={isActive ? PRIMARY : GRAY}
-                />
-                <Text style={[styles.tabLabel, isActive && styles.tabLabelActive]}>
+              <Animated.View style={{ transform: [{ scale: bounceAnims[idx] }], alignItems: 'center', justifyContent: 'center' }}>
+                <View style={[styles.tabIconBox, isActive && styles.tabIconBoxActive]}>
+                  <Ionicons
+                    name={isActive ? item.iconActive : item.icon}
+                    size={19}
+                    color={isActive ? PRIMARY : GRAY}
+                  />
+                </View>
+                <Text style={[styles.tabLabel, isActive && styles.tabLabelActive]} numberOfLines={1}>
                   {item.label}
                 </Text>
               </Animated.View>
@@ -499,6 +509,60 @@ export default function ProfileScreen({ navigation, route }) {
     ]);
   };
 
+  // ── Contact support ────────────────────────────────────────────────────
+  // Opens the device's mail app with SUPPORT_EMAIL pre-filled. Update the
+  // SUPPORT_EMAIL constant near the top of this file whenever the real
+  // admin/technician address is ready — nothing here needs to change.
+  const handleContactSupport = async () => {
+    const subject = encodeURIComponent(`Support request — ${specialistId}`);
+    const body = encodeURIComponent(
+      `Hi,\n\nI need help with my account.\n\nName: ${fullName || '-'}\nSpecialist ID: ${specialistId}\n\n(Describe your issue here)`
+    );
+    const url = `mailto:${SUPPORT_EMAIL}?subject=${subject}&body=${body}`;
+    try {
+      const supported = await Linking.canOpenURL(url);
+      if (supported) {
+        await Linking.openURL(url);
+      } else {
+        Alert.alert('No mail app found', `Please email us directly at ${SUPPORT_EMAIL}`);
+      }
+    } catch (e) {
+      Alert.alert('Could not open mail app', `Please email us directly at ${SUPPORT_EMAIL}`);
+    }
+  };
+
+  // ── Log out ─────────────────────────────────────────────────────────────
+  // 👉 Adjust this to match how your app actually clears auth state.
+  // It assumes `utils/auth` exports a `logout()` helper that clears the
+  // stored token; if yours is named differently (or you store the token
+  // yourself via AsyncStorage), swap the call inside the try block.
+  const [loggingOut, setLoggingOut] = useState(false);
+  const handleLogout = () => {
+    Alert.alert('Log out', 'Are you sure you want to log out?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Log out',
+        style: 'destructive',
+        onPress: async () => {
+          setLoggingOut(true);
+          try {
+            if (typeof logout === 'function') {
+              await logout();
+            }
+          } catch (e) {
+            // even if the API call fails, still clear local nav state below
+          } finally {
+            setLoggingOut(false);
+            navigation?.reset({
+              index: 0,
+              routes: [{ name: 'Login' }],
+            });
+          }
+        },
+      },
+    ]);
+  };
+
   const initials = fullName
     .split(' ').map((w) => w[0]).join('').substring(0, 2).toUpperCase() || '?';
 
@@ -663,6 +727,55 @@ export default function ProfileScreen({ navigation, route }) {
 
           <Text style={styles.removeHint}>Long-press an uploaded document to remove it locally · Tap it to view</Text>
         </FadeInUp>
+
+        {/* ── Need Help? ── */}
+        <FadeInUp delay={560}>
+          <View style={[styles.sectionHeader, { marginTop: 28 }]}>
+            <Ionicons name="help-buoy-outline" size={18} color={PRIMARY} />
+            <Text style={styles.sectionTitle}>Need Help?</Text>
+          </View>
+
+          <View style={styles.helpCard}>
+            <View style={styles.helpIconWrap}>
+              <Ionicons name="mail-outline" size={22} color={PRIMARY} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.helpTitle}>Email support</Text>
+              <Text style={styles.helpSubtitle}>
+                Having an issue or a question? Send our admin or a technician an email
+                and we'll get back to you.
+              </Text>
+            </View>
+          </View>
+
+          <AnimatedPressable
+            style={styles.helpBtn}
+            scaleTo={0.97}
+            onPress={handleContactSupport}
+          >
+            <Ionicons name="send-outline" size={16} color="#FFF" />
+            <Text style={styles.helpBtnText}>Email Support</Text>
+          </AnimatedPressable>
+        </FadeInUp>
+
+        {/* ── Log out ── */}
+        <FadeInUp delay={600}>
+          <AnimatedPressable
+            style={[styles.logoutBtn, loggingOut && { opacity: 0.7 }]}
+            scaleTo={0.97}
+            onPress={handleLogout}
+            disabled={loggingOut}
+          >
+            {loggingOut
+              ? <ActivityIndicator color={RED} size="small" />
+              : (
+                <>
+                  <Ionicons name="log-out-outline" size={18} color={RED} />
+                  <Text style={styles.logoutBtnText}>Log Out</Text>
+                </>
+              )}
+          </AnimatedPressable>
+        </FadeInUp>
       </ScrollView>
 
       {/* ── Bottom Nav (Home / History / Profile only) ── */}
@@ -805,6 +918,45 @@ const styles = StyleSheet.create({
 
   removeHint: { textAlign: 'center', fontSize: 11, color: '#C4CAD4', marginTop: 10 },
 
+  // ── Need Help card ──
+  helpCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    backgroundColor: CARD_BG,
+    borderRadius: 20,
+    padding: 16,
+    shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 }, elevation: 2,
+    marginBottom: 12,
+  },
+  helpIconWrap: {
+    width: 44, height: 44, borderRadius: 14,
+    backgroundColor: '#EEF2FF',
+    justifyContent: 'center', alignItems: 'center',
+  },
+  helpTitle: { fontSize: 14, fontWeight: '700', color: '#111827', marginBottom: 4 },
+  helpSubtitle: { fontSize: 12, color: GRAY, lineHeight: 17 },
+  helpBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 8,
+    backgroundColor: PRIMARY,
+    borderRadius: 16, paddingVertical: 15,
+    shadowColor: PRIMARY, shadowOpacity: 0.25, shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 }, elevation: 4,
+  },
+  helpBtnText: { fontSize: 14, fontWeight: '700', color: '#FFFFFF' },
+
+  logoutBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#FEF2F2',
+    borderRadius: 16, paddingVertical: 15,
+    borderWidth: 1.5, borderColor: '#FCA5A5',
+    marginTop: 24,
+  },
+  logoutBtnText: { fontSize: 14, fontWeight: '700', color: RED },
+
   // ── Modern floating pill tab bar ──
   tabBarWrap: {
     position: 'absolute',
@@ -831,16 +983,25 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 6,
     left: 0,
-    height: 44,
+    height: 52,
     borderRadius: 18,
     backgroundColor: '#EEF2FF',
   },
   tabItem: {
-    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 8,
+    paddingVertical: 6,
   },
-  tabLabel: { fontSize: 11, color: GRAY, fontWeight: '600', marginTop: 3 },
+  tabIconBox: {
+    width: 32,
+    height: 24,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tabIconBoxActive: {
+    // active icon sits on the sliding highlight, no extra bg needed here
+  },
+  tabLabel: { fontSize: 11, color: GRAY, fontWeight: '600', marginTop: 3, textAlign: 'center' },
   tabLabelActive: { color: PRIMARY, fontWeight: '800' },
 });

@@ -166,7 +166,7 @@ export default function JobAcceptedScreen({ route, navigation }) {
 
       <View style={styles.header}>
         <TouchableOpacity
-          onPress={() => navigation.navigate('Dashboard')}
+          onPress={() => navigation.navigate('PhlebDashboard')}
           style={styles.backBtn}
           activeOpacity={0.8}
         >

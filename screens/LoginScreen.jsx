@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Path, Circle, Line } from 'react-native-svg';
+import * as AuthSession from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
 import * as Google from 'expo-auth-session/providers/google';
 
@@ -326,11 +327,10 @@ export default function LoginScreen({ navigation }) {
   // too, reuse the same segmented-control pattern as ForgotPasswordModal.
   const [request, response, promptAsync] = Google.useAuthRequest({
     webClientId: '591181560891-jm09fm75b83t82f2daqpiqocfoq2899a.apps.googleusercontent.com',
-   
-    androidClientId: 'YOUR_ANDROID_CLIENT_ID.apps.googleusercontent.com',
-
-    iosClientId: 'YOUR_IOS_CLIENT_ID.apps.googleusercontent.com',
-   });
+    androidClientId: '591181560891-jm09fm75b83t82f2daqpiqocfoq2899a.apps.googleusercontent.com',
+    iosClientId: '591181560891-jm09fm75b83t82f2daqpiqocfoq2899a.apps.googleusercontent.com',
+    redirectUri: AuthSession.makeRedirectUri({ useProxy: true }),
+  });
 
   useEffect(() => {
     const handleGoogleResponse = async () => {

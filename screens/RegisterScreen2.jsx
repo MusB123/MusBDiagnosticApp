@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
 import * as FileSystem from 'expo-file-system/legacy';
 
 import {
@@ -15,6 +16,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons'; // swap for your icon lib if different
 import { uploadDocument } from '../utils/auth';
 
 // ---- Document config (single source of truth) ----
@@ -127,11 +129,12 @@ export default function RegisterStep2({ navigation, route }) {
         setPendingUpload({
          key,
          fileName: asset.fileName || shortName(asset.uri),
-         base64: asset.base64,
+         base64: compressed.base64,
          uri: compressed.uri,
         isPdf: false,
       });
     } catch (err) {
+      console.log(err);
       Alert.alert('Could not process photo', 'Please try taking the photo again.');
     }
    }
@@ -158,6 +161,7 @@ export default function RegisterStep2({ navigation, route }) {
         isPdf: false,
       });
       } catch (err) {
+         console.log(err);
          Alert.alert('Could not process photo', 'Please try picking the photo again.');
       }
    }; 
@@ -311,6 +315,15 @@ export default function RegisterStep2({ navigation, route }) {
         contentContainerStyle={{ paddingBottom: 40 }}
         showsVerticalScrollIndicator={false}
       >
+        {/* Back button */}
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => navigation.goBack()}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
+          <Ionicons name="arrow-back" size={22} color="#0D2156" />
+        </TouchableOpacity>
+
         {/* Header */}
         <View style={styles.header}>
           <View style={styles.logoBox}>
@@ -401,6 +414,23 @@ const styles = StyleSheet.create({
     backgroundColor: '#F5F6FA',
     paddingHorizontal: 20,
     paddingTop: 12,
+  },
+
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#E8EAF0',
+    shadowColor: '#0D2156',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 1,
   },
 
   header: {

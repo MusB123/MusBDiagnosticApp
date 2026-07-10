@@ -6,6 +6,7 @@ import {
 import MapView, { Marker, Circle, PROVIDER_DEFAULT } from 'react-native-maps';
 import * as Location from 'expo-location';
 import * as SecureStore from 'expo-secure-store';
+import { Ionicons } from '@expo/vector-icons';
 import { PHLEB_ENDPOINTS } from '../config/api';
 
 const PRIMARY = '#18377D';
@@ -350,6 +351,14 @@ export default function MapScreen({ route, navigation }) {
       {/* ── Top bar ── */}
       <View style={[styles.topBar, { paddingTop: TOP_PADDING }]}>
         <View style={styles.topBarInner}>
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => navigation.goBack()}
+            activeOpacity={0.8}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Ionicons name="arrow-back" size={20} color="#FFFFFF" />
+          </TouchableOpacity>
           <View style={styles.topLeft}>
             <View style={styles.headerAvatar}>
               <Text style={styles.headerAvatarText}>{initials || 'MW'}</Text>
@@ -501,7 +510,8 @@ const styles = StyleSheet.create({
   outer: { flex: 1, backgroundColor: '#E8F0E9' },
 
   topBar: { position: 'absolute', top: 0, left: 0, right: 0, paddingHorizontal: 16, paddingBottom: 12 },
-  topBarInner: { flexDirection: 'row', alignItems: 'center', backgroundColor: GREEN, borderRadius: 18, paddingVertical: 12, paddingHorizontal: 14, elevation: 6 },
+  topBarInner: { flexDirection: 'row', alignItems: 'center', backgroundColor: GREEN, borderRadius: 18, paddingVertical: 12, paddingHorizontal: 14, elevation: 6, gap: 10 },
+  backButton: { width: 34, height: 34, borderRadius: 17, backgroundColor: 'rgba(255,255,255,0.18)', borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.45)', alignItems: 'center', justifyContent: 'center' },
   topLeft: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 },
   headerAvatar: { width: 42, height: 42, borderRadius: 21, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.4)' },
   headerAvatarText: { color: '#FFFFFF', fontWeight: '800', fontSize: 15 },

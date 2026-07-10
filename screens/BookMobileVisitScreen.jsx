@@ -656,7 +656,10 @@ export default function BookMobileVisitScreen({ navigation, route }) {
               <>
                 <View style={styles.labDivider} />
                 <View style={styles.labBody}>
-                  {selectedTests.map((test, i) => (
+                  {selectedTests.map((test, i) => {
+                   const hasDiscount =
+                    test.discountPrice != null && test.discountPrice < test.price;
+                   return (
                     <FadeInUp key={test.id ?? i} delay={i * 50} distance={8}>
                       <View style={styles.testPill}>
                         <View style={styles.testPillLeft}>
@@ -665,10 +668,22 @@ export default function BookMobileVisitScreen({ navigation, route }) {
                             {test.name}
                           </Text>
                         </View>
-                        <Text style={styles.testPillPrice}>${test.price.toFixed(0)}</Text>
+                        {hasDiscount ? (
+                          <View style={styles.testPillPriceRow}>
+                            <Text style={styles.testPillStrikePrice}>
+                              ${test.price.toFixed(0)}
+                            </Text>
+                            <Text style={[styles.testPillPrice, styles.testPillDiscountPrice]}>
+                              ${test.discountPrice.toFixed(0)}
+                            </Text>
+                          </View>
+                        ) : (       
+                           <Text style={styles.testPillPrice}>${test.price.toFixed(0)}</Text>
+                          )}
                       </View>
                     </FadeInUp>
-                  ))}
+                    );
+                   })}
                   <View style={styles.testsTotalRow}>
                     <Text style={styles.testsTotalLabel}>Tests subtotal</Text>
                     <Text style={styles.testsTotalValue}>${testsTotal.toFixed(0)}</Text>
@@ -1105,7 +1120,16 @@ const styles = StyleSheet.create({
     borderTopColor: COLORS.lightGray,
     paddingTop: 10,
     marginTop: 4,
+    
   },
+  testPillPriceRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  testPillStrikePrice: {
+    fontSize: 12,
+    color: COLORS.gray,
+    textDecorationLine: 'line-through',
+  },
+  testPillDiscountPrice: { color: COLORS.green },
+
   testsTotalLabel: { fontSize: 13, fontWeight: '700', color: COLORS.bodyText },
   testsTotalValue: { fontSize: 16, fontWeight: '900', color: COLORS.navy },
   selectTestsBtn: {

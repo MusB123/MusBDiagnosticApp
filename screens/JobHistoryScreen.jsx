@@ -13,22 +13,34 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import { PHLEB_ENDPOINTS } from '../config/api';
-import { authGet } from '../utils/auth';
+import { authGet, getStoredPhlebUser } from '../utils/auth';
 
 /* ────────────────────────────────────────────────────────────
    NOTE ON BACKEND WIRING
-   This screen expects two endpoints on PHLEB_ENDPOINTS:
-     - PHLEB_ENDPOINTS.jobHistory  → GET, returns { jobs: [...] } or [...]
-     - PHLEB_ENDPOINTS.payout      → GET, returns { amount, date, account }
-   If your config/api.js uses different key names, just rename the two
-   references below (search for "PHLEB_ENDPOINTS.jobHistory" and
-   "PHLEB_ENDPOINTS.payout") — nothing else needs to change.
+   Job history: comes from PHLEB_ENDPOINTS.phlebJobs(phlebId) —
+   GET /api/phlebotomists/<id>/jobs/ (views.phlebotomist_jobs). This is a
+   real, working endpoint. It needs the phlebotomist's own ID in the URL,
+   which we pull from getStoredPhlebUser() below (same pattern used on
+   NewRequestScreen / DashboardScreen).
 
-   Expected shape per job item (adjust field names in `normalizeJob`
-   below if your API returns different keys):
-     { id, patient_name, location, date, tests, earned, status, date_iso }
-   status: 'completed' | 'expired' | 'pending'
+   Payout: THERE IS NO BACKEND ENDPOINT FOR THIS YET. A `payouts` Mongo
+   collection exists and gets written to when a dispatch job completes
+   (dispatch.py complete_dispatch_job), but nothing reads it back for a
+   given phlebotomist. Until a real endpoint exists, this screen simply
+   skips the payout card instead of pointing at a URL that doesn't exist.
+   To wire it up later: add a Django view that sums this phlebotomist's
+   `payout_status: 'pending'` records from the payouts collection, add a
+   URL for it, then set PAYOUT_ENDPOINT below to that URL.
+
+   Expected shape per job item from phlebJobs (see normalizeJob):
+     { id, patient_name, address, tests, earning, status, date }
+   status: 'completed' | 'assigned' | 'pending'
+     (there is no 'expired' status from this endpoint currently)
 ──────────────────────────────────────────────────────────── */
+
+// Set this once a real payout endpoint exists, e.g. `${PHLEB_ENDPOINTS.dashboard}payout/`
+// or a dedicated PHLEB_ENDPOINTS.payout. Left null so the app doesn't call a dead URL.
+const PAYOUT_ENDPOINT = null;
 
 const PRIMARY   = '#18377D';
 const GREEN     = '#22C55E';
@@ -124,6 +136,7 @@ function StatusBadge({ status }) {
     completed: { label: 'Completed', color: GREEN, bg: '#DCFCE7' },
     expired: { label: 'Expired', color: RED, bg: '#FEE2E2' },
     pending: { label: 'Pending', color: AMBER, bg: '#FEF3C7' },
+    assigned: { label: 'In Progress', color: PRIMARY, bg: '#EEF2FF' },
   };
   const s = map[status] || map.completed;
   return (
@@ -219,6 +232,10 @@ function SkeletonCard() {
    Helpers
 ──────────────────────────────────────────────────────────── */
 
+// Maps a raw job from GET /api/phlebotomists/<id>/jobs/ (views.phlebotomist_jobs)
+// into the shape this screen renders. That endpoint returns:
+//   id, date, patient_name, patient_phone, address, tests, status,
+//   duration, earning, test_price, payment_method, has_order, has_insurance, ...
 function normalizeJob(raw) {
   return {
     id: String(raw.id ?? raw.job_id ?? Math.random()),
@@ -226,9 +243,12 @@ function normalizeJob(raw) {
     location: raw.location || raw.address || 'Unknown location',
     date: raw.date || raw.formatted_date || '',
     tests: raw.tests || raw.test_names || (raw.status === 'expired' ? 'No response, escalated to admin' : '—'),
-    earned: raw.earned ?? raw.amount_earned ?? null,
+    // phlebJobs returns the payout amount as `earning`, not `earned`/`amount_earned`.
+    earned: raw.earning ?? raw.earned ?? raw.amount_earned ?? null,
     status: raw.status || 'completed',
-    rawDate: raw.date_iso || raw.created_at || null,
+    // phlebJobs' `date` field is already a sliced 'YYYY-MM-DD' string — still
+    // parseable by `new Date(...)`, so it works fine as the filter date too.
+    rawDate: raw.date_iso || raw.created_at || raw.date || null,
   };
 }
 
@@ -266,10 +286,21 @@ export default function JobHistoryScreen({ navigation }) {
     if (isRefresh) setRefreshing(true);
     setError('');
     try {
-      const [historyRes, payoutRes] = await Promise.allSettled([
-        authGet(PHLEB_ENDPOINTS.jobHistory),
-        authGet(PHLEB_ENDPOINTS.payout),
-      ]);
+      const phlebUser = await getStoredPhlebUser();
+      const phlebId = phlebUser?.id || phlebUser?.user_id;
+
+      if (!phlebId) {
+        setError('Could not identify your account. Please log in again.');
+        setJobs([]);
+        setPending(null);
+        return;
+      }
+
+      const calls = [authGet(PHLEB_ENDPOINTS.phlebJobs(phlebId))];
+      // Only call the payout endpoint once one actually exists on the backend.
+      if (PAYOUT_ENDPOINT) calls.push(authGet(PAYOUT_ENDPOINT));
+
+      const [historyRes, payoutRes] = await Promise.allSettled(calls);
 
       if (historyRes.status === 'fulfilled') {
         const list = historyRes.value?.jobs || historyRes.value || [];
@@ -278,7 +309,7 @@ export default function JobHistoryScreen({ navigation }) {
         setError('Could not load job history.');
       }
 
-      if (payoutRes.status === 'fulfilled' && payoutRes.value) {
+      if (payoutRes && payoutRes.status === 'fulfilled' && payoutRes.value) {
         const p = payoutRes.value;
         setPending({
           amount: p.amount != null ? `$${Number(p.amount).toFixed(2)}` : '$0.00',
@@ -413,7 +444,7 @@ export default function JobHistoryScreen({ navigation }) {
           ))
         )}
 
-        {/* Pending Payout Card */}
+        {/* Pending Payout Card — only renders once a real payout endpoint exists */}
         {pending && (
           <FadeInUp delay={200 + filteredJobs.length * 50 + 60}>
             <View style={styles.pendingCard}>

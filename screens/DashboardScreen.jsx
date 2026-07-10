@@ -30,6 +30,14 @@ const getGreeting = () => {
   return 'Good evening,';
 };
 
+// Maps an active job's backend status to a short, human label for the card.
+const getActiveJobStatusLabel = (status) => {
+  const s = (status || '').toLowerCase();
+  if (s === 'arrived') return 'Arrived — verify PIN with patient';
+  if (s === 'in_progress' || s === 'collected') return 'Collection in progress';
+  return 'Accepted — head to patient';
+};
+
 /* ────────────────────────────────────────────────────────────
    Shared animation primitives (same pattern as HomeScreen)
 ──────────────────────────────────────────────────────────── */
@@ -176,6 +184,9 @@ export default function DashboardScreen({ route, navigation }) {
   const [loading, setLoading]   = useState(true);
   const [jobsDone, setJobsDone] = useState(0);
   const [earnedToday, setEarnedToday] = useState('$0.00');
+  // The phlebotomist's current in-progress job (accepted/arrived/collecting),
+  // if any — lets them resume the flow from wherever they left it.
+  const [activeJob, setActiveJob] = useState(null);
   const tokenRef = useRef(null);
   const pollRef  = useRef(null);
 
@@ -203,6 +214,8 @@ export default function DashboardScreen({ route, navigation }) {
   }, []);
 
   // Jobs done + today's earnings come from the dashboard metrics endpoint.
+  // This response also carries `active_case` — the phlebotomist's current
+  // assigned-but-not-completed job, if any — which powers the "resume" card.
   const fetchDashboard = async () => {
     try {
       const data = await authGet(PHLEB_ENDPOINTS.dashboard);
@@ -212,6 +225,13 @@ export default function DashboardScreen({ route, navigation }) {
       // Dashboard also carries the specialist's name — prefer it if present.
       const nameFromDashboard = data.full_name || data.fullName || data.name;
       if (nameFromDashboard) setFullName(nameFromDashboard);
+
+      const activeCase = data?.active_case;
+      if (activeCase && activeCase.id) {
+        setActiveJob(activeCase);
+      } else {
+        setActiveJob(null);
+      }
     } catch {
       // fail silently, keep last known data
     }
@@ -236,6 +256,20 @@ export default function DashboardScreen({ route, navigation }) {
   const handleHistory  = () => navigation.navigate('PhlebHistory', { fullName });
   const handleProfile  = () => navigation.navigate('PhlebProfile',    { fullName });
 
+  // Resume the active job at the right screen for its current status:
+  //   assigned              -> JobAccepted (patient details, navigate, "I've arrived")
+  //   arrived / collected /
+  //   in_progress           -> VerifyArrival (enter the PIN / continue collection)
+  const handleResumeActiveJob = () => {
+    if (!activeJob) return;
+    const status = (activeJob.status || '').toLowerCase();
+    if (status === 'arrived' || status === 'collected' || status === 'in_progress') {
+      navigation.navigate('VerifyArrival', { job: activeJob });
+    } else {
+      navigation.navigate('JobAccepted', { job: activeJob });
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView
@@ -252,6 +286,36 @@ export default function DashboardScreen({ route, navigation }) {
             <Text style={styles.name}>{fullName}</Text>
           </View>
         </FadeInUp>
+
+        {/* ── Active Job Card (resume in-progress job) ── */}
+        {activeJob && (
+          <FadeInUp delay={40}>
+            <AnimatedPressable
+              style={styles.activeJobCardTouchable}
+              scaleTo={0.97}
+              onPress={handleResumeActiveJob}
+            >
+              <View style={styles.activeJobCard}>
+                <View style={styles.activeJobIconWrap}>
+                  <Ionicons name="briefcase" size={20} color="#FFFFFF" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <View style={styles.activeJobTitleRow}>
+                    <Text style={styles.activeJobTitle}>Active job in progress</Text>
+                    <LiveDot color={GREEN} />
+                  </View>
+                  <Text style={styles.activeJobPatient} numberOfLines={1}>
+                    {activeJob.patient_name || activeJob.full_name || 'Patient'}
+                  </Text>
+                  <Text style={styles.activeJobSub} numberOfLines={1}>
+                    {getActiveJobStatusLabel(activeJob.status)}
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color="#FFFFFF" />
+              </View>
+            </AnimatedPressable>
+          </FadeInUp>
+        )}
 
         {/* ── Go Online Card ── */}
         <FadeInUp delay={90}>
@@ -393,6 +457,31 @@ const styles = StyleSheet.create({
   avatarText: { color: PRIMARY, fontSize: 17, fontWeight: '800' },
   greeting: { fontSize: 13, color: BODY_GRAY, fontWeight: '500' },
   name: { fontSize: 19, fontWeight: '800', color: '#111827', marginTop: 2 },
+
+  // ── Active Job card ──
+  activeJobCardTouchable: { marginHorizontal: 20, marginBottom: 16 },
+  activeJobCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: PRIMARY_D,
+    borderRadius: 18,
+    padding: 14,
+    gap: 12,
+    shadowColor: PRIMARY_D,
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
+  },
+  activeJobIconWrap: {
+    width: 42, height: 42, borderRadius: 13,
+    backgroundColor: 'rgba(255,255,255,0.16)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  activeJobTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  activeJobTitle: { fontSize: 11.5, fontWeight: '700', color: 'rgba(255,255,255,0.75)', letterSpacing: 0.3 },
+  activeJobPatient: { fontSize: 15, fontWeight: '800', color: '#FFFFFF', marginTop: 3 },
+  activeJobSub: { fontSize: 12.5, color: 'rgba(255,255,255,0.82)', marginTop: 2 },
 
   // ── Go Online card ──
   onlineCardTouchable: { marginHorizontal: 20 },

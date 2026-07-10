@@ -22,13 +22,31 @@ const GREEN = '#1B7A4D';
 const BG = '#F6F8FC';
 const PHLEB_TOKEN_KEY = 'musb_phleb_token';
 
+// Matches the 13-item "Required Specimen Collection Checklist" shown on the
+// web portal (musblabs.com/portal/phlebotomist/dashboard). Hardcoded here to
+// mirror web exactly — swap this for a backend-fetched template later.
 const INITIAL_CHECKLIST = [
-  { id: 'verify_id', label: 'Verify patient ID', done: true },
-  { id: 'confirm_order', label: 'Confirm physician order', done: true },
-  { id: 'cbc_tube', label: 'CBC tube collected', done: true },
-  { id: 'cmp_tube', label: 'CMP tube collected', done: true },
-  { id: 'hba1c_tube', label: 'HbA1c tube — pending', done: false },
-  { id: 'label_seal', label: 'Label & seal specimens', done: false },
+  { id: 'identity_verified', label: 'Patient identity verified via photo ID', done: false },
+  { id: 'dob_confirmed', label: 'Date of birth confirmed with patient', done: false },
+  { id: 'order_reviewed', label: 'Doctor order / lab requisition reviewed', done: false },
+  { id: 'tube_matched', label: 'Collection tube type matched to test protocol', done: false },
+  { id: 'consent_signed', label: 'Informed consent signed/obtained', done: false },
+  { id: 'patient_positioned', label: 'Patient positioned safely for draw', done: false },
+  { id: 'site_sanitized', label: 'Access site selected & sanitized', done: false },
+  { id: 'venipuncture_clean', label: 'Venipuncture performed cleanly', done: false },
+  { id: 'draw_order_correct', label: 'Correct order of draw followed', done: false },
+  { id: 'tube_labeled', label: 'Tube labeled with patient name at bedside', done: false },
+  { id: 'tube_inverted', label: 'Tube inverted properly for additives', done: false },
+  { id: 'bleeding_stopped', label: 'Bleeding stopped & site dressed', done: false },
+  { id: 'patient_stable', label: 'Patient confirmed stable & comfortable', done: false },
+];
+
+// Matches the "Storage Condition" selector on web. `key` is what gets sent
+// to the backend (submit_specimen_checklist expects Ambient/Refrigerated/Frozen).
+const STORAGE_OPTIONS = [
+  { key: 'Ambient', label: 'Ambient (Standard Room Temp)' },
+  { key: 'Refrigerated', label: 'Refrigerated (2–8°C)' },
+  { key: 'Frozen', label: 'Frozen (-20°C)' },
 ];
 
 const TOTAL_BARCODES = 3;
@@ -141,6 +159,8 @@ export default function CollectCompleteScreen({ route, navigation }) {
   const [notes, setNotes] = useState('');
   const [scannedBarcodes, setScannedBarcodes] = useState(0);
   const [submitting, setSubmitting] = useState(false);
+  const [storageCondition, setStorageCondition] = useState('Ambient');
+  const [collectorName, setCollectorName] = useState('');
 
   const toggleItem = (id) => {
     setChecklist((prev) =>
@@ -187,8 +207,8 @@ export default function CollectCompleteScreen({ route, navigation }) {
         },
         body: JSON.stringify({
           checklist: checklistPayload,
-          storage_condition: 'Ambient',
-          collector_name: '',
+          storage_condition: storageCondition,
+          collector_name: collectorName,
           notes,
         }),
       });
@@ -260,7 +280,10 @@ export default function CollectCompleteScreen({ route, navigation }) {
       >
         {/* Collection checklist */}
         <FadeInUp delay={0}>
-          <Text style={styles.sectionLabel}>Collection checklist</Text>
+          <Text style={styles.sectionLabel}>Required Specimen Collection Checklist</Text>
+          <Text style={styles.sectionSubLabel}>
+            All {checklist.length} checks must be verified before proceeding to 'Collected' status.
+          </Text>
           <View style={styles.card}>
             {checklist.map((item, idx) => (
               <TouchableOpacity
@@ -271,15 +294,51 @@ export default function CollectCompleteScreen({ route, navigation }) {
               >
                 <CheckCircle done={item.done} />
                 <Text style={[styles.checklistLabel, item.done && styles.checklistLabelDone]}>
-                  {item.label}
+                  {idx + 1}. {item.label}
                 </Text>
               </TouchableOpacity>
             ))}
           </View>
         </FadeInUp>
 
+        {/* Storage condition */}
+        <FadeInUp delay={60}>
+          <Text style={[styles.sectionLabel, { marginTop: 20 }]}>Storage condition</Text>
+          <View style={styles.storageRow}>
+            {STORAGE_OPTIONS.map((opt) => {
+              const selected = storageCondition === opt.key;
+              return (
+                <TouchableOpacity
+                  key={opt.key}
+                  style={[styles.storageChip, selected && styles.storageChipSelected]}
+                  activeOpacity={0.8}
+                  onPress={() => setStorageCondition(opt.key)}
+                >
+                  <Text style={[styles.storageChipText, selected && styles.storageChipTextSelected]}>
+                    {opt.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </FadeInUp>
+
+        {/* Collector name verification */}
+        <FadeInUp delay={100}>
+          <Text style={[styles.sectionLabel, { marginTop: 20 }]}>Collector name verification</Text>
+          <View style={styles.card}>
+            <TextInput
+              style={styles.collectorInput}
+              value={collectorName}
+              onChangeText={setCollectorName}
+              placeholder="Enter your full name"
+              placeholderTextColor="#9CA3AF"
+            />
+          </View>
+        </FadeInUp>
+
         {/* Collection notes */}
-        <FadeInUp delay={80}>
+        <FadeInUp delay={140}>
           <Text style={[styles.sectionLabel, { marginTop: 20 }]}>Collection notes</Text>
           <View style={styles.card}>
             <TextInput
@@ -295,7 +354,7 @@ export default function CollectCompleteScreen({ route, navigation }) {
         </FadeInUp>
 
         {/* Scan specimen barcodes */}
-        <FadeInUp delay={140}>
+        <FadeInUp delay={180}>
           <AnimatedPressable
             style={styles.scanCard}
             scaleTo={0.98}
@@ -394,7 +453,13 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '800',
     color: '#111827',
-    marginBottom: 10,
+    marginBottom: 6,
+  },
+
+  sectionSubLabel: {
+    fontSize: 12.5,
+    color: '#6B7280',
+    marginBottom: 14,
   },
 
   card: {
@@ -431,13 +496,48 @@ const styles = StyleSheet.create({
   },
 
   checklistLabel: {
-    fontSize: 14.5,
+    flex: 1,
+    fontSize: 14,
     fontWeight: '600',
     color: '#111827',
   },
 
   checklistLabelDone: {
     color: '#374151',
+  },
+
+  storageRow: {
+    gap: 10,
+  },
+
+  storageChip: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderWidth: 1.5,
+    borderColor: '#E5E7EB',
+  },
+
+  storageChipSelected: {
+    backgroundColor: PRIMARY,
+    borderColor: PRIMARY,
+  },
+
+  storageChipText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#111827',
+  },
+
+  storageChipTextSelected: {
+    color: '#FFFFFF',
+  },
+
+  collectorInput: {
+    fontSize: 14,
+    color: '#374151',
+    paddingVertical: 4,
   },
 
   notesInput: {

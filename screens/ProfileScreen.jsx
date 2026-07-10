@@ -36,6 +36,12 @@ const COLORS = {
 
 const GENDERS = ['Male', 'Female', 'Other', 'Prefer not to say'];
 
+// ── Support contact ─────────────────────────────────────────────────────────
+// 👉 EDIT THIS: once you have a real admin/technician inbox, replace the
+// string below. The "Need help?" row and the mailto link are already wired
+// up to it — nothing else needs to change.
+const SUPPORT_EMAIL = 'support@yourdomain.com';
+
 export default function ProfileScreen({ navigation }) {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -171,6 +177,25 @@ export default function ProfileScreen({ navigation }) {
         },
       },
     ]);
+  };
+
+  // ── Need help? ── opens the device mail app with SUPPORT_EMAIL pre-filled.
+  const handleNeedHelp = async () => {
+    const subject = encodeURIComponent('Support request');
+    const body = encodeURIComponent(
+      `Hi,\n\nI need help with my account.\n\nName: ${form.name || '-'}\nEmail: ${email || '-'}\n\n(Describe your issue here)`
+    );
+    const url = `mailto:${SUPPORT_EMAIL}?subject=${subject}&body=${body}`;
+    try {
+      const supported = await Linking.canOpenURL(url);
+      if (supported) {
+        await Linking.openURL(url);
+      } else {
+        Alert.alert('No mail app found', `Please email us directly at ${SUPPORT_EMAIL}`);
+      }
+    } catch (e) {
+      Alert.alert('Could not open mail app', `Please email us directly at ${SUPPORT_EMAIL}`);
+    }
   };
 
   if (loading) {
@@ -395,6 +420,20 @@ export default function ProfileScreen({ navigation }) {
                 </View>
               </View>
             )}
+          </>
+        )}
+
+        {/* Need help? */}
+        {!editing && (
+          <>
+            <Text style={styles.sectionLabel}>SUPPORT</Text>
+            <TouchableOpacity style={styles.linkRow} onPress={handleNeedHelp}>
+              <View style={styles.linkIconWrap}>
+                <Ionicons name="help-buoy-outline" size={20} color={COLORS.navy} />
+              </View>
+              <Text style={styles.linkText}>Need help?</Text>
+              <Ionicons name="chevron-forward" size={18} color={COLORS.gray} />
+            </TouchableOpacity>
           </>
         )}
 

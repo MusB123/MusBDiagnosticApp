@@ -13,9 +13,11 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.musb.diagnostics"
     },
     "android": {
+      "package": "com.musb.diagnostics",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
@@ -34,6 +36,12 @@
       ],
       "expo-secure-store",
       "expo-web-browser"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "fd2fae81-138e-4df4-ab5a-494a1a89d405"
+      }
+    },
+    "owner": "ins_lu3fer"
   }
 }

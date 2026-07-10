@@ -10,8 +10,11 @@ import {
   Linking,
   Alert,
   ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons'; // swap for your icon lib if different
 import { applyPhleb, uploadDocument } from '../utils/auth'; // adjust path if your folder structure differs
 
 const W9_FORM_URL = 'https://www.irs.gov/pub/irs-pdf/fw9.pdf';
@@ -144,135 +147,151 @@ export default function RegisterStep3({ navigation, route }) {
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView
-        contentContainerStyle={{ paddingBottom: 40 }}
-        showsVerticalScrollIndicator={false}
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
       >
-        {/* Header — same style as Register step 2 */}
-        <View style={styles.header}>
-          <View style={styles.logoBox}>
-            <Text style={styles.logoText}>MusB</Text>
-          </View>
-          <View style={styles.headerText}>
-            <Text style={styles.stepTitle}>Register — step 3{'\n'}of 3</Text>
-            <Text style={styles.stepSubtitle}>Payout & account details</Text>
-          </View>
-          <View style={styles.progressDots}>
-            <View style={styles.dot} />
-            <View style={styles.dot} />
-            <View style={[styles.dot, styles.dotActive]} />
-          </View>
-        </View>
-
-        <View style={styles.infoBox}>
-          <Text style={styles.infoText}>
-            Your earnings are paid directly to the account below on your payout schedule.
-          </Text>
-        </View>
-
-        <Text style={styles.label}>Bank name</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Citi Bank"
-          placeholderTextColor="#A9AFBC"
-          value={bankName}
-          onChangeText={setBankName}
-        />
-
-        <Text style={styles.label}>Account holder name</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Account holder name"
-          placeholderTextColor="#A9AFBC"
-          value={holderName}
-          onChangeText={setHolderName}
-        />
-
-        <Text style={styles.label}>Routing number</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="021000021"
-          placeholderTextColor="#A9AFBC"
-          value={routingNumber}
-          onChangeText={setRoutingNumber}
-          keyboardType="numeric"
-        />
-
-        <Text style={styles.label}>Account number</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="••••••4892"
-          placeholderTextColor="#A9AFBC"
-          value={accountNumber}
-          onChangeText={setAccountNumber}
-          keyboardType="numeric"
-        />
-
-        <View style={styles.paymentRow}>
-          <TouchableOpacity
-            style={[
-              styles.paymentButton,
-              method === 'bank' && styles.activeButton,
-            ]}
-            onPress={() => setMethod('bank')}
-          >
-            <Text style={styles.paymentText}>🏦 Bank transfer</Text>
-          </TouchableOpacity>
-        </View>
-
-
-        {/* W9 tax form */}
-        <Text style={styles.label}>W9 tax form</Text>
-        <View style={styles.w9Card}>
-          <View style={styles.w9Row}>
-            <View style={styles.w9IconBox}>
-              {w9File?.busy
-                ? <ActivityIndicator color="#1E9E5A" />
-                : <Text style={styles.w9IconText}>{w9File?.key ? '✓' : '📄'}</Text>}
-            </View>
-            <View style={{ flex: 1, marginRight: 8 }}>
-              <Text style={styles.w9Title}>
-                {w9File ? w9File.name : 'W9 form required'}
-              </Text>
-              <Text style={[styles.w9Subtitle, w9File?.key && { color: '#1E9E5A' }]}>
-                {w9File?.busy
-                  ? 'Uploading…'
-                  : w9File?.key
-                    ? 'Uploaded · tap to replace'
-                    : 'Download, fill it out, then upload below'}
-              </Text>
-            </View>
-            {w9File?.key && (
-              <View style={styles.w9Badge}>
-                <Text style={styles.w9BadgeText}>Done</Text>
-              </View>
-            )}
-          </View>
-
-          <View style={styles.w9ButtonRow}>
-            <TouchableOpacity style={styles.w9SecondaryButton} onPress={handleDownloadW9}>
-              <Text style={styles.w9SecondaryButtonText}>Download W9 form</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.w9PrimaryButton} onPress={handleUploadW9} disabled={w9File?.busy}>
-              <Text style={styles.w9PrimaryButtonText}>
-                {w9File?.key ? 'Replace upload' : 'Upload filled form'}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        <TouchableOpacity
-          style={[styles.continueButton, submitting && { opacity: 0.7 }]}
-          onPress={handleFinish}
-          disabled={submitting}
+        <ScrollView
+          contentContainerStyle={{ paddingBottom: 40 }}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
         >
-          {submitting ? (
-            <ActivityIndicator color="#FFFFFF" />
-          ) : (
-            <Text style={styles.continueText}>Finish Registration</Text>
-          )}
-        </TouchableOpacity>
-      </ScrollView>
+          {/* Back button */}
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => navigation.goBack()}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Ionicons name="arrow-back" size={22} color="#0D2156" />
+          </TouchableOpacity>
+
+          {/* Header — same style as Register step 2 */}
+          <View style={styles.header}>
+            <View style={styles.logoBox}>
+              <Text style={styles.logoText}>MusB</Text>
+            </View>
+            <View style={styles.headerText}>
+              <Text style={styles.stepTitle}>Register — step 3{'\n'}of 3</Text>
+              <Text style={styles.stepSubtitle}>Payout & account details</Text>
+            </View>
+            <View style={styles.progressDots}>
+              <View style={styles.dot} />
+              <View style={styles.dot} />
+              <View style={[styles.dot, styles.dotActive]} />
+            </View>
+          </View>
+
+          <View style={styles.infoBox}>
+            <Text style={styles.infoText}>
+              Your earnings are paid directly to the account below on your payout schedule.
+            </Text>
+          </View>
+
+          <Text style={styles.label}>Bank name</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Citi Bank"
+            placeholderTextColor="#A9AFBC"
+            value={bankName}
+            onChangeText={setBankName}
+          />
+
+          <Text style={styles.label}>Account holder name</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Account holder name"
+            placeholderTextColor="#A9AFBC"
+            value={holderName}
+            onChangeText={setHolderName}
+          />
+
+          <Text style={styles.label}>Routing number</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="021000021"
+            placeholderTextColor="#A9AFBC"
+            value={routingNumber}
+            onChangeText={setRoutingNumber}
+            keyboardType="numeric"
+          />
+
+          <Text style={styles.label}>Account number</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="••••••4892"
+            placeholderTextColor="#A9AFBC"
+            value={accountNumber}
+            onChangeText={setAccountNumber}
+            keyboardType="numeric"
+          />
+
+          <View style={styles.paymentRow}>
+            <TouchableOpacity
+              style={[
+                styles.paymentButton,
+                method === 'bank' && styles.activeButton,
+              ]}
+              onPress={() => setMethod('bank')}
+            >
+              <Text style={styles.paymentText}>🏦 Bank transfer</Text>
+            </TouchableOpacity>
+          </View>
+
+
+          {/* W9 tax form */}
+          <Text style={styles.label}>W9 tax form</Text>
+          <View style={styles.w9Card}>
+            <View style={styles.w9Row}>
+              <View style={styles.w9IconBox}>
+                {w9File?.busy
+                  ? <ActivityIndicator color="#1E9E5A" />
+                  : <Text style={styles.w9IconText}>{w9File?.key ? '✓' : '📄'}</Text>}
+              </View>
+              <View style={{ flex: 1, marginRight: 8 }}>
+                <Text style={styles.w9Title}>
+                  {w9File ? w9File.name : 'W9 form required'}
+                </Text>
+                <Text style={[styles.w9Subtitle, w9File?.key && { color: '#1E9E5A' }]}>
+                  {w9File?.busy
+                    ? 'Uploading…'
+                    : w9File?.key
+                      ? 'Uploaded · tap to replace'
+                      : 'Download, fill it out, then upload below'}
+                </Text>
+              </View>
+              {w9File?.key && (
+                <View style={styles.w9Badge}>
+                  <Text style={styles.w9BadgeText}>Done</Text>
+                </View>
+              )}
+            </View>
+
+            <View style={styles.w9ButtonRow}>
+              <TouchableOpacity style={styles.w9SecondaryButton} onPress={handleDownloadW9}>
+                <Text style={styles.w9SecondaryButtonText}>Download W9 form</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.w9PrimaryButton} onPress={handleUploadW9} disabled={w9File?.busy}>
+                <Text style={styles.w9PrimaryButtonText}>
+                  {w9File?.key ? 'Replace upload' : 'Upload filled form'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <TouchableOpacity
+            style={[styles.continueButton, submitting && { opacity: 0.7 }]}
+            onPress={handleFinish}
+            disabled={submitting}
+          >
+            {submitting ? (
+              <ActivityIndicator color="#FFFFFF" />
+            ) : (
+              <Text style={styles.continueText}>Finish Registration</Text>
+            )}
+          </TouchableOpacity>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -283,6 +302,23 @@ const styles = StyleSheet.create({
     backgroundColor: '#F5F6FA',
     paddingHorizontal: 20,
     paddingTop: 12,
+  },
+
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#E8EAF0',
+    shadowColor: '#0D2156',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 1,
   },
 
   header: {
