@@ -20,7 +20,7 @@ import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import { PHLEB_ENDPOINTS } from '../config/api';
-import { authGet, authPut, uploadDocument, logout } from '../utils/auth';
+import { authGet, authPut, uploadDocument, logoutPhleb } from '../utils/auth';
 
 const PRIMARY   = '#18377D';
 const PRIMARY_D = '#0F2557';
@@ -37,7 +37,7 @@ const CARD_BG   = '#FFFFFF';
 // address), just replace the string below. The "Need Help?" card, the
 // mailto link, and the pre-filled subject/body are already wired up —
 // nothing else needs to change.
-const SUPPORT_EMAIL = 'support@yourdomain.com';
+const SUPPORT_EMAIL = 'info@musbdiagnostics.com';
 
 // ─── Document definitions ────────────────────────────────────────────────────
 // IDs must exactly match the keys stored in Mongo under phlebotomist.docs
@@ -546,11 +546,8 @@ export default function ProfileScreen({ navigation, route }) {
         onPress: async () => {
           setLoggingOut(true);
           try {
-            if (typeof logout === 'function') {
-              await logout();
-            }
+            await logoutPhleb();
           } catch (e) {
-            // even if the API call fails, still clear local nav state below
           } finally {
             setLoggingOut(false);
             navigation?.reset({

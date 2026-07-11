@@ -28,6 +28,7 @@ const COLORS = {
   inputBg: '#FFFFFF',
   error: '#E63946',
   errorBorder: '#E63946',
+  success: '#2E7D32',
 };
 
 const COUNTRY_CODES = [
@@ -63,6 +64,15 @@ const COUNTRY_CODES = [
   { code: '+90', country: '🇹🇷 Turkey' },
 ];
 
+// Backend requires: min 10 chars, at least 1 uppercase, 1 lowercase, 1 number, 1 special char
+const PASSWORD_RULES = [
+  { key: 'length', label: 'At least 10 characters', test: (v) => v.length >= 10 },
+  { key: 'upper', label: 'One uppercase letter (A-Z)', test: (v) => /[A-Z]/.test(v) },
+  { key: 'lower', label: 'One lowercase letter (a-z)', test: (v) => /[a-z]/.test(v) },
+  { key: 'number', label: 'One number (0-9)', test: (v) => /[0-9]/.test(v) },
+  { key: 'special', label: 'One special character (!@#$...)', test: (v) => /[^A-Za-z0-9]/.test(v) },
+];
+
 export default function CreateAccountScreen({ navigation }) {
 
   const [form, setForm] = useState({
@@ -73,17 +83,28 @@ export default function CreateAccountScreen({ navigation }) {
     phone: '',
     email: '',
     password: '',
+    emergencyContactName: '',
+    emergencyContactPhone: '',
   });
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState({});
   const [countryCode, setCountryCode] = useState(COUNTRY_CODES[0]);
   const [showPicker, setShowPicker] = useState(false);
   const [countrySearch, setCountrySearch] = useState('');
+  const [emergencyCountryCode, setEmergencyCountryCode] = useState(COUNTRY_CODES[0]);
+  const [showEmergencyPicker, setShowEmergencyPicker] = useState(false);
+  const [emergencyCountrySearch, setEmergencyCountrySearch] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [passwordFocused, setPasswordFocused] = useState(false);
   const filteredCountries = COUNTRY_CODES.filter(
   item =>
     item.country.toLowerCase().includes(countrySearch.toLowerCase()) ||
     item.code.includes(countrySearch)
+  );
+  const filteredEmergencyCountries = COUNTRY_CODES.filter(
+  item =>
+    item.country.toLowerCase().includes(emergencyCountrySearch.toLowerCase()) ||
+    item.code.includes(emergencyCountrySearch)
   );
 
   const handleDOB = (text) => {
@@ -104,6 +125,12 @@ export default function CreateAccountScreen({ navigation }) {
     if (errors.phone) setErrors({ ...errors, phone: '' });
   };
 
+  const handleEmergencyPhone = (text) => {
+    const clean = text.replace(/\D/g, '');
+    setForm({ ...form, emergencyContactPhone: clean });
+    if (errors.emergencyContactPhone) setErrors({ ...errors, emergencyContactPhone: '' });
+  };
+
   const validate = () => {
     const newErrors = {};
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -118,8 +145,22 @@ export default function CreateAccountScreen({ navigation }) {
     } else if (!emailRegex.test(form.email)) {
       newErrors.email = 'Enter a valid email address';
     }
-    if (!form.password.trim() || form.password.length < 10) {
-      newErrors.password = 'Password must be at least 10 characters';
+
+    if (!form.emergencyContactName.trim()) newErrors.emergencyContactName = 'Emergency contact name is required';
+    if (!form.emergencyContactPhone.trim() || form.emergencyContactPhone.length < 7) {
+      newErrors.emergencyContactPhone = 'Enter a valid emergency contact number';
+    } else if (
+      emergencyCountryCode.code === countryCode.code &&
+      form.emergencyContactPhone === form.phone
+    ) {
+      newErrors.emergencyContactPhone = 'Emergency contact number must be different from your own';
+    }
+
+    const failedRule = PASSWORD_RULES.find((rule) => !rule.test(form.password));
+    if (!form.password.trim()) {
+      newErrors.password = 'Password is required';
+    } else if (failedRule) {
+      newErrors.password = 'Password must include ' + PASSWORD_RULES.map(r => r.label.toLowerCase()).join(', ');
     }
 
     setErrors(newErrors);
@@ -138,6 +179,8 @@ export default function CreateAccountScreen({ navigation }) {
         email: form.email.trim().toLowerCase(),
         password: form.password,
         phone: `${countryCode.code}${form.phone}`,
+        emergencyContactName: form.emergencyContactName,
+        emergencyContactPhone: `${emergencyCountryCode.code}${form.emergencyContactPhone}`,
       });
     } catch (err) {
       const msg = err.message === 'NETWORK_ERROR'
@@ -266,6 +309,44 @@ export default function CreateAccountScreen({ navigation }) {
             error={errors.email}
           />
 
+          {/* Emergency contact - section */}
+          <Text style={styles.sectionHeading}>Emergency contact</Text>
+
+          <InputField
+            label="Emergency contact name"
+            required
+            value={form.emergencyContactName}
+            onChangeText={(t) => { setForm({ ...form, emergencyContactName: t }); if (errors.emergencyContactName) setErrors({ ...errors, emergencyContactName: '' }); }}
+            placeholder="Full name"
+            error={errors.emergencyContactName}
+          />
+
+          <View style={styles.fieldWrap}>
+            <Text style={styles.label}>
+              Emergency contact number <Text style={styles.required}>*</Text>
+            </Text>
+            <View style={[styles.phoneRow, errors.emergencyContactPhone ? styles.phoneRowError : null]}>
+              <TouchableOpacity
+                style={styles.countryCodeBtn}
+                onPress={() => setShowEmergencyPicker(true)}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.countryCodeText}>{emergencyCountryCode.code} ▾</Text>
+              </TouchableOpacity>
+              <View style={styles.phoneDivider} />
+              <TextInput
+                style={styles.phoneInput}
+                value={form.emergencyContactPhone}
+                onChangeText={handleEmergencyPhone}
+                placeholder="Enter phone number"
+                placeholderTextColor={COLORS.gray}
+                keyboardType="phone-pad"
+                maxLength={15}
+              />
+            </View>
+            {errors.emergencyContactPhone ? <Text style={styles.errorText}>⚠ {errors.emergencyContactPhone}</Text> : null}
+          </View>
+
           {/* Password - required */}
           <View style={styles.fieldWrap}>
             <Text style={styles.label}>
@@ -280,6 +361,8 @@ export default function CreateAccountScreen({ navigation }) {
                 placeholderTextColor={COLORS.gray}
                 autoCapitalize="none"
                 secureTextEntry={!showPassword}
+                onFocus={() => setPasswordFocused(true)}
+                onBlur={() => setPasswordFocused(false)}
               />
               <TouchableOpacity
                 onPress={() => setShowPassword(!showPassword)}
@@ -293,6 +376,29 @@ export default function CreateAccountScreen({ navigation }) {
                 />
               </TouchableOpacity>
             </View>
+
+            {/* Password requirements checklist */}
+            {(passwordFocused || form.password.length > 0) && (
+              <View style={styles.rulesBox}>
+                <Text style={styles.rulesTitle}>Password must contain:</Text>
+                {PASSWORD_RULES.map((rule) => {
+                  const passed = rule.test(form.password);
+                  return (
+                    <View key={rule.key} style={styles.ruleRow}>
+                      <Ionicons
+                        name={passed ? 'checkmark-circle' : 'ellipse-outline'}
+                        size={14}
+                        color={passed ? COLORS.success : COLORS.gray}
+                      />
+                      <Text style={[styles.ruleText, passed && styles.ruleTextPassed]}>
+                        {rule.label}
+                      </Text>
+                    </View>
+                  );
+                })}
+              </View>
+            )}
+
             {errors.password ? <Text style={styles.errorText}>⚠ {errors.password}</Text> : null}
           </View>
 
@@ -308,7 +414,7 @@ export default function CreateAccountScreen({ navigation }) {
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* Country Code Picker Modal */}
+      {/* Country Code Picker Modal - phone */}
       <Modal
         visible={showPicker}
         transparent
@@ -348,6 +454,56 @@ export default function CreateAccountScreen({ navigation }) {
                   <Text style={[
                     styles.modalItemCode,
                     item.code === countryCode.code && styles.modalItemCodeActive,
+                  ]}>
+                    {item.code}
+                  </Text>
+                </TouchableOpacity>
+              )}
+            />
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Country Code Picker Modal - emergency contact */}
+      <Modal
+        visible={showEmergencyPicker}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowEmergencyPicker(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowEmergencyPicker(false)}
+        >
+          <View style={styles.modalSheet}>
+            <View style={styles.modalHandle} />
+            <Text style={styles.modalTitle}>Select Country Code</Text>
+            <TextInput
+              placeholder="Search country or code..."
+              placeholderTextColor={COLORS.gray}
+              value={emergencyCountrySearch}
+              onChangeText={setEmergencyCountrySearch}
+              style={styles.searchInput}
+            />
+            <FlatList
+              data={filteredEmergencyCountries}
+              keyExtractor={(item) => item.code}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={[
+                    styles.modalItem,
+                    item.code === emergencyCountryCode.code && styles.modalItemActive,
+                  ]}
+                  onPress={() => {
+                    setEmergencyCountryCode(item);
+                    setShowEmergencyPicker(false);
+                  }}
+                >
+                  <Text style={styles.modalItemCountry}>{item.country}</Text>
+                  <Text style={[
+                    styles.modalItemCode,
+                    item.code === emergencyCountryCode.code && styles.modalItemCodeActive,
                   ]}>
                     {item.code}
                   </Text>
@@ -456,6 +612,15 @@ const styles = StyleSheet.create({
   fieldWrap: {
     marginBottom: 20,
   },
+  sectionHeading: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: COLORS.navyDark,
+    marginBottom: 12,
+    marginTop: 4,
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
   label: {
     fontSize: 13,
     color: COLORS.bodyText,
@@ -542,6 +707,36 @@ const styles = StyleSheet.create({
    padding: 6,
    marginLeft: 6,
  },
+
+  // Password rules checklist
+  rulesBox: {
+    marginTop: 10,
+    padding: 12,
+    backgroundColor: COLORS.offWhite,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: COLORS.lightGray,
+  },
+  rulesTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: COLORS.bodyText,
+    marginBottom: 6,
+  },
+  ruleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 4,
+  },
+  ruleText: {
+    fontSize: 12,
+    color: COLORS.gray,
+  },
+  ruleTextPassed: {
+    color: COLORS.success,
+    fontWeight: '600',
+  },
 
   // Button
   continueBtn: {

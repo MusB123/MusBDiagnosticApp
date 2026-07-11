@@ -38,6 +38,20 @@ const getActiveJobStatusLabel = (status) => {
   return 'Accepted — head to patient';
 };
 
+// Same date-matching idea as JobHistoryScreen's withinFilter, but scoped to
+// "today" specifically, since that's what this dashboard card shows.
+function isToday(dateStr) {
+  if (!dateStr) return false;
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return false;
+  const now = new Date();
+  return (
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate()
+  );
+}
+
 /* ────────────────────────────────────────────────────────────
    Shared animation primitives (same pattern as HomeScreen)
 ──────────────────────────────────────────────────────────── */
@@ -189,6 +203,7 @@ export default function DashboardScreen({ route, navigation }) {
   const [activeJob, setActiveJob] = useState(null);
   const tokenRef = useRef(null);
   const pollRef  = useRef(null);
+  const phlebIdRef = useRef(null);
 
   useEffect(() => {
     getActiveSession().then(s => {
@@ -196,9 +211,11 @@ export default function DashboardScreen({ route, navigation }) {
         tokenRef.current = s.token;
         fetchDashboard();
         fetchNearbyRequests();
+        fetchTodaysStats();
         pollRef.current = setInterval(() => {
           fetchDashboard();
           fetchNearbyRequests();
+          fetchTodaysStats();
         }, 10000); // every 10s
       }
     });
@@ -208,20 +225,55 @@ export default function DashboardScreen({ route, navigation }) {
     getStoredPhlebUser().then((user) => {
       const storedName = user?.full_name || user?.fullName || user?.name;
       if (storedName) setFullName(storedName);
+      const phlebId = user?.id || user?.user_id;
+      if (phlebId) phlebIdRef.current = phlebId;
     });
 
     return () => clearInterval(pollRef.current);
   }, []);
 
-  // Jobs done + today's earnings come from the dashboard metrics endpoint.
-  // This response also carries `active_case` — the phlebotomist's current
-  // assigned-but-not-completed job, if any — which powers the "resume" card.
+  // Jobs done + today's earnings, computed the same way JobHistoryScreen does:
+  // pull the raw job list from GET /api/phlebotomists/<id>/jobs/
+  // (PHLEB_ENDPOINTS.phlebJobs) and sum it client-side. The dashboard metrics
+  // endpoint's jobs_done / earnings_today fields aren't reliably populated,
+  // so this keeps the numbers here consistent with the History screen.
+  const fetchTodaysStats = async () => {
+    try {
+      let phlebId = phlebIdRef.current;
+      if (!phlebId) {
+        const user = await getStoredPhlebUser();
+        phlebId = user?.id || user?.user_id;
+        if (phlebId) phlebIdRef.current = phlebId;
+      }
+      if (!phlebId) return;
+
+      const data = await authGet(PHLEB_ENDPOINTS.phlebJobs(phlebId));
+      const list = data?.jobs || data || [];
+
+      const completedToday = list.filter((j) => {
+        const status = j.status || 'completed';
+        const dateStr = j.date_iso || j.created_at || j.date;
+        return status === 'completed' && isToday(dateStr);
+      });
+
+      const total = completedToday.reduce(
+        (sum, j) => sum + (Number(j.earning ?? j.earned ?? j.amount_earned) || 0),
+        0
+      );
+
+      setJobsDone(completedToday.length);
+      setEarnedToday(`$${total.toFixed(2)}`);
+    } catch {
+      // fail silently, keep last known data
+    }
+  };
+
+  // Dashboard metrics endpoint — still used for the active job card and as
+  // a fallback name source. jobs_done / earnings_today from here are
+  // intentionally NOT used anymore (see fetchTodaysStats above).
   const fetchDashboard = async () => {
     try {
       const data = await authGet(PHLEB_ENDPOINTS.dashboard);
-      if (typeof data.jobs_done === 'number') setJobsDone(data.jobs_done);
-      const earnings = data?.metrics?.earnings_today ?? data?.earned_today;
-      if (earnings != null) setEarnedToday(earnings);
       // Dashboard also carries the specialist's name — prefer it if present.
       const nameFromDashboard = data.full_name || data.fullName || data.name;
       if (nameFromDashboard) setFullName(nameFromDashboard);

@@ -13,8 +13,9 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as DocumentPicker from 'expo-document-picker';
 import { Ionicons } from '@expo/vector-icons';
-import { fetchPricing } from '../utils/auth';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import { getBookingDraft, setBookingDraft } from '../utils/bookingDraft';
+import { fetchPricing } from '../utils/auth';
 
 const COLORS = {
   navy: '#1B3A8C',
@@ -65,6 +66,25 @@ const HOURS = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, '0'
 const MINUTES = ['00', '15', '30', '45'];
 const PERIODS = ['AM', 'PM'];
 const ITEM_HEIGHT = 44;
+
+// ── Time-of-day slot helper (mirrors backend get_time_of_day_surcharge) ──
+// Purely cosmetic here — just shows the user which slot they're in.
+// The actual fee calculation now lives entirely in CheckoutScreen.
+const TIME_SLOTS = {
+  morning: { label: 'Morning', icon: 'partly-sunny-outline', color: COLORS.amber },
+  afternoon: { label: 'Afternoon', icon: 'sunny-outline', color: COLORS.teal },
+  evening: { label: 'Evening', icon: 'moon-outline', color: COLORS.purple },
+  lateNight: { label: 'Late Night', icon: 'cloudy-night-outline', color: COLORS.navy },
+};
+
+function getSlotFromTime(hour, minute, period) {
+  let hour24 = hour % 12;
+  if (period === 'PM') hour24 += 12;
+  if (hour24 >= 6 && hour24 < 12) return 'morning';
+  if (hour24 >= 12 && hour24 < 18) return 'afternoon';
+  if (hour24 >= 18 && hour24 < 24) return 'evening';
+  return 'lateNight';
+}
 
 /** Wraps a TouchableOpacity with a springy press-scale animation. */
 function AnimatedPressable({ style, onPress, children, scaleTo = 0.96, ...rest }) {
@@ -298,14 +318,17 @@ function ScrollPicker({ data, selected, onSelect }) {
   );
 }
 
-export default function BookMobileVisitScreen({ navigation, route }) {
+export default function BookMobileVisitScreen() {
+  // Hooks instead of destructured props — avoids "Cannot read property
+  // 'addListener' of undefined" if this screen is ever mounted somewhere
+  // navigation/route props aren't reliably injected.
+  const navigation = useNavigation();
+  const route = useRoute();
+
   // Read-only — address is set on HomeScreen only, never edited here
   const bookingDraft = getBookingDraft();
 
   const address = bookingDraft.address;
-  const latitude = bookingDraft.latitude;
-  const longitude = bookingDraft.longitude;
-  const useGps = bookingDraft.useGps;
   const zipCode = bookingDraft.zipCode;
 
   const dates = generateDates();
@@ -322,6 +345,8 @@ export default function BookMobileVisitScreen({ navigation, route }) {
 
   const [selectedTests, setSelectedTests] = useState(bookingDraft.selectedTestsData || []);
   const [testsTotal, setTestsTotal] = useState(bookingDraft.testsTotal || 0);
+
+  const currentSlot = TIME_SLOTS[getSlotFromTime(parseInt(selectedHour, 10), selectedMinute, selectedPeriod)];
 
   // Pick up tests returned from SelectTests
   useEffect(() => {
@@ -450,7 +475,17 @@ export default function BookMobileVisitScreen({ navigation, route }) {
             <Text style={styles.addressDisplayText} numberOfLines={2}>
               {address || 'No address set'}
             </Text>
+            <AnimatedPressable
+              style={styles.addressChangeBtn}
+              scaleTo={0.92}
+              onPress={() => navigation.navigate('PatientHome')}
+            >
+              <Text style={styles.addressChangeText}>Change</Text>
+            </AnimatedPressable>
           </View>
+          <Text style={styles.addressHint}>
+            Set on the Home screen — tap "Change" to update it there.
+          </Text>
         </FadeInUp>
 
         {/* Doctor's Order */}
@@ -746,7 +781,13 @@ export default function BookMobileVisitScreen({ navigation, route }) {
 
         {/* Time Picker */}
         <FadeInUp delay={260}>
-          <Text style={styles.sectionLabel}>Select arrival time</Text>
+          <View style={styles.sectionLabelRow}>
+            <Text style={styles.sectionLabel}>Select arrival time</Text>
+            <View style={[styles.slotBadge, { backgroundColor: currentSlot.color + '22', borderColor: currentSlot.color }]}>
+              <Ionicons name={currentSlot.icon} size={12} color={currentSlot.color} />
+              <Text style={[styles.slotBadgeText, { color: currentSlot.color }]}>{currentSlot.label}</Text>
+            </View>
+          </View>
           <View style={styles.timePickerCard}>
             <View style={styles.pickerRow}>
               <ScrollPicker data={HOURS} selected={selectedHour} onSelect={setSelectedHour} />
@@ -755,6 +796,9 @@ export default function BookMobileVisitScreen({ navigation, route }) {
               <ScrollPicker data={PERIODS} selected={selectedPeriod} onSelect={setSelectedPeriod} />
             </View>
           </View>
+          <Text style={styles.pricingDeferredNote}>
+            Pricing for this slot (incl. any time-of-day, weekend, or urgent fees) is calculated at checkout.
+          </Text>
         </FadeInUp>
 
         {/* Mobile visit note */}
@@ -776,57 +820,66 @@ export default function BookMobileVisitScreen({ navigation, route }) {
             <Text style={styles.summaryLabel}>Scheduled for</Text>
             <Text style={styles.summaryDate}>{formattedDateLabel}</Text>
             <Text style={styles.summaryTime}>{formattedTime}</Text>
+            <View style={[styles.summarySlotPill, { backgroundColor: currentSlot.color }]}>
+              <Ionicons name={currentSlot.icon} size={12} color={COLORS.white} />
+              <Text style={styles.summarySlotText}>{currentSlot.label} slot</Text>
+            </View>
           </View>
         </FadeInUp>
       </ScrollView>
 
+      {/* Confirm Button — no pricing fetch here anymore; Checkout owns all fee calculation */}
       {/* Confirm Button */}
       <View style={styles.footer}>
         <AnimatedPressable
           style={styles.confirmBtn}
           scaleTo={0.97}
           onPress={async () => {
-           try {
-            const preview = await fetchPricing({
-             address,
-             zipCode,
-             bookingDate: selectedDate.isoDate,
-             bookingTime: formattedTime,
-            });
+            try {
+              const preview = await fetchPricing({
+                address,
+                zipCode,
+                bookingDate: selectedDate.isoDate,
+                bookingTime: formattedTime,
+              });
+             
 
-            navigation.navigate('Checkout', {
-              labTestsTotal: testsTotal,
-              labTestsNames: selectedTests.map((t) => t.name).join(', '),
-              selectedTests,
-              address,
-              zipCode,
-              visitType: 'mobile',
-              preferredDate: selectedDate.isoDate,
-              preferredTime: formattedTime,
-              baseFee: Number(preview.baseFee) || 0,
-              mileageRate: Number(preview.mileageRate) || 0,
-              distanceMiles: Number(preview.distanceMiles) || 0,
-              dynamicFeesTotal: Number(preview.dynamicFees?.total) || 0,
-              doctorOrder,
-              prescriptionFile,
-              insurance,
-              insuranceFront,
-              insuranceBack,
-            });
-           } catch (err) {
-             console.error(err);
+              navigation.navigate('Checkout', {
+                labTestsTotal: testsTotal,
+                labTestsNames: selectedTests.map((t) => t.name).join(', '),
+                selectedTests,
+                address,
+                zipCode,
+                visitType: 'mobile',
+                preferredDate: selectedDate.isoDate,
+                preferredTime: formattedTime,
+                baseFee: Number(preview.baseFee) || 0,
+                mileageRate: Number(preview.mileageRate) || 0,
+                distanceMiles: Number(preview.distanceMiles) || 0,
+                dynamicFeesTotal: Number(preview.dynamicFees?.total) || 0,
+                totalPatientFee: Number(preview.totalPatientFee) || 0,
+                timeSlotLabel: currentSlot.label,
+                doctorOrder,
+                prescriptionFile,
+                insurance,
+                insuranceFront,
+                insuranceBack,
+              });
+             
+            } catch (err) {
+              console.error(err);
               Alert.alert(
-               'Pricing unavailable',
-              err.message || 'Could not calculate pricing. Please try again.'
-           );
-          }
-       }}
-      >
-         <Text style={styles.confirmBtnText}>
-           Confirm booking{testsTotal > 0 ? ` · $${testsTotal.toFixed(0)} tests` : ''}
-         </Text>
+                'Pricing unavailable',
+                err.message || 'Could not calculate pricing. Please try again.'
+              );
+            }
+          }}
+        >
+          <Text style={styles.confirmBtnText}>
+            Continue to checkout{testsTotal > 0 ? ` · $${testsTotal.toFixed(0)} tests` : ''}
+          </Text>
         </AnimatedPressable>
-       </View>
+      </View>
     </SafeAreaView>
   );
 }
@@ -865,6 +918,7 @@ const styles = StyleSheet.create({
   sectionLabelRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     marginBottom: 10,
     marginTop: 20,
     gap: 8,
@@ -908,6 +962,25 @@ const styles = StyleSheet.create({
     color: COLORS.navyDark,
     fontWeight: '600',
     lineHeight: 20,
+  },
+  addressChangeBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 10,
+    backgroundColor: COLORS.offWhite,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  addressChangeText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: COLORS.navy,
+  },
+  addressHint: {
+    fontSize: 12,
+    color: COLORS.gray,
+    marginTop: 6,
+    marginLeft: 2,
   },
 
   optionalBadge: {
@@ -1169,6 +1242,16 @@ const styles = StyleSheet.create({
   dateDay: { fontSize: 18, color: COLORS.navyDark, fontWeight: '900' },
   dateMonth: { fontSize: 12, color: COLORS.gray, fontWeight: '600', marginTop: 2 },
   dateTextSelected: { color: COLORS.navy },
+  slotBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  slotBadgeText: { fontSize: 11, fontWeight: '800' },
   timePickerCard: {
     backgroundColor: COLORS.offWhite,
     borderRadius: 16,
@@ -1192,6 +1275,11 @@ const styles = StyleSheet.create({
   pickerText: { fontSize: 17, color: COLORS.gray, fontWeight: '500' },
   pickerTextSelected: { fontSize: 19, color: COLORS.navyDark, fontWeight: '900' },
   colon: { fontSize: 20, fontWeight: '900', color: COLORS.navyDark },
+  pricingDeferredNote: {
+    fontSize: 12,
+    color: COLORS.gray,
+    marginTop: 8,
+  },
   mobileNote: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -1236,6 +1324,16 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   summaryTime: { fontSize: 20, fontWeight: '900', color: COLORS.navy },
+  summarySlotPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginTop: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 20,
+  },
+  summarySlotText: { fontSize: 12, fontWeight: '800', color: COLORS.white },
   footer: {
     padding: 20,
     borderTopWidth: 1,

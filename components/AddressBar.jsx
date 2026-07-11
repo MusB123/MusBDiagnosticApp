@@ -1,4 +1,4 @@
-import React, { useState,useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,7 @@ import {
   Modal,
   ActivityIndicator,
   Alert,
+  ScrollView,
 } from 'react-native';
 import * as Location from 'expo-location';
 import { Ionicons } from '@expo/vector-icons';
@@ -24,6 +25,27 @@ const COLORS = {
   error: '#E63946',
 };
 
+const PLACES_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY;
+const AUTOCOMPLETE_URL = 'https://maps.googleapis.com/maps/api/place/autocomplete/json';
+const DETAILS_URL = 'https://maps.googleapis.com/maps/api/place/details/json';
+const DEBOUNCE_MS = 350;
+const MIN_QUERY_LENGTH = 3;
+
+// Lightweight session-token generator (Google bills autocomplete+details as
+// one session when a token is shared across the request sequence).
+function generateSessionToken() {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+function extractPostalCode(components = []) {
+  const match = components.find((c) => c.types.includes('postal_code'));
+  return match?.long_name || '';
+}
+
 export default function AddressBar({ value, onChange }) {
   const [showModal, setShowModal] = useState(false);
   const [manualAddress, setManualAddress] = useState(value || '');
@@ -31,11 +53,125 @@ export default function AddressBar({ value, onChange }) {
   const [manualZip, setManualZip] = useState('');
   const [zipError, setZipError] = useState('');
 
+  const [suggestions, setSuggestions] = useState([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState('');
+
+  const sessionTokenRef = useRef(generateSessionToken());
+  const debounceRef = useRef(null);
+  const abortRef = useRef(null);
+
   // Keep internal draft in sync if the parent's value changes externally
   // (e.g. on remount, or if address is set from another screen/source)
   useEffect(() => {
     setManualAddress(value || '');
   }, [value]);
+
+  // Debounced autocomplete search — fires ~350ms after typing stops, and
+  // cancels any in-flight request from a previous keystroke.
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+
+    if (!manualAddress || manualAddress.trim().length < MIN_QUERY_LENGTH) {
+      setSuggestions([]);
+      setSearchError('');
+      return;
+    }
+
+    if (!PLACES_API_KEY) {
+      setSearchError('Autocomplete unavailable — missing API key.');
+      return;
+    }
+
+    debounceRef.current = setTimeout(() => {
+      fetchSuggestions(manualAddress.trim());
+    }, DEBOUNCE_MS);
+
+    return () => clearTimeout(debounceRef.current);
+  }, [manualAddress]);
+
+  const fetchSuggestions = async (input) => {
+    if (abortRef.current) abortRef.current.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    setSearchLoading(true);
+    setSearchError('');
+    try {
+      const params = new URLSearchParams({
+        input,
+        key: PLACES_API_KEY,
+        types: 'address',
+        sessiontoken: sessionTokenRef.current,
+      });
+
+      const res = await fetch(`${AUTOCOMPLETE_URL}?${params.toString()}`, {
+        signal: controller.signal,
+      });
+      const data = await res.json();
+
+      if (data.status === 'OK') {
+        setSuggestions(data.predictions || []);
+      } else if (data.status === 'ZERO_RESULTS') {
+        setSuggestions([]);
+      } else {
+        // REQUEST_DENIED (bad/restricted key), INVALID_REQUEST, OVER_QUERY_LIMIT, etc.
+        setSuggestions([]);
+        setSearchError(data.error_message || `Autocomplete error: ${data.status}`);
+      }
+    } catch (err) {
+      if (err.name !== 'AbortError') {
+        setSearchError('Could not reach address search. Check your connection.');
+      }
+    } finally {
+      setSearchLoading(false);
+    }
+  };
+
+  const handleSelectSuggestion = async (prediction) => {
+    setSearchLoading(true);
+    setSearchError('');
+    try {
+      const params = new URLSearchParams({
+        place_id: prediction.place_id,
+        key: PLACES_API_KEY,
+        sessiontoken: sessionTokenRef.current,
+        fields: 'formatted_address,geometry,address_components',
+      });
+
+      const res = await fetch(`${DETAILS_URL}?${params.toString()}`);
+      const data = await res.json();
+
+      if (data.status !== 'OK') {
+        throw new Error(data.error_message || `Details error: ${data.status}`);
+      }
+
+      const result = data.result;
+      const postal = extractPostalCode(result.address_components);
+      const address = result.formatted_address || prediction.description;
+
+      setManualAddress(address);
+      setManualZip(postal);
+      setZipError('');
+      setSuggestions([]);
+
+      // Fresh session token for the next independent search sequence.
+      sessionTokenRef.current = generateSessionToken();
+
+      onChange({
+        address,
+        latitude: result.geometry?.location?.lat ?? null,
+        longitude: result.geometry?.location?.lng ?? null,
+        useGps: false,
+        zipCode: postal,
+      });
+      setShowModal(false);
+    } catch (err) {
+      setSearchError(err.message || 'Could not load address details.');
+    } finally {
+      setSearchLoading(false);
+    }
+  };
 
   const handleCurrentLocation = async () => {
     setLoading(true);
@@ -72,13 +208,14 @@ export default function AddressBar({ value, onChange }) {
           .join(', ');
 
         setManualAddress(address);
+        setSuggestions([]);
 
         onChange({
           address,
           latitude: location.coords.latitude,
           longitude: location.coords.longitude,
           useGps: true,
-          zipCode:postal,
+          zipCode: postal,
         });
         setShowModal(false);
       }
@@ -104,6 +241,7 @@ export default function AddressBar({ value, onChange }) {
       useGps: false,
       zipCode: manualZip.trim(),
     });
+    setSuggestions([]);
     setShowModal(false);
   };
 
@@ -134,7 +272,7 @@ export default function AddressBar({ value, onChange }) {
           activeOpacity={1}
           onPress={() => setShowModal(false)}
         >
-          <View style={styles.modalSheet}>
+          <TouchableOpacity activeOpacity={1} style={styles.modalSheet}>
             <View style={styles.modalHandle} />
             <Text style={styles.modalTitle}>Set your address</Text>
 
@@ -163,23 +301,61 @@ export default function AddressBar({ value, onChange }) {
             {/* Divider */}
             <View style={styles.dividerRow}>
               <View style={styles.dividerLine} />
-              <Text style={styles.dividerText}>or enter manually</Text>
+              <Text style={styles.dividerText}>or search an address</Text>
               <View style={styles.dividerLine} />
             </View>
 
-            {/* Manual Entry */}
+            {/* Manual / Autocomplete Entry */}
             <Text style={styles.inputLabel}>Enter address</Text>
-            <TextInput
-              style={styles.input}
-              value={manualAddress}
-              onChangeText={setManualAddress}
-              placeholder="e.g. 123 Main St, Vancouver, BC"
-              placeholderTextColor={COLORS.gray}
-              multiline
-              numberOfLines={2}
-              autoFocus
-            />
-            <Text style={styles.inputLabel}>
+            <View style={styles.inputWithIconWrap}>
+              <TextInput
+                style={styles.input}
+                value={manualAddress}
+                onChangeText={setManualAddress}
+                placeholder="Start typing an address…"
+                placeholderTextColor={COLORS.gray}
+                autoFocus
+              />
+              {searchLoading && (
+                <ActivityIndicator
+                  color={COLORS.navy}
+                  size="small"
+                  style={styles.inputSpinner}
+                />
+              )}
+            </View>
+
+            {/* Suggestions dropdown */}
+            {suggestions.length > 0 && (
+              <View style={styles.suggestionsBox}>
+                <ScrollView keyboardShouldPersistTaps="handled" style={{ maxHeight: 220 }}>
+                  {suggestions.map((item) => (
+                    <TouchableOpacity
+                      key={item.place_id}
+                      style={styles.suggestionRow}
+                      onPress={() => handleSelectSuggestion(item)}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons name="location-outline" size={16} color={COLORS.gray} />
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.suggestionMain} numberOfLines={1}>
+                          {item.structured_formatting?.main_text || item.description}
+                        </Text>
+                        {item.structured_formatting?.secondary_text ? (
+                          <Text style={styles.suggestionSecondary} numberOfLines={1}>
+                            {item.structured_formatting.secondary_text}
+                          </Text>
+                        ) : null}
+                      </View>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
+
+            {searchError ? <Text style={styles.errorText}>⚠ {searchError}</Text> : null}
+
+            <Text style={[styles.inputLabel, { marginTop: suggestions.length > 0 ? 4 : 14 }]}>
               Zip / PIN code <Text style={styles.required}>*</Text>
             </Text>
             <TextInput
@@ -196,14 +372,6 @@ export default function AddressBar({ value, onChange }) {
               maxLength={10}
             />
             {zipError ? <Text style={styles.errorText}>⚠ {zipError}</Text> : null}
-
-            {/* Note about Google Places */}
-            <View style={styles.noteBanner}>
-              <Text style={styles.noteIcon}>ℹ️</Text>
-              <Text style={styles.noteText}>
-                Address autocomplete coming soon
-              </Text>
-            </View>
 
             {/* Buttons */}
             <View style={styles.btnRow}>
@@ -222,7 +390,7 @@ export default function AddressBar({ value, onChange }) {
                 <Text style={styles.saveBtnText}>Save address</Text>
               </TouchableOpacity>
             </View>
-          </View>
+          </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
     </>
@@ -242,14 +410,12 @@ const styles = StyleSheet.create({
     borderColor: COLORS.border,
     gap: 8,
   },
-  locationIcon: { fontSize: 15 },
   addressText: {
     flex: 1,
     fontSize: 14,
     color: COLORS.navyDark,
     fontWeight: '500',
   },
-  chevron: { fontSize: 14 },
 
   // Modal
   modalOverlay: {
@@ -293,7 +459,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#C7D4F5',
   },
-  currentLocationIcon: { fontSize: 26 },
   currentLocationTitle: {
     fontSize: 15,
     fontWeight: '700',
@@ -323,6 +488,7 @@ const styles = StyleSheet.create({
     color: COLORS.error,
     fontSize: 13,
   },
+  inputWithIconWrap: { position: 'relative', justifyContent: 'center' },
   input: {
     borderWidth: 1.5,
     borderColor: COLORS.border,
@@ -334,6 +500,7 @@ const styles = StyleSheet.create({
     marginBottom: 14,
     lineHeight: 22,
   },
+  inputSpinner: { position: 'absolute', right: 14 },
   inputError: {
     borderColor: COLORS.error,
     backgroundColor: '#FFF0F1',
@@ -345,18 +512,27 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
 
-  // Note Banner
-  noteBanner: {
+  // Suggestions dropdown
+  suggestionsBox: {
+    borderWidth: 1.5,
+    borderColor: COLORS.border,
+    borderRadius: 12,
+    marginTop: -8,
+    marginBottom: 14,
+    backgroundColor: COLORS.white,
+    overflow: 'hidden',
+  },
+  suggestionRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: COLORS.offWhite,
-    borderRadius: 10,
-    padding: 12,
-    gap: 8,
-    marginBottom: 20,
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.lightGray,
   },
-  noteIcon: { fontSize: 14 },
-  noteText: { fontSize: 12, color: COLORS.gray, fontWeight: '500' },
+  suggestionMain: { fontSize: 14, fontWeight: '600', color: COLORS.navyDark },
+  suggestionSecondary: { fontSize: 12, color: COLORS.gray, marginTop: 1 },
 
   // Buttons
   btnRow: { flexDirection: 'row', gap: 12 },

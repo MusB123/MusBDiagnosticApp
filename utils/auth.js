@@ -206,9 +206,15 @@ export async function login(email, password) {
   const data = await postJson(AUTH_ENDPOINTS.login, { email, password });
 
   if (data.role === 'phlebotomist') {
+    // Clear any leftover patient session so the two roles never coexist
+    await SecureStore.deleteItemAsync(PATIENT_TOKEN_KEY);
+    await SecureStore.deleteItemAsync(PATIENT_USER_KEY);
     if (data.token) await SecureStore.setItemAsync(PHLEB_TOKEN_KEY, data.token);
     if (data.user)  await SecureStore.setItemAsync(PHLEB_USER_KEY, JSON.stringify(data.user));
   } else if (data.role === 'patient') {
+    // Clear any leftover phlebotomist session so the two roles never coexist
+    await SecureStore.deleteItemAsync(PHLEB_TOKEN_KEY);
+    await SecureStore.deleteItemAsync(PHLEB_USER_KEY);
     if (data.token) await SecureStore.setItemAsync(PATIENT_TOKEN_KEY, data.token);
     if (data.user)  await SecureStore.setItemAsync(PATIENT_USER_KEY, JSON.stringify(data.user));
   } else {
@@ -227,9 +233,13 @@ export async function loginWithGoogle({ idToken, email, name, picture, role = 'p
   const data = await postJson(endpoint, { id_token: idToken, email, name, picture });
 
   if (role === 'phlebotomist') {
+    await SecureStore.deleteItemAsync(PATIENT_TOKEN_KEY);
+    await SecureStore.deleteItemAsync(PATIENT_USER_KEY);
     if (data.token) await SecureStore.setItemAsync(PHLEB_TOKEN_KEY, data.token);
     if (data.user)  await SecureStore.setItemAsync(PHLEB_USER_KEY, JSON.stringify(data.user));
   } else {
+    await SecureStore.deleteItemAsync(PHLEB_TOKEN_KEY);
+    await SecureStore.deleteItemAsync(PHLEB_USER_KEY);
     if (data.token) await SecureStore.setItemAsync(PATIENT_TOKEN_KEY, data.token);
     if (data.user)  await SecureStore.setItemAsync(PATIENT_USER_KEY, JSON.stringify(data.user));
   }
@@ -283,6 +293,9 @@ export async function getActiveSession() {
 
 export async function loginPhleb(email, password) {
   const data = await postJson(PHLEB_ENDPOINTS.login, { email, password });
+  // Clear any leftover patient session so the two roles never coexist
+  await SecureStore.deleteItemAsync(PATIENT_TOKEN_KEY);
+  await SecureStore.deleteItemAsync(PATIENT_USER_KEY);
   if (data.token) await SecureStore.setItemAsync(PHLEB_TOKEN_KEY, data.token);
   if (data.user)  await SecureStore.setItemAsync(PHLEB_USER_KEY, JSON.stringify(data.user));
   return data;
@@ -334,6 +347,9 @@ export async function requestOtp(email,phone) {
 
 export async function verifyOtpAndCreateAccount({ email, token, name, password,phone }) {
   const data = await postJson(PATIENT_ENDPOINTS.verifyOtp, { method: 'email', email, token, name, password,phone });
+  // Clear any leftover phlebotomist session so the two roles never coexist
+  await SecureStore.deleteItemAsync(PHLEB_TOKEN_KEY);
+  await SecureStore.deleteItemAsync(PHLEB_USER_KEY);
   if (data.token) await SecureStore.setItemAsync(PATIENT_TOKEN_KEY, data.token);
   if (data.user)  await SecureStore.setItemAsync(PATIENT_USER_KEY, JSON.stringify(data.user));
   return data;
@@ -341,6 +357,9 @@ export async function verifyOtpAndCreateAccount({ email, token, name, password,p
 
 export async function loginPatient(email, password) {
   const data = await postJson(PATIENT_ENDPOINTS.login, { email, password });
+  // Clear any leftover phlebotomist session so the two roles never coexist
+  await SecureStore.deleteItemAsync(PHLEB_TOKEN_KEY);
+  await SecureStore.deleteItemAsync(PHLEB_USER_KEY);
   if (data.token) await SecureStore.setItemAsync(PATIENT_TOKEN_KEY, data.token);
   if (data.user)  await SecureStore.setItemAsync(PATIENT_USER_KEY, JSON.stringify(data.user));
   return data;
@@ -411,6 +430,32 @@ export async function bookAppointment(bookingData) {
 
   if (!response.ok) {
     throw new Error(data?.message || data?.error || `Request failed (${response.status})`);
+  }
+  return data;
+}
+export async function markAppointmentPaid(appointmentId) {
+  const token = await getStoredPatientToken();
+  if (!token) throw new Error('NOT_LOGGED_IN');
+
+  let response;
+  try {
+    response = await fetch(PATIENT_ENDPOINTS.markAppointmentPaid(appointmentId), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    });
+  } catch {
+    throw new Error('NETWORK_ERROR');
+  }
+
+  let data;
+  try {
+    data = await response.json();
+  } catch {
+    throw new Error('BAD_RESPONSE');
+  }
+
+  if (!response.ok) {
+    throw new Error(data?.error || `Request failed (${response.status})`);
   }
   return data;
 }

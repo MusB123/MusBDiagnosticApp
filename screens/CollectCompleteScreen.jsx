@@ -49,8 +49,6 @@ const STORAGE_OPTIONS = [
   { key: 'Frozen', label: 'Frozen (-20°C)' },
 ];
 
-const TOTAL_BARCODES = 3;
-
 /** Springy press-scale wrapper. */
 function AnimatedPressable({ style, onPress, disabled, children, scaleTo = 0.97, ...rest }) {
   const scale = useRef(new Animated.Value(1)).current;
@@ -123,30 +121,6 @@ function CheckCircle({ done }) {
   );
 }
 
-/** Barcode scan progress bar that animates its fill width. */
-function ScanProgressBar({ progress }) {
-  const anim = useRef(new Animated.Value(progress)).current;
-  useEffect(() => {
-    Animated.timing(anim, {
-      toValue: progress,
-      duration: 380,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: false,
-    }).start();
-  }, [progress]);
-
-  return (
-    <View style={styles.progressTrack}>
-      <Animated.View
-        style={[
-          styles.progressFill,
-          { width: anim.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }) },
-        ]}
-      />
-    </View>
-  );
-}
-
 export default function CollectCompleteScreen({ route, navigation }) {
   const { job, patient: paramPatient, order: paramOrder } = route?.params || {};
 
@@ -157,7 +131,6 @@ export default function CollectCompleteScreen({ route, navigation }) {
 
   const [checklist, setChecklist] = useState(INITIAL_CHECKLIST);
   const [notes, setNotes] = useState('');
-  const [scannedBarcodes, setScannedBarcodes] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [storageCondition, setStorageCondition] = useState('Ambient');
   const [collectorName, setCollectorName] = useState('');
@@ -168,24 +141,14 @@ export default function CollectCompleteScreen({ route, navigation }) {
     );
   };
 
-  const handleScanBarcode = () => {
-    if (scannedBarcodes >= TOTAL_BARCODES) {
-      Alert.alert('All specimens scanned', 'All specimen barcodes have already been scanned.');
-      return;
-    }
-    // TODO: hook up to actual barcode scanner
-    setScannedBarcodes((prev) => Math.min(prev + 1, TOTAL_BARCODES));
-  };
-
   const allChecked = checklist.every((item) => item.done);
-  const allScanned = scannedBarcodes >= TOTAL_BARCODES;
-  const canComplete = allChecked && allScanned;
+  const canComplete = allChecked;
 
   const handleMarkComplete = async () => {
     if (!canComplete) {
       Alert.alert(
         'Collection incomplete',
-        'Please complete the checklist and scan all specimen barcodes before marking collection complete.'
+        'Please complete the checklist before marking collection complete.'
       );
       return;
     }
@@ -243,8 +206,6 @@ export default function CollectCompleteScreen({ route, navigation }) {
       setSubmitting(false);
     }
   };
-
-  const progress = scannedBarcodes / TOTAL_BARCODES;
 
   return (
     <View style={styles.outer}>
@@ -351,26 +312,6 @@ export default function CollectCompleteScreen({ route, navigation }) {
               textAlignVertical="top"
             />
           </View>
-        </FadeInUp>
-
-        {/* Scan specimen barcodes */}
-        <FadeInUp delay={180}>
-          <AnimatedPressable
-            style={styles.scanCard}
-            scaleTo={0.98}
-            onPress={handleScanBarcode}
-          >
-            <View style={styles.scanTopRow}>
-              <View style={styles.scanLabelRow}>
-                <Ionicons name="barcode-outline" size={16} color={PRIMARY} />
-                <Text style={styles.scanLabel}>Scan specimen barcodes</Text>
-              </View>
-              <Text style={styles.scanCount}>
-                {scannedBarcodes} / {TOTAL_BARCODES}
-              </Text>
-            </View>
-            <ScanProgressBar progress={progress} />
-          </AnimatedPressable>
         </FadeInUp>
       </ScrollView>
 
@@ -545,56 +486,6 @@ const styles = StyleSheet.create({
     color: '#374151',
     lineHeight: 19,
     minHeight: 64,
-  },
-
-  scanCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 16,
-    marginTop: 20,
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
-  },
-
-  scanTopRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 10,
-  },
-
-  scanLabelRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-
-  scanLabel: {
-    fontSize: 13.5,
-    fontWeight: '700',
-    color: '#111827',
-  },
-
-  scanCount: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: PRIMARY,
-  },
-
-  progressTrack: {
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#E5E7EB',
-    overflow: 'hidden',
-  },
-
-  progressFill: {
-    height: '100%',
-    backgroundColor: PRIMARY,
-    borderRadius: 3,
   },
 
   bottomBar: {

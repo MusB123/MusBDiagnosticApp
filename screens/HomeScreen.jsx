@@ -35,6 +35,8 @@ const COLORS = {
   orangeLight: '#FEF3C7',
   purple: '#7C3AED',
   purpleLight: '#EDE9FE',
+  pink: '#EC4899',
+  pinkLight: '#FCE7F3',
   star: '#FBBF24',
   unreadDot: '#EF4444',
 };
@@ -62,10 +64,17 @@ const SERVICES = [
   },
 ];
 
-// Statuses that are actively "in motion" get a live pulsing dot on the appointment card
-const LIVE_STATUSES = ['assigned', 'in_progress', 'enroute', 'arrived', 'collected'];
+const getGreeting = () => {
+  const hour = new Date().getHours();
+  if (hour < 12) return 'Good morning,';
+  if (hour < 17) return 'Good afternoon,';
+  return 'Good evening,';
+};
+
+const LIVE_STATUSES = ['accepted', 'assigned', 'in_progress', 'enroute', 'arrived', 'collected'];
 
 const STATUS_COLORS = {
+  accepted: COLORS.orange,
   assigned: COLORS.orange,
   in_progress: COLORS.orange,
   enroute: COLORS.orange,
@@ -74,12 +83,31 @@ const STATUS_COLORS = {
   completed: COLORS.green,
 };
 
-const getGreeting = () => {
-  const hour = new Date().getHours();
-  if (hour < 12) return 'Good morning,';
-  if (hour < 17) return 'Good afternoon,';
-  return 'Good evening,';
+const STATUS_HEADINGS = {
+  pending: 'Sample to be collected',
+  accepted: 'Sample to be collected',
+  assigned: 'Sample to be collected',
+  in_progress: 'Phlebotomist on the way',
+  enroute: 'Phlebotomist on the way',
+  arrived: 'Phlebotomist has arrived',
+  collected: 'Sample collected',
+  completed: 'Visit completed',
 };
+
+function isInPersonVisit(appt) {
+  return (appt.visit_type || appt.visitType || '').toLowerCase() === 'in_person';
+}
+function isPaid(appt) {
+  return (appt.payment_status || '').toLowerCase() === 'paid' || (appt.payment_method || '').toLowerCase() === 'card';
+}
+
+function getApptHeading(appt) {
+  const status = (appt.status || '').toLowerCase();
+  if (isInPersonVisit(appt)) {
+    return status === 'completed' ? 'Visit completed' : 'Walk-in — pay at center';
+  }
+  return STATUS_HEADINGS[status] || 'Appointment details';
+}
 
 function BellIcon({ hasUnread }) {
   return (
@@ -110,7 +138,6 @@ const bellStyles = StyleSheet.create({
   },
 });
 
-/** Wraps a TouchableOpacity with a springy press-scale animation. */
 function AnimatedPressable({ style, onPress, children, scaleTo = 0.96, ...rest }) {
   const scale = useRef(new Animated.Value(1)).current;
 
@@ -137,7 +164,6 @@ function AnimatedPressable({ style, onPress, children, scaleTo = 0.96, ...rest }
   );
 }
 
-/** Fades + slides a section up into place. */
 function FadeInUp({ delay = 0, distance = 16, children, style }) {
   const anim = useRef(new Animated.Value(0)).current;
 
@@ -168,7 +194,6 @@ function FadeInUp({ delay = 0, distance = 16, children, style }) {
   );
 }
 
-/** Icon that pops in with a little overshoot — used inside service card icon circles. */
 function IconPop({ delay = 0, children }) {
   const anim = useRef(new Animated.Value(0)).current;
 
@@ -186,7 +211,6 @@ function IconPop({ delay = 0, children }) {
   );
 }
 
-/** Small pulsing dot to show a "live" appointment status. */
 function PulseDot({ color }) {
   const pulse = useRef(new Animated.Value(0)).current;
 
@@ -218,7 +242,6 @@ function PulseDot({ color }) {
   );
 }
 
-/** Badge (e.g. "Popular") that gently breathes to draw the eye. */
 function BreathingBadge({ children, style, textStyle }) {
   const anim = useRef(new Animated.Value(0)).current;
 
@@ -258,7 +281,6 @@ export default function HomeScreen({ navigation, route }) {
   const [dashboardError, setDashboardError] = useState('');
   const [hasUnreadNotifs] = useState(true);
 
-  // ── Rating modal state ─────────────────────────────────────────────────
   const [ratingAppt, setRatingAppt] = useState(null);
   const [ratingValue, setRatingValue] = useState(5);
   const [ratingComment, setRatingComment] = useState('');
@@ -271,6 +293,15 @@ export default function HomeScreen({ navigation, route }) {
       Animated.spring(modalAnim, { toValue: 1, useNativeDriver: true, speed: 16, bounciness: 8 }).start();
     }
   }, [ratingAppt]);
+
+  const [selectedAppt, setSelectedAppt] = useState(null);
+  const detailAnim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (selectedAppt) {
+      detailAnim.setValue(0);
+      Animated.spring(detailAnim, { toValue: 1, useNativeDriver: true, speed: 16, bounciness: 6 }).start();
+    }
+  }, [selectedAppt]);
 
   const initials = firstName.slice(0, 2).toUpperCase();
 
@@ -303,7 +334,6 @@ export default function HomeScreen({ navigation, route }) {
     return () => { isMountedRef.current = false; };
   }, []);
 
-  // ── Contact handlers ───────────────────────────────────────────────────
   const handleCallPhleb = (phone) => {
     if (!phone) {
       Alert.alert('No phone number', 'This specialist has no phone number on file.');
@@ -320,7 +350,6 @@ export default function HomeScreen({ navigation, route }) {
     Linking.openURL(`sms:${phone}`);
   };
 
-  // ── Rating handlers ────────────────────────────────────────────────────
   const handleSubmitRating = async () => {
     if (!ratingAppt) return;
     setSubmittingRating(true);
@@ -339,6 +368,13 @@ export default function HomeScreen({ navigation, route }) {
     }
   };
 
+  const closeApptDetail = () => setSelectedAppt(null);
+
+  const openRatingFromDetail = (appt) => {
+    setSelectedAppt(null);
+    setRatingAppt(appt);
+  };
+
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       <StatusBar barStyle="light-content" backgroundColor={COLORS.navy} />
@@ -348,7 +384,6 @@ export default function HomeScreen({ navigation, route }) {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* ── Curved Navy Header ── */}
         <FadeInUp delay={0} distance={-14} style={styles.headerCurve}>
           <View style={styles.topBar}>
             <View>
@@ -375,7 +410,6 @@ export default function HomeScreen({ navigation, route }) {
           </View>
         </FadeInUp>
 
-        {/* ── Location Bar ── */}
         <FadeInUp delay={90} style={styles.locationBarWrap}>
           <View style={styles.locationCard}>
             <AddressBar
@@ -385,7 +419,6 @@ export default function HomeScreen({ navigation, route }) {
           </View>
         </FadeInUp>
 
-        {/* ── What do you need ── */}
         <FadeInUp delay={160}>
           <Text style={styles.sectionTitle}>What do you need today?</Text>
         </FadeInUp>
@@ -434,7 +467,6 @@ export default function HomeScreen({ navigation, route }) {
           </FadeInUp>
         ))}
 
-        {/* ── Upcoming Appointments ── */}
         {loadingDashboard ? (
           <View style={styles.dashboardLoading}>
             <ActivityIndicator color={COLORS.navy} />
@@ -454,7 +486,11 @@ export default function HomeScreen({ navigation, route }) {
 
               return (
                 <FadeInUp key={appt.id} delay={index * 70}>
-                  <View style={styles.apptCard}>
+                  <AnimatedPressable
+                    style={styles.apptCard}
+                    scaleTo={0.98}
+                    onPress={() => setSelectedAppt(appt)}
+                  >
                     <View style={[styles.apptAccentBar, { backgroundColor: statusColor }]} />
 
                     <View style={{ flexDirection: 'row', alignItems: 'center' }}>
@@ -467,8 +503,13 @@ export default function HomeScreen({ navigation, route }) {
                           <Text style={styles.apptTest}>{appt.test}</Text>
                           {isLive && <PulseDot color={statusColor} />}
                         </View>
-                        <Text style={styles.apptMeta}>{appt.time} · {appt.phlebotomist}</Text>
+                        <Text style={styles.apptMeta}>
+                          {isInPersonVisit(appt)
+                            ? 'Walk-in — pay at center'
+                            : `${appt.time} · ${appt.phlebotomist || 'Awaiting assignment'}`}
+                        </Text>
                       </View>
+                      <Ionicons name="chevron-forward" size={18} color={COLORS.gray} />
                     </View>
 
                     {isLive && !!appt.phlebotomist_phone && (
@@ -502,7 +543,7 @@ export default function HomeScreen({ navigation, route }) {
                         <Text style={styles.rateBtnText}>Rate this visit</Text>
                       </AnimatedPressable>
                     )}
-                  </View>
+                  </AnimatedPressable>
                 </FadeInUp>
               );
             })}
@@ -511,7 +552,188 @@ export default function HomeScreen({ navigation, route }) {
 
       </ScrollView>
 
-      {/* ── Rating modal ── */}
+      {selectedAppt && (() => {
+        const appt = selectedAppt;
+        const status = (appt.status || '').toLowerCase();
+        const isLive = LIVE_STATUSES.includes(status);
+        const isCompleted = status === 'completed';
+        const heading = STATUS_HEADINGS[status] || 'Appointment details';
+        const whenText = [appt.month && appt.day ? `${appt.day} ${appt.month}` : appt.date, appt.time]
+          .filter(Boolean)
+          .join(', ');
+
+        return (
+          <View style={styles.detailOverlay}>
+            <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={closeApptDetail} />
+            <Animated.View
+              style={[
+                styles.detailSheet,
+                {
+                  opacity: detailAnim,
+                  transform: [
+                    { translateY: detailAnim.interpolate({ inputRange: [0, 1], outputRange: [40, 0] }) },
+                  ],
+                },
+              ]}
+            >
+              <View style={styles.detailHandle} />
+
+              <View style={styles.detailHeaderRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.detailHeading}>{heading}</Text>
+                  <Text style={styles.detailSub}>{whenText || 'Time to be confirmed'}</Text>
+                </View>
+                <TouchableOpacity onPress={closeApptDetail} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                  <Ionicons name="close" size={22} color={COLORS.gray} />
+                </TouchableOpacity>
+              </View>
+
+              {!isInPersonVisit(appt) && !isLive && status !== 'completed' && (
+                <View style={styles.detailInfoBanner}>
+                  <View style={styles.detailInfoIcon}>
+                    <Ionicons name="person" size={16} color={COLORS.white} />
+                  </View>
+                  <Text style={styles.detailInfoText}>
+                    We'll share phlebotomist details <Text style={styles.detailInfoBold}>as soon as a phlebotomist accepts your request</Text>.
+                  </Text>
+                </View>
+              )}
+              {isInPersonVisit(appt) && status !== 'completed' && (
+                <View style={[styles.detailInfoBanner, { backgroundColor: COLORS.orangeLight }]}>
+                  <View style={[styles.detailInfoIcon, { backgroundColor: COLORS.orange }]}>
+                    <Ionicons name="storefront" size={16} color={COLORS.white} />
+                  </View>
+                  <Text style={styles.detailInfoText}>
+                    This is a walk-in visit. <Text style={styles.detailInfoBold}>No phlebotomist will be dispatched</Text> — please pay and complete your test at the center.
+                  </Text>
+                </View>
+              )}
+
+              {isInPersonVisit(appt) && status !== 'completed' && !isPaid(appt) && (appt.payment_method || '').toLowerCase() !== 'card' && (
+                <AnimatedPressable
+                  style={styles.payInAppBtn}
+                  scaleTo={0.96}
+                  onPress={() => {
+                    setSelectedAppt(null);
+                    navigation.navigate('Checkout', {
+                      mobileVisitTotal: 0,
+                      labTestsTotal: Number(appt.test_price) || 0,
+                      labTestsNames: appt.test || '',
+                      address: appt.address || '',
+                      visitType: 'in_person',
+                      preferredDate: appt.preferred_date || appt.date || '',
+                      preferredTime: 'Walk-in',
+                      appointmentId: appt.id,
+                    });
+                  }}
+                >
+                  <Ionicons name="card" size={16} color="#FFFFFF" />
+                  <Text style={styles.payInAppBtnText}>Pay in app instead</Text>
+                </AnimatedPressable>
+              )}
+
+              {isLive && !!appt.phlebotomist_phone && (
+                <View style={styles.phlebContactRow}>
+                  <AnimatedPressable
+                    style={[styles.phlebContactBtn, styles.phlebContactBtnWide]}
+                    scaleTo={0.96}
+                    onPress={() => handleCallPhleb(appt.phlebotomist_phone)}
+                  >
+                    <Ionicons name="call" size={16} color={COLORS.navy} />
+                    <Text style={styles.phlebContactText}>Call</Text>
+                  </AnimatedPressable>
+                  <AnimatedPressable
+                    style={[styles.phlebContactBtn, styles.phlebContactBtnWide]}
+                    scaleTo={0.96}
+                    onPress={() => handleMessagePhleb(appt.phlebotomist_phone)}
+                  >
+                    <Ionicons name="chatbubble" size={16} color={COLORS.navy} />
+                    <Text style={styles.phlebContactText}>Message</Text>
+                  </AnimatedPressable>
+                </View>
+              )}
+
+              {isCompleted && !appt.patient_rated && (
+                <AnimatedPressable
+                  style={styles.rateBtn}
+                  scaleTo={0.96}
+                  onPress={() => openRatingFromDetail(appt)}
+                >
+                  <Ionicons name="star" size={16} color="#FFFFFF" />
+                  <Text style={styles.rateBtnText}>Rate this visit</Text>
+                </AnimatedPressable>
+              )}
+
+              <View style={styles.detailDivider} />
+
+              <View style={styles.detailInfoItem}>
+                <View style={[styles.detailIconWrap, { backgroundColor: COLORS.pinkLight }]}>
+                  <Ionicons name="water" size={18} color={COLORS.pink} />
+                </View>
+                <View style={styles.detailItemTextWrap}>
+                  <Text style={styles.detailItemLabel}>Test</Text>
+                  <Text style={styles.detailItemValue}>{appt.test}</Text>
+                </View>
+              </View>
+
+              <View style={styles.detailInfoItem}>
+                <View style={[styles.detailIconWrap, { backgroundColor: COLORS.purpleLight }]}>
+                  <Ionicons name="person" size={18} color={COLORS.purple} />
+                </View>
+                <View style={styles.detailItemTextWrap}>
+                  <Text style={styles.detailItemLabel}>Patient</Text>
+                  <Text style={styles.detailItemValue}>{appt.patient_name || firstName}</Text>
+                </View>
+              </View>
+
+              <View style={styles.detailInfoItem}>
+                <View style={[styles.detailIconWrap, { backgroundColor: COLORS.greenLight }]}>
+                  <Ionicons name="cash-outline" size={18} color={COLORS.green} />
+                </View>
+                <View style={styles.detailItemTextWrap}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <Text style={styles.detailItemLabel}>Amount</Text>
+                    {isInPersonVisit(appt) && (
+                      <View style={[styles.payStatusBadge, isPaid(appt) ? styles.payStatusPaid : styles.payStatusUnpaid]}>
+                        <Text style={[styles.payStatusText, isPaid(appt) ? styles.payStatusTextPaid : styles.payStatusTextUnpaid]}>
+                          {isPaid(appt) ? 'Paid' : 'Unpaid'}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                  <Text style={styles.detailItemValue}>
+                    {(() => {
+                      if (isInPersonVisit(appt)) {
+                        const fee = Number(appt.test_price) || Number(appt.total_patient_fee) || 0;
+                        return fee > 0 ? `$${fee.toFixed(2)}` : 'Not available';
+                      }
+                      const base = Number(appt.baseFee) || 0;
+                      const mileage = Number(appt.mileageFee) || 0;
+                      const testCost = Number(appt.test_price) || 0;
+                      const computedTotal = base + mileage + testCost;
+                      const fee = computedTotal > 0
+                        ? computedTotal
+                        : (appt.total_patient_fee ?? appt.totalPatientFee ?? appt.test_price);
+                      if (!fee) return 'Not available';
+                      return `$${Number(fee).toFixed(2)}`;
+                    })()}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.detailDivider} />
+
+              <View style={styles.detailPrepRow}>
+                <Ionicons name="time-outline" size={18} color={COLORS.purple} />
+                <Text style={styles.detailPrepText}>
+                  {appt.prep_note || 'No special preparation required'}
+                </Text>
+              </View>
+            </Animated.View>
+          </View>
+        );
+      })()}
+
       {ratingAppt && (
         <View style={styles.ratingOverlay}>
           <Animated.View
@@ -620,7 +842,6 @@ const styles = StyleSheet.create({
   sectionTitle: { fontSize: 16, fontWeight: '800', color: COLORS.navyDark, marginBottom: 14, paddingHorizontal: 20 },
   sectionLabel: { fontSize: 10, fontWeight: '700', color: COLORS.gray, letterSpacing: 1, marginTop: 20, marginBottom: 10, paddingHorizontal: 20 },
 
-  // ── Service cards ──
   serviceCard: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -671,7 +892,6 @@ const styles = StyleSheet.create({
   dashboardLoading: { paddingVertical: 20, alignItems: 'center' },
   dashboardError: { color: '#E63946', fontSize: 13, marginBottom: 16, textAlign: 'center', paddingHorizontal: 20 },
 
-  // ── Appointment cards ──
   apptCard: {
     backgroundColor: COLORS.white,
     borderRadius: 18,
@@ -704,13 +924,16 @@ const styles = StyleSheet.create({
   pulseDotRing: { position: 'absolute', width: 14, height: 14, borderRadius: 7, borderWidth: 1.5 },
   pulseDotCore: { width: 7, height: 7, borderRadius: 3.5 },
 
-  phlebContactRow: { flexDirection: 'row', gap: 10, marginTop: 12 },
+  phlebContactRow: { flexDirection: 'row', gap: 10, marginTop: 12, marginBottom: 4 },
   phlebContactBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    borderWidth: 1.5, borderColor: COLORS.border, borderRadius: 10,
-    paddingHorizontal: 14, paddingVertical: 8,
+    flex: 1,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: COLORS.white,
+    borderWidth: 1.5, borderColor: COLORS.navy, borderRadius: 12,
+    paddingHorizontal: 16, paddingVertical: 12,
   },
-  phlebContactText: { fontSize: 13, fontWeight: '700', color: COLORS.navy },
+  phlebContactBtnWide: { flex: 1, justifyContent: 'center' },
+  phlebContactText: { fontSize: 14, fontWeight: '700', color: COLORS.navy },
 
   rateBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
@@ -736,4 +959,75 @@ const styles = StyleSheet.create({
   ratingCancelText: { color: COLORS.gray, fontWeight: '700' },
   ratingSubmitBtn: { flex: 1, backgroundColor: COLORS.navy, borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
   ratingSubmitText: { color: '#FFFFFF', fontWeight: '700' },
+
+  detailOverlay: {
+    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: 'rgba(13,31,60,0.5)',
+    justifyContent: 'flex-end',
+  },
+  detailSheet: {
+    backgroundColor: COLORS.white,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 20,
+    paddingBottom: 32,
+  },
+  detailHandle: {
+    width: 40, height: 4, borderRadius: 2,
+    backgroundColor: COLORS.lightGray,
+    alignSelf: 'center', marginBottom: 14,
+  },
+  detailHeaderRow: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16,
+  },
+  detailHeading: { fontSize: 17, fontWeight: '800', color: COLORS.navyDark },
+  detailSub: { fontSize: 13, color: COLORS.green, fontWeight: '600', marginTop: 2 },
+
+  detailInfoBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: COLORS.greenLight, borderRadius: 14, padding: 12, marginBottom: 16,
+  },
+  detailInfoIcon: {
+    width: 30, height: 30, borderRadius: 15,
+    backgroundColor: COLORS.green, alignItems: 'center', justifyContent: 'center',
+  },
+  detailInfoText: { flex: 1, fontSize: 13, color: COLORS.bodyText },
+  detailInfoBold: { fontWeight: '800', color: COLORS.navyDark },
+
+  detailDivider: { height: 1, backgroundColor: COLORS.lightGray, marginVertical: 14 },
+
+  detailInfoItem: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginBottom: 14 },
+  detailIconWrap: {
+    width: 36, height: 36, borderRadius: 12,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  detailItemTextWrap: { flex: 1 },
+  detailItemLabel: { fontSize: 12, color: COLORS.gray },
+  detailItemValue: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: COLORS.navyDark,
+    marginTop: 1,
+    flexWrap: 'wrap',
+  },
+
+  detailPrepRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  detailPrepText: { fontSize: 13, color: COLORS.purple, fontWeight: '600', flex: 1 },
+  payInAppBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: COLORS.navy,
+    borderRadius: 12,
+    paddingVertical: 14,
+    marginTop: 12,
+  },
+  payInAppBtnText: { color: '#FFFFFF', fontWeight: '700', fontSize: 14 },
+  payStatusBadge: { borderRadius: 6, paddingHorizontal: 8, paddingVertical: 2 },
+  payStatusPaid: { backgroundColor: COLORS.greenLight },
+  payStatusUnpaid: { backgroundColor: COLORS.orangeLight },
+  payStatusText: { fontSize: 10, fontWeight: '800' },
+  payStatusTextPaid: { color: '#15803D' },
+  payStatusTextUnpaid: { color: '#92400E' },
 });

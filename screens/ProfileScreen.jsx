@@ -40,7 +40,7 @@ const GENDERS = ['Male', 'Female', 'Other', 'Prefer not to say'];
 // 👉 EDIT THIS: once you have a real admin/technician inbox, replace the
 // string below. The "Need help?" row and the mailto link are already wired
 // up to it — nothing else needs to change.
-const SUPPORT_EMAIL = 'support@yourdomain.com';
+const SUPPORT_EMAIL = 'info@musbdiagnostics.com';
 
 export default function ProfileScreen({ navigation }) {
   const [loading, setLoading] = useState(true);

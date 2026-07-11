@@ -7,7 +7,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useStripe } from '@stripe/stripe-react-native';
 import { Ionicons, Feather } from '@expo/vector-icons';
-import { getStoredPatientUser, bookAppointment, uploadDocument } from '../utils/auth';
+import { getStoredPatientUser, bookAppointment, uploadDocument,markAppointmentPaid } from '../utils/auth';
 import * as FileSystem from 'expo-file-system/legacy';
 
 const BACKEND_URL = 'https://musb-diagnostic-website.onrender.com';
@@ -219,6 +219,7 @@ export default function CheckoutScreen({ navigation, route }) {
   const insurance = route?.params?.insurance || 'none';
   const insuranceFrontFile = route?.params?.insuranceFront || null;
   const insuranceBackFile = route?.params?.insuranceBack || null;
+  const appointmentId = route?.params?.appointmentId || null;
 
   // ── Pricing (already calculated once on the previous screen — no re-fetch) ─
   const baseVisitPrice = visitType === 'mobile' ? Number(route?.params?.baseFee) || 0 : 0;
@@ -226,13 +227,16 @@ export default function CheckoutScreen({ navigation, route }) {
   const distanceMilesResolved = visitType === 'mobile' ? Number(route?.params?.distanceMiles) || 0 : 0;
   const dynamicFeesTotal = visitType === 'mobile' ? Number(route?.params?.dynamicFeesTotal) || 0 : 0;
 
-  const distanceCharge   = perMileRate    != null ? +(distanceMilesResolved * perMileRate).toFixed(2)  : 0;
-  const mobileVisitTotal = baseVisitPrice != null ? +(baseVisitPrice + distanceCharge + dynamicFeesTotal).toFixed(2) : null;
-  const grandTotal       = mobileVisitTotal != null ? +(mobileVisitTotal + labTestsTotal).toFixed(2) : null;
-
-  useEffect(() => {
-    getStoredPatientUser().then(setPatientUser);
-  }, []);
+// Trust the backend's own computed total (base + mileage + all surcharges)
+// instead of re-deriving it — avoids drift if settings change between screens.
+  const backendTotal = Number(route?.params?.totalPatientFee);
+  const distanceCharge   = +(distanceMilesResolved * perMileRate).toFixed(2);
+  const mobileVisitTotal = visitType === 'mobile'
+    ? (Number.isFinite(backendTotal) && backendTotal > 0
+        ? backendTotal
+        : +(baseVisitPrice + distanceCharge + dynamicFeesTotal).toFixed(2))
+    : 0;
+  const grandTotal = +(mobileVisitTotal + labTestsTotal).toFixed(2);
 
   const patientEmail = patientUser?.email || route?.params?.email || '';
   // NOTE: patientUser loads asynchronously (SecureStore read). If "Pay" is
@@ -336,7 +340,18 @@ export default function CheckoutScreen({ navigation, route }) {
           Alert.alert('Payment Failed', paymentError.message);
         }
       } else {
-        try {
+  try {
+    if (appointmentId) {
+      // Existing appointment (e.g. in-person visit paying in-app afterward) —
+      // update it instead of creating a duplicate booking.
+      await markAppointmentPaid(appointmentId);
+      setSuccessData({
+        amount: grandTotal.toFixed(2),
+        appointmentId,
+      });
+      setShowSuccess(true);
+    } else {
+      // New booking flow (mobile visit / fresh in-person booking via checkout)
           const doctorOrderDoc = await uploadPrescriptionDoc();
           const { front: insuranceFrontDoc, back: insuranceBackDoc } = await uploadInsuranceDocs();
 
@@ -363,16 +378,17 @@ export default function CheckoutScreen({ navigation, route }) {
           setSuccessData({
             amount: grandTotal.toFixed(2),
             appointmentId: bookingResult.appointment_id,
-          });
-          setShowSuccess(true);
-        } catch (bookingErr) {
-          Alert.alert(
-            'Payment received, booking issue',
-            `Your payment was successful, but we couldn't save your appointment details (${bookingErr.message}). Please contact support.`,
-            [{ text: 'OK', onPress: () => navigation.navigate('Home') }]
-          );
-        }
+         });
+         setShowSuccess(true);
+       }
+     } catch (bookingErr) {
+       Alert.alert(
+        'Payment received, booking issue',
+        `Your payment was successful, but we couldn't save your appointment details (${bookingErr.message}). Please contact support.`,
+        [{ text: 'OK', onPress: () => navigation.navigate('Home') }]
+       );
       }
+     }
     } catch (err) {
       Alert.alert('Error', 'Something went wrong. Please check your connection and try again.');
     }

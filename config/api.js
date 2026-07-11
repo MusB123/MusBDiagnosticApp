@@ -35,6 +35,7 @@ export const PATIENT_ENDPOINTS = {
   profile: `${PATIENT_PREFIX}/profile/`,
   changePassword: `${PATIENT_PREFIX}/change-password/`,
   rateAppointment: (appointmentId) => `${PATIENT_PREFIX}/appointments/${appointmentId}/rate/`,
+  markAppointmentPaid: (appointmentId) => `${BASE_URL}/api/patients/appointments/${appointmentId}/mark-paid/`,
 };
 
 // ── Phlebotomist endpoints (full version, from phleb app) ───────────────────

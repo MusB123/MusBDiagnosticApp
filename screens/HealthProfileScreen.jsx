@@ -11,9 +11,14 @@ import {
   Platform,
   Alert,
   ActivityIndicator,
+  Modal,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
+import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system/legacy';
 import { Ionicons } from '@expo/vector-icons';
 import { uploadDocument, updatePatientProfile } from '../utils/auth';
 
@@ -31,47 +36,182 @@ const COLORS = {
   yellowText: '#92400E',
 };
 
-export default function HealthProfileScreen({ navigation,route }) {
+export default function HealthProfileScreen({ navigation, route }) {
   const [insuranceProvider, setInsuranceProvider] = useState('');
   const [memberId, setMemberId] = useState('');
-  // Each doc: { key: string|null, busy: bool } — `key` is the S3 storage key.
-  const [insurance, setInsurance] = useState({ key: null, busy: false });
-  const [photoId, setPhotoId] = useState({ key: null, busy: false });
+  // Each doc: { key: string|null, busy: bool, fileName: string|null }
+  const [insurance, setInsurance] = useState({ key: null, busy: false, fileName: null });
+  const [photoId, setPhotoId] = useState({ key: null, busy: false, fileName: null });
   const [saving, setSaving] = useState(false);
 
-  // Pick an image (compressed) → upload to S3 → keep the returned key.
-  const pickAndUpload = async (kind, filename, current, setDoc) => {
-    if (current.busy) return;
+  // Holds a picked/cropped file waiting for user confirmation before it's
+  // actually uploaded. Shape: { docType: 'insurance'|'photoId', fileName, base64, uri, isPdf }
+  const [pendingUpload, setPendingUpload] = useState(null);
+  const [uploadingModal, setUploadingModal] = useState(false);
+
+  const shortName = (uri = '') => {
+    const clean = uri.split('?')[0];
+    const parts = clean.split('/');
+    return parts[parts.length - 1] || 'document';
+  };
+
+  // Resize + compress before touching base64
+  const compressImage = async (uri) => {
+    const result = await ImageManipulator.manipulateAsync(
+      uri,
+      [{ resize: { width: 1280 } }],
+      { compress: 0.5, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+    );
+    return result; // { uri, base64, width, height }
+  };
+
+  // ---------- Pickers: stage the file in `pendingUpload` only ----------
+
+  const handleCamera = async (docType) => {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert(
+        'Camera access needed',
+        'Please enable camera permissions in your device settings to take a photo.'
+      );
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({
+      quality: 0.8,
+      allowsEditing: true,
+      base64: false,
+    });
+    if (!result.canceled && result.assets?.length) {
+      const asset = result.assets[0];
+      try {
+        const compressed = await compressImage(asset.uri);
+        setPendingUpload({
+          docType,
+          fileName: asset.fileName || shortName(asset.uri),
+          base64: compressed.base64,
+          uri: compressed.uri,
+          isPdf: false,
+        });
+      } catch (err) {
+        console.log(err);
+        Alert.alert('Could not process photo', 'Please try taking the photo again.');
+      }
+    }
+  };
+
+  const pickImage = async (docType) => {
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert('Permission needed', 'Please allow photo access to upload documents.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      quality: 0.8,
+      base64: false,
+    });
+    if (result.canceled) return;
+
+    const asset = result.assets[0];
     try {
-      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!perm.granted) {
-        Alert.alert('Permission needed', 'Please allow photo access to upload documents.');
-        return;
-      }
-      const result = await ImagePicker.launchImageLibraryAsync({
-        quality: 0.5,
-        base64: true,
+      const compressed = await compressImage(asset.uri);
+      setPendingUpload({
+        docType,
+        fileName: asset.fileName || shortName(asset.uri),
+        base64: compressed.base64,
+        uri: compressed.uri,
+        isPdf: false,
       });
-      if (result.canceled) return;
-      const asset = result.assets ? result.assets[0] : result;
-      if (!asset?.base64) {
-        Alert.alert('Upload failed', 'Could not read the selected image. Please try again.');
-        return;
-      }
-      setDoc({ key: current.key, busy: true });
-      const { key } = await uploadDocument({
-        uri: asset.uri,          // enables direct-to-S3 (presigned)
-        base64: asset.base64,    // fallback if direct upload unavailable
-        kind: 'patient-docs',
-        filename,
-      });
-      setDoc({ key, busy: false });
     } catch (err) {
-      setDoc({ key: current.key, busy: false });
+      console.log(err);
+      Alert.alert('Could not process photo', 'Please try picking the photo again.');
+    }
+  };
+
+  const pickPdf = async (docType) => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: 'application/pdf',
+        copyToCacheDirectory: true,
+      });
+
+      if (result.canceled) return;
+
+      const asset = result.assets[0];
+      const base64 = await FileSystem.readAsStringAsync(asset.uri, {
+        encoding: 'base64',
+      });
+
+      setPendingUpload({
+        docType,
+        fileName: asset.name,
+        base64,
+        uri: asset.uri,
+        isPdf: true,
+      });
+    } catch (err) {
+      console.log(err);
+      Alert.alert('Error', 'Could not open PDF.');
+    }
+  };
+
+  const handleFilePicker = (docType) => {
+    Alert.alert('Select Document', 'Choose the type of file', [
+      { text: 'Image', onPress: () => pickImage(docType) },
+      { text: 'PDF', onPress: () => pickPdf(docType) },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  };
+
+  const handleUploadPress = (docType, title) => {
+    const current = docType === 'insurance' ? insurance : photoId;
+    if (current.busy) return;
+    Alert.alert(
+      title,
+      'Choose how you would like to add this document',
+      [
+        { text: 'Choose File', onPress: () => handleFilePicker(docType) },
+        { text: 'Take Photo', onPress: () => handleCamera(docType) },
+        { text: 'Cancel', style: 'cancel' },
+      ],
+      { cancelable: true }
+    );
+  };
+
+  // ---------- Confirmation modal actions ----------
+
+  const confirmUpload = async () => {
+    if (!pendingUpload || uploadingModal) return;
+    const { docType, fileName, uri, base64 } = pendingUpload;
+    setUploadingModal(true);
+
+    const setDoc = docType === 'insurance' ? setInsurance : setPhotoId;
+    const current = docType === 'insurance' ? insurance : photoId;
+    setDoc({ ...current, busy: true });
+
+    try {
+      const { key } = await uploadDocument({
+        uri,
+        base64,
+        kind: 'patient-docs',
+        filename: fileName,
+      });
+      setDoc({ key, busy: false, fileName });
+      setPendingUpload(null);
+    } catch (err) {
+      setDoc({ ...current, busy: false });
       Alert.alert('Upload failed', err.message === 'NETWORK_ERROR'
         ? 'Network error. Please check your connection and try again.'
         : (err.message || 'Could not upload the document.'));
+    } finally {
+      setUploadingModal(false);
     }
+  };
+
+  const cancelUpload = () => {
+    if (uploadingModal) return;
+    setPendingUpload(null);
   };
 
   const handleSave = async () => {
@@ -84,7 +224,6 @@ export default function HealthProfileScreen({ navigation,route }) {
         photo_id: photoId.key,          // S3 key or null
       });
     } catch (err) {
-      // Optional step — don't block the user, but let them know if it didn't save.
       if (err.message !== 'NOT_LOGGED_IN') {
         Alert.alert('Heads up', 'We could not save your health profile right now. You can add it later from Profile settings.');
       }
@@ -121,7 +260,6 @@ export default function HealthProfileScreen({ navigation,route }) {
             <Text style={styles.headerTitle}>Health profile</Text>
             <Text style={styles.headerStep}>Step 2 of 2</Text>
           </View>
-          {/* Progress dots */}
           <View style={styles.progressDots}>
             <View style={[styles.dot, styles.dotDone]} />
             <View style={[styles.dot, styles.dotActive]} />
@@ -134,7 +272,6 @@ export default function HealthProfileScreen({ navigation,route }) {
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          {/* Optional notice */}
           <View style={styles.noticeBanner}>
             <Text style={styles.noticeIcon}>ⓘ</Text>
             <Text style={styles.noticeText}>
@@ -142,7 +279,6 @@ export default function HealthProfileScreen({ navigation,route }) {
             </Text>
           </View>
 
-          {/* Insurance Details */}
           <Text style={styles.sectionLabel}>
             Insurance details <Text style={styles.optionalTag}>(optional)</Text>
           </Text>
@@ -169,7 +305,6 @@ export default function HealthProfileScreen({ navigation,route }) {
             />
           </View>
 
-          {/* Documents */}
           <Text style={styles.sectionLabel}>
             Documents <Text style={styles.optionalTag}>(optional)</Text>
           </Text>
@@ -179,30 +314,29 @@ export default function HealthProfileScreen({ navigation,route }) {
               style={[styles.uploadCard, insurance.key && styles.uploadCardDone]}
               activeOpacity={0.8}
               disabled={insurance.busy}
-              onPress={() => pickAndUpload('insurance', 'insurance-card.jpg', insurance, setInsurance)}
+              onPress={() => handleUploadPress('insurance', 'Insurance card')}
             >
               {insurance.busy
                 ? <ActivityIndicator color={COLORS.navy} style={{ marginBottom: 4, height: 26 }} />
-                : <Text style={styles.uploadIcon}>📷</Text>}
+                : <Text style={styles.uploadIcon}>{insurance.key ? '✓' : '📷'}</Text>}
               <Text style={styles.uploadLabel}>Insurance card</Text>
-              <Text style={styles.uploadSub}>{uploadSubLabel(insurance)}</Text>
+              <Text style={styles.uploadSub} numberOfLines={1}>{uploadSubLabel(insurance)}</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
               style={[styles.uploadCard, photoId.key && styles.uploadCardDone]}
               activeOpacity={0.8}
               disabled={photoId.busy}
-              onPress={() => pickAndUpload('photo_id', 'photo-id.jpg', photoId, setPhotoId)}
+              onPress={() => handleUploadPress('photoId', 'Photo ID')}
             >
               {photoId.busy
                 ? <ActivityIndicator color={COLORS.navy} style={{ marginBottom: 4, height: 26 }} />
-                : <Text style={styles.uploadIcon}>🪪</Text>}
+                : <Text style={styles.uploadIcon}>{photoId.key ? '✓' : '🪪'}</Text>}
               <Text style={styles.uploadLabel}>Photo ID</Text>
-              <Text style={styles.uploadSub}>{uploadSubLabel(photoId)}</Text>
+              <Text style={styles.uploadSub} numberOfLines={1}>{uploadSubLabel(photoId)}</Text>
             </TouchableOpacity>
           </View>
 
-          {/* Save button */}
           <TouchableOpacity
             style={[styles.saveBtn, (saving || insurance.busy || photoId.busy) && { opacity: 0.6 }]}
             activeOpacity={0.85}
@@ -214,27 +348,62 @@ export default function HealthProfileScreen({ navigation,route }) {
               : <Text style={styles.saveBtnText}>Save &amp; finish</Text>}
           </TouchableOpacity>
 
-          {/* Skip */}
           <TouchableOpacity
             activeOpacity={0.7}
-            onPress={() => navigation.navigate('PatientHome',{firstName: route.params?.firstName})}
+            onPress={() => navigation.navigate('PatientHome', { firstName: route.params?.firstName })}
           >
             <Text style={styles.skipText}>Skip for now →</Text>
           </TouchableOpacity>
 
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* Confirmation modal — shown after a photo/PDF is picked, before upload */}
+      <Modal
+        visible={!!pendingUpload}
+        transparent
+        animationType="fade"
+        onRequestClose={cancelUpload}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Confirm document</Text>
+
+            {pendingUpload?.isPdf ? (
+              <View style={styles.pdfPreviewBox}>
+                <Text style={styles.pdfPreviewText}>📄 {pendingUpload?.fileName}</Text>
+              </View>
+            ) : (
+              <Image
+                source={{ uri: pendingUpload?.uri }}
+                style={styles.previewImage}
+                resizeMode="cover"
+              />
+            )}
+
+            <Text style={styles.modalFileName} numberOfLines={1}>
+              {pendingUpload?.fileName}
+            </Text>
+
+            <View style={styles.modalButtonRow}>
+              <TouchableOpacity style={styles.modalCancelBtn} onPress={cancelUpload} disabled={uploadingModal}>
+                <Text style={styles.modalCancelText}>Retake / Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.modalUploadBtn} onPress={confirmUpload} disabled={uploadingModal}>
+                {uploadingModal
+                  ? <ActivityIndicator color={COLORS.white} />
+                  : <Text style={styles.modalUploadText}>Upload</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: COLORS.white,
-  },
-
-  // ── Header ──
+  safeArea: { flex: 1, backgroundColor: COLORS.white },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -245,178 +414,68 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   backButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: COLORS.offWhite,
-    borderWidth: 1,
-    borderColor: COLORS.lightGray,
+    width: 36, height: 36, borderRadius: 18,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: COLORS.offWhite, borderWidth: 1, borderColor: COLORS.lightGray,
   },
-  logoBox: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
-    backgroundColor: COLORS.navy,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  logoText: {
-    color: COLORS.white,
-    fontWeight: '800',
-    fontSize: 13,
-  },
-  headerText: {
-    flex: 1,
-  },
-  headerTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: COLORS.navyDark,
-  },
-  headerStep: {
-    fontSize: 12,
-    color: COLORS.gray,
-    marginTop: 1,
-  },
-  progressDots: {
-    flexDirection: 'row',
-    gap: 6,
-  },
-  dot: {
-    width: 28,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: COLORS.lightGray,
-  },
-  dotActive: {
-    backgroundColor: COLORS.navy,
-  },
-  dotDone: {
-    backgroundColor: COLORS.navy,
-    opacity: 0.4,
-  },
-
-  // ── Content ──
+  logoBox: { width: 40, height: 40, borderRadius: 10, backgroundColor: COLORS.navy, alignItems: 'center', justifyContent: 'center' },
+  logoText: { color: COLORS.white, fontWeight: '800', fontSize: 13 },
+  headerText: { flex: 1 },
+  headerTitle: { fontSize: 16, fontWeight: '800', color: COLORS.navyDark },
+  headerStep: { fontSize: 12, color: COLORS.gray, marginTop: 1 },
+  progressDots: { flexDirection: 'row', gap: 6 },
+  dot: { width: 28, height: 6, borderRadius: 3, backgroundColor: COLORS.lightGray },
+  dotActive: { backgroundColor: COLORS.navy },
+  dotDone: { backgroundColor: COLORS.navy, opacity: 0.4 },
   scroll: { flex: 1 },
-  scrollContent: {
-    padding: 24,
-    paddingBottom: 40,
-  },
-
-  // ── Notice Banner ──
+  scrollContent: { padding: 24, paddingBottom: 40 },
   noticeBanner: {
-    flexDirection: 'row',
-    backgroundColor: COLORS.yellowBg,
-    borderWidth: 1,
-    borderColor: COLORS.yellowBorder,
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 24,
-    alignItems: 'flex-start',
-    gap: 10,
+    flexDirection: 'row', backgroundColor: COLORS.yellowBg, borderWidth: 1,
+    borderColor: COLORS.yellowBorder, borderRadius: 12, padding: 14, marginBottom: 24,
+    alignItems: 'flex-start', gap: 10,
   },
-  noticeIcon: {
-    fontSize: 16,
-    color: COLORS.yellowBorder,
-    marginTop: 1,
-  },
-  noticeText: {
-    flex: 1,
-    fontSize: 13,
-    color: COLORS.yellowText,
-    fontWeight: '600',
-    lineHeight: 20,
-  },
-
-  // ── Section Labels ──
-  sectionLabel: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: COLORS.navyDark,
-    marginBottom: 14,
-  },
-  optionalTag: {
-    fontWeight: '400',
-    color: COLORS.gray,
-    fontSize: 13,
-  },
-
-  // ── Fields ──
-  fieldWrap: {
-    marginBottom: 16,
-  },
-  label: {
-    fontSize: 13,
-    color: COLORS.bodyText,
-    marginBottom: 8,
-    fontWeight: '500',
-  },
+  noticeIcon: { fontSize: 16, color: COLORS.yellowBorder, marginTop: 1 },
+  noticeText: { flex: 1, fontSize: 13, color: COLORS.yellowText, fontWeight: '600', lineHeight: 20 },
+  sectionLabel: { fontSize: 15, fontWeight: '700', color: COLORS.navyDark, marginBottom: 14 },
+  optionalTag: { fontWeight: '400', color: COLORS.gray, fontSize: 13 },
+  fieldWrap: { marginBottom: 16 },
+  label: { fontSize: 13, color: COLORS.bodyText, marginBottom: 8, fontWeight: '500' },
   input: {
-    backgroundColor: COLORS.white,
-    borderWidth: 1.5,
-    borderColor: COLORS.border,
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 15,
-    color: COLORS.navyDark,
+    backgroundColor: COLORS.white, borderWidth: 1.5, borderColor: COLORS.border,
+    borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14, fontSize: 15, color: COLORS.navyDark,
   },
-
-  // ── Upload Cards ──
-  uploadRow: {
-    flexDirection: 'row',
-    gap: 14,
-    marginBottom: 28,
-  },
+  uploadRow: { flexDirection: 'row', gap: 14, marginBottom: 28 },
   uploadCard: {
-    flex: 1,
-    borderWidth: 1.5,
-    borderColor: COLORS.border,
-    borderStyle: 'dashed',
-    borderRadius: 14,
-    paddingVertical: 22,
-    alignItems: 'center',
-    backgroundColor: COLORS.offWhite,
-    gap: 6,
+    flex: 1, borderWidth: 1.5, borderColor: COLORS.border, borderStyle: 'dashed',
+    borderRadius: 14, paddingVertical: 22, alignItems: 'center', backgroundColor: COLORS.offWhite, gap: 6,
   },
-  uploadCardDone: {
-    borderColor: COLORS.navy,
-    backgroundColor: '#EBF0FB',
-    borderStyle: 'solid',
-  },
-  uploadIcon: {
-    fontSize: 26,
-    marginBottom: 4,
-  },
-  uploadLabel: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: COLORS.navyDark,
-  },
-  uploadSub: {
-    fontSize: 12,
-    color: COLORS.gray,
-  },
+  uploadCardDone: { borderColor: COLORS.navy, backgroundColor: '#EBF0FB', borderStyle: 'solid' },
+  uploadIcon: { fontSize: 26, marginBottom: 4 },
+  uploadLabel: { fontSize: 13, fontWeight: '700', color: COLORS.navyDark },
+  uploadSub: { fontSize: 12, color: COLORS.gray },
+  saveBtn: { backgroundColor: COLORS.navy, borderRadius: 14, paddingVertical: 17, alignItems: 'center', marginBottom: 16 },
+  saveBtnText: { color: COLORS.white, fontSize: 16, fontWeight: '800' },
+  skipText: { textAlign: 'center', fontSize: 14, color: COLORS.navy, fontWeight: '600' },
 
-  // ── Buttons ──
-  saveBtn: {
-    backgroundColor: COLORS.navy,
-    borderRadius: 14,
-    paddingVertical: 17,
-    alignItems: 'center',
-    marginBottom: 16,
+  // ---- Upload confirmation modal ----
+  modalOverlay: {
+    flex: 1, backgroundColor: 'rgba(13, 33, 86, 0.55)',
+    justifyContent: 'center', alignItems: 'center', padding: 24,
   },
-  saveBtnText: {
-    color: COLORS.white,
-    fontSize: 16,
-    fontWeight: '800',
+  modalCard: { width: '100%', backgroundColor: COLORS.white, borderRadius: 20, padding: 18 },
+  modalTitle: { fontSize: 16, fontWeight: '700', color: COLORS.navyDark, marginBottom: 12, textAlign: 'center' },
+  previewImage: { width: '100%', height: 220, borderRadius: 12, backgroundColor: COLORS.offWhite },
+  pdfPreviewBox: {
+    width: '100%', height: 120, borderRadius: 12,
+    backgroundColor: COLORS.offWhite, alignItems: 'center', justifyContent: 'center',
   },
-  skipText: {
-    textAlign: 'center',
-    fontSize: 14,
-    color: COLORS.navy,
-    fontWeight: '600',
+  pdfPreviewText: { fontSize: 14, color: COLORS.navyDark, fontWeight: '600' },
+  modalFileName: { marginTop: 10, fontSize: 12.5, color: COLORS.gray, textAlign: 'center' },
+  modalButtonRow: { flexDirection: 'row', gap: 10, marginTop: 18 },
+  modalCancelBtn: {
+    flex: 1, paddingVertical: 13, borderRadius: 24, borderWidth: 1.5, borderColor: COLORS.border, alignItems: 'center',
   },
+  modalCancelText: { color: COLORS.gray, fontWeight: '700', fontSize: 13.5 },
+  modalUploadBtn: { flex: 1, paddingVertical: 13, borderRadius: 24, backgroundColor: COLORS.navy, alignItems: 'center' },
+  modalUploadText: { color: COLORS.white, fontWeight: '700', fontSize: 13.5 },
 });
