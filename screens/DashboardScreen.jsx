@@ -304,7 +304,7 @@ export default function DashboardScreen({ route, navigation }) {
     }
   };
 
-  const handleGoOnline = () => navigation.navigate('PatientMap', { fullName });
+  const handleGoOnline = () => navigation.navigate('PatientMap', { fullName, autoOnline:true });
   const handleHistory  = () => navigation.navigate('PhlebHistory', { fullName });
   const handleProfile  = () => navigation.navigate('PhlebProfile',    { fullName });
 

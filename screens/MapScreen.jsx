@@ -27,7 +27,7 @@ async function getToken() {
 }
 
 export default function MapScreen({ route, navigation }) {
-  const { fullName = 'User' } = route.params || {};
+  const { fullName = 'User', autoOnline = false } = route.params || {};
   const [firstName, ...rest] = fullName.split(' ');
   const lastName = rest.join(' ');
   const initials = `${firstName?.[0] || ''}${lastName?.[0] || ''}`.toUpperCase();
@@ -61,6 +61,11 @@ export default function MapScreen({ route, navigation }) {
       fetchMetrics();
       checkActiveJob();
       fetchOfficeRequests();
+      // Coming from Dashboard's "Tap to go online" — skip the extra tap
+      // here and go straight online so the map shows requests immediately.
+      if (autoOnline) {
+        goOnline();
+      }
     })();
     officePollRef.current = setInterval(fetchOfficeRequests, 30000);
     return () => { 
@@ -162,6 +167,16 @@ export default function MapScreen({ route, navigation }) {
     } catch {}
     setMyCoords(null);
     setPendingJob(null);
+  };
+
+  // Back button now also takes the phlebotomist offline before leaving —
+  // this replaces the separate "Go offline" button that used to sit in the
+  // top bar, so there's a single, obvious way back instead of two buttons
+  // doing overlapping things.
+  const handleBack = async () => {
+    if (myCoords) {
+      await goOffline();
+    }
     navigation.goBack();
   };
 
@@ -276,6 +291,28 @@ export default function MapScreen({ route, navigation }) {
     }
   };
 
+  // Navigates to the dedicated request-detail screen, where the
+  // phlebotomist makes the actual Accept / Decline decision. The map's
+  // request card itself is just a summary + entry point now, not the
+  // place where accept/decline happens — avoids the "is this tappable or
+  // just informational" confusion the card-only design had before.
+  const handleViewRequest = (req) => {
+    navigation.navigate('NewRequest', {
+      request: {
+        id: req.id,
+        location: req.address,
+        distanceMiles: `${req.distance_miles} mi`,
+        distanceFromYou: `${req.distance_miles} miles`,
+        estimatedDrive: '—',
+        neighbourhood: req.address,
+        collectionType: req.test_name || 'Clinical Test',
+        preferredTime: req.preferred_time,
+        preferredDate: req.preferred_date,
+      },
+      fullName,
+    });
+  };
+
   return (
     <View style={styles.outer}>
       <StatusBar barStyle="dark-content" translucent backgroundColor="transparent" />
@@ -353,7 +390,7 @@ export default function MapScreen({ route, navigation }) {
         <View style={styles.topBarInner}>
           <TouchableOpacity
             style={styles.backButton}
-            onPress={() => navigation.goBack()}
+            onPress={handleBack}
             activeOpacity={0.8}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
@@ -373,11 +410,6 @@ export default function MapScreen({ route, navigation }) {
               </View>
             </View>
           </View>
-          {myCoords && (
-            <TouchableOpacity style={styles.offlineButton} onPress={goOffline} activeOpacity={0.85}>
-              <Text style={styles.offlineText}>Go{'\n'}offline</Text>
-            </TouchableOpacity>
-          )}
         </View>
       </View>
 
@@ -385,17 +417,14 @@ export default function MapScreen({ route, navigation }) {
       <View style={styles.bottomSheet}>
         <View style={styles.statsRow}>
           <View style={styles.statCard}>
-            <Text style={styles.statLabel}>Jobs today</Text>
+            <Text style={styles.statLabel}>Jobs</Text>
             <Text style={styles.statValue}>{jobsToday}</Text>
-          </View>
-          <View style={styles.statDivider} />
-          <View style={styles.statCard}>
-            <Text style={styles.statLabel}>Earned today</Text>
-            <Text style={[styles.statValue, { color: GREEN }]}>{earnedToday}</Text>
           </View>
         </View>
 
-        {/* Go online button */}
+        {/* Go online button — only shown if autoOnline didn't already
+            kick in (e.g. someone lands here directly, or the auto
+            attempt failed and they need to retry manually). */}
         {!myCoords && (
           <TouchableOpacity style={styles.goOnlineBtn} onPress={goOnline} disabled={goingOnline}>
             {goingOnline
@@ -462,29 +491,11 @@ export default function MapScreen({ route, navigation }) {
           </Text>
           <ScrollView style={styles.nearbyList} showsVerticalScrollIndicator={false}>
             {officeRequests.map((req) => (
-              <TouchableOpacity
-                key={req.id}
-                style={styles.nearbyCard}
-                activeOpacity={0.8}
-                onPress={() => navigation.navigate('NewRequest', {
-                   request: {
-                   id: req.id,
-                   location: req.address,
-                   distanceMiles: `${req.distance_miles} mi`,
-                   distanceFromYou: `${req.distance_miles} miles`,
-                   estimatedDrive: '—',
-                   neighbourhood: req.address,
-                   collectionType: req.test_name || 'Clinical Test',
-                   preferredTime: req.preferred_time,
-                   preferredDate: req.preferred_date,
-                  },
-                  fullName,
-                })}
-               >
+              <View key={req.id} style={styles.nearbyCard}>
                 <View style={styles.nearbyCardIcon}>
                  <Text style={styles.nearbyCardIconText}>📍</Text>
                 </View>
-                <View style={{ flex: 1 }}>
+                <View style={{ flex: 1, marginRight: 10 }}>
                   <Text style={styles.nearbyCardTitle}>{req.test_name || 'Clinical Test'}</Text>
                   <Text style={styles.nearbyCardSub} numberOfLines={1}>
                     {req.address || 'Address unknown'}
@@ -494,7 +505,17 @@ export default function MapScreen({ route, navigation }) {
                      {req.preferred_time ? ` · ${req.preferred_time}` : ''}
                   </Text>
                 </View>
-               </TouchableOpacity>
+                {/* Explicit action button instead of the whole card being
+                    silently tappable — this is what was confusing before. */}
+                <TouchableOpacity
+                  style={styles.viewRequestBtn}
+                  activeOpacity={0.85}
+                  onPress={() => handleViewRequest(req)}
+                >
+                  <Text style={styles.viewRequestBtnText}>View Request</Text>
+                  <Ionicons name="chevron-forward" size={14} color="#FFFFFF" />
+                </TouchableOpacity>
+              </View>
              ))}
             </ScrollView>
           </>
@@ -519,8 +540,6 @@ const styles = StyleSheet.create({
   onlineRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 2 },
   onlineDot: { width: 7, height: 7, borderRadius: 4 },
   onlineLabel: { color: 'rgba(255,255,255,0.85)', fontSize: 11.5 },
-  offlineButton: { backgroundColor: 'rgba(255,255,255,0.18)', borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.45)', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 8, alignItems: 'center' },
-  offlineText: { color: '#FFFFFF', fontWeight: '700', fontSize: 13, textAlign: 'center', lineHeight: 18 },
 
   myMarkerWrapper: { alignItems: 'center', justifyContent: 'center', width: 60, height: 60 },
   myMarkerRing: { position: 'absolute', width: 54, height: 54, borderRadius: 27, borderWidth: 2, borderColor: 'rgba(27,122,77,0.35)', backgroundColor: 'rgba(27,122,77,0.1)' },
@@ -578,7 +597,7 @@ nearbySectionTitle: {
   marginBottom: 10,
 },
 nearbyList: {
-  maxHeight: 220,
+  maxHeight: 260,
 },
 nearbyCard: {
   flexDirection: 'row',
@@ -598,4 +617,18 @@ nearbyCardIconText: { fontSize: 16 },
 nearbyCardTitle: { fontSize: 14, fontWeight: '700', color: '#111827' },
 nearbyCardSub: { fontSize: 12, color: '#6B7280', marginTop: 2 },
 nearbyCardMeta: { fontSize: 11.5, color: '#F59E0B', fontWeight: '600', marginTop: 3 },
+viewRequestBtn: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  gap: 4,
+  backgroundColor: PRIMARY,
+  borderRadius: 10,
+  paddingHorizontal: 12,
+  paddingVertical: 9,
+},
+viewRequestBtnText: {
+  color: '#FFFFFF',
+  fontWeight: '700',
+  fontSize: 11.5,
+},
 });

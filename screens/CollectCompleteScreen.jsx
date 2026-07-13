@@ -12,14 +12,20 @@ import {
   Animated,
   Easing,
   ActivityIndicator,
+  Modal,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as SecureStore from 'expo-secure-store';
 import { PHLEB_ENDPOINTS } from '../config/api';
 
-const PRIMARY = '#18377D';
-const GREEN = '#1B7A4D';
-const BG = '#F6F8FC';
+const PRIMARY      = '#18377D';
+const PRIMARY_DARK = '#0F2557';
+const PRIMARY_LIGHT = '#3B5BA9';
+const GREEN        = '#1B7A4D';
+const GREEN_LIGHT  = '#22C55E';
+const AMBER        = '#D97706';
+const BG           = '#F6F8FC';
+const CARD_BORDER  = '#EEF1F7';
 const PHLEB_TOKEN_KEY = 'musb_phleb_token';
 
 // Matches the 13-item "Required Specimen Collection Checklist" shown on the
@@ -44,9 +50,9 @@ const INITIAL_CHECKLIST = [
 // Matches the "Storage Condition" selector on web. `key` is what gets sent
 // to the backend (submit_specimen_checklist expects Ambient/Refrigerated/Frozen).
 const STORAGE_OPTIONS = [
-  { key: 'Ambient', label: 'Ambient (Standard Room Temp)' },
-  { key: 'Refrigerated', label: 'Refrigerated (2–8°C)' },
-  { key: 'Frozen', label: 'Frozen (-20°C)' },
+  { key: 'Ambient', label: 'Ambient', sub: 'Standard room temp', icon: 'thermometer-outline' },
+  { key: 'Refrigerated', label: 'Refrigerated', sub: '2–8°C', icon: 'snow-outline' },
+  { key: 'Frozen', label: 'Frozen', sub: '-20°C', icon: 'snow' },
 ];
 
 /** Springy press-scale wrapper. */
@@ -81,7 +87,7 @@ function FadeInUp({ delay = 0, distance = 14, children, style }) {
   const anim = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     Animated.timing(anim, {
-      toValue: 1, duration: 420, delay,
+      toValue: 1, duration: 460, delay,
       easing: Easing.out(Easing.cubic), useNativeDriver: true,
     }).start();
   }, []);
@@ -100,24 +106,89 @@ function FadeInUp({ delay = 0, distance = 14, children, style }) {
   );
 }
 
-/** Checkbox circle that pops when toggled done. */
+/** Checkbox circle that pops + fills when toggled done. */
 function CheckCircle({ done }) {
   const scale = useRef(new Animated.Value(done ? 1 : 0)).current;
+  const fill = useRef(new Animated.Value(done ? 1 : 0)).current;
   useEffect(() => {
-    Animated.spring(scale, {
-      toValue: done ? 1 : 0,
-      useNativeDriver: true,
-      speed: 20,
-      bounciness: 14,
-    }).start();
+    Animated.parallel([
+      Animated.spring(scale, { toValue: done ? 1 : 0, useNativeDriver: true, speed: 20, bounciness: 14 }),
+      Animated.timing(fill, { toValue: done ? 1 : 0, duration: 180, useNativeDriver: false }),
+    ]).start();
   }, [done]);
 
+  const bg = fill.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['#FFFFFF', PRIMARY],
+  });
+  const border = fill.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['#D1D5DB', PRIMARY],
+  });
+
   return (
-    <View style={[styles.checkCircle, done && styles.checkCircleDone]}>
+    <Animated.View style={[styles.checkCircle, { backgroundColor: bg, borderColor: border }]}>
       <Animated.View style={{ transform: [{ scale }] }}>
         <Ionicons name="checkmark" size={14} color="#FFFFFF" />
       </Animated.View>
+    </Animated.View>
+  );
+}
+
+/** Animated progress bar showing checklist completion. */
+function ProgressBar({ progress }) {
+  const anim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(anim, {
+      toValue: progress,
+      duration: 380,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    }).start();
+  }, [progress]);
+
+  return (
+    <View style={styles.progressTrack}>
+      <Animated.View
+        style={[
+          styles.progressFill,
+          {
+            width: anim.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }),
+            backgroundColor: progress >= 1 ? GREEN_LIGHT : PRIMARY_LIGHT,
+          },
+        ]}
+      />
     </View>
+  );
+}
+
+/** Row-level highlight fade when a checklist item is toggled done. */
+function ChecklistRow({ item, index, onToggle }) {
+  const highlight = useRef(new Animated.Value(0)).current;
+  const prevDone = useRef(item.done);
+
+  useEffect(() => {
+    if (item.done && !prevDone.current) {
+      highlight.setValue(1);
+      Animated.timing(highlight, { toValue: 0, duration: 700, useNativeDriver: false }).start();
+    }
+    prevDone.current = item.done;
+  }, [item.done]);
+
+  const rowBg = highlight.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['rgba(27,122,77,0)', 'rgba(27,122,77,0.08)'],
+  });
+
+  return (
+    <Animated.View style={[styles.checklistRow, { backgroundColor: rowBg }]}>
+      <TouchableOpacity style={styles.checklistRowTouchable} activeOpacity={0.7} onPress={onToggle}>
+        <CheckCircle done={item.done} />
+        <Text style={[styles.checklistLabel, item.done && styles.checklistLabelDone]}>
+          {item.label}
+        </Text>
+      </TouchableOpacity>
+    </Animated.View>
   );
 }
 
@@ -134,6 +205,10 @@ export default function CollectCompleteScreen({ route, navigation }) {
   const [submitting, setSubmitting] = useState(false);
   const [storageCondition, setStorageCondition] = useState('Ambient');
   const [collectorName, setCollectorName] = useState('');
+  const [showStoragePicker, setShowStoragePicker] = useState(false);
+
+  const doneCount = checklist.filter((i) => i.done).length;
+  const progress = checklist.length ? doneCount / checklist.length : 0;
 
   const toggleItem = (id) => {
     setChecklist((prev) =>
@@ -172,7 +247,7 @@ export default function CollectCompleteScreen({ route, navigation }) {
           checklist: checklistPayload,
           storage_condition: storageCondition,
           collector_name: collectorName,
-          notes,
+          specimen_notes: notes,
         }),
       });
       const checklistData = await checklistRes.json();
@@ -209,10 +284,11 @@ export default function CollectCompleteScreen({ route, navigation }) {
 
   return (
     <View style={styles.outer}>
-      <StatusBar barStyle="light-content" backgroundColor={GREEN} />
+      <StatusBar barStyle="light-content" backgroundColor={PRIMARY_DARK} />
 
       {/* Header */}
       <View style={styles.header}>
+        <View style={styles.headerGlow} />
         <View style={styles.headerTopRow}>
           <AnimatedPressable
             style={styles.backBtn}
@@ -224,13 +300,21 @@ export default function CollectCompleteScreen({ route, navigation }) {
         </View>
 
         <View style={styles.headerTextWrap}>
-          <Ionicons name="location" size={16} color="#FFFFFF" />
-          <View style={{ marginLeft: 8 }}>
+          <View style={styles.headerIconWrap}>
+            <Ionicons name="location" size={16} color="#FFFFFF" />
+          </View>
+          <View style={{ marginLeft: 10, flex: 1 }}>
             <Text style={styles.headerTitle}>Arrived at location</Text>
-            <Text style={styles.headerSubtitle}>
+            <Text style={styles.headerSubtitle} numberOfLines={1}>
               {patient.address}{patient.name ? ` — ${patient.name}` : ''}
             </Text>
           </View>
+        </View>
+
+        {/* Completion progress summary */}
+        <View style={styles.headerProgressRow}>
+          <ProgressBar progress={progress} />
+          <Text style={styles.headerProgressText}>{doneCount}/{checklist.length}</Text>
         </View>
       </View>
 
@@ -241,66 +325,79 @@ export default function CollectCompleteScreen({ route, navigation }) {
       >
         {/* Collection checklist */}
         <FadeInUp delay={0}>
-          <Text style={styles.sectionLabel}>Required Specimen Collection Checklist</Text>
+          <View style={styles.sectionHeadingRow}>
+            <Text style={styles.sectionLabel}>Required Specimen Collection Checklist</Text>
+            <View style={[styles.countPill, allChecked && styles.countPillDone]}>
+              <Text style={[styles.countPillText, allChecked && styles.countPillTextDone]}>
+                {doneCount}/{checklist.length}
+              </Text>
+            </View>
+          </View>
           <Text style={styles.sectionSubLabel}>
             All {checklist.length} checks must be verified before proceeding to 'Collected' status.
           </Text>
           <View style={styles.card}>
             {checklist.map((item, idx) => (
-              <TouchableOpacity
+              <ChecklistRow
                 key={item.id}
-                style={[styles.checklistRow, idx === checklist.length - 1 && { marginBottom: 0 }]}
-                activeOpacity={0.7}
-                onPress={() => toggleItem(item.id)}
-              >
-                <CheckCircle done={item.done} />
-                <Text style={[styles.checklistLabel, item.done && styles.checklistLabelDone]}>
-                  {idx + 1}. {item.label}
-                </Text>
-              </TouchableOpacity>
+                item={item}
+                index={idx}
+                onToggle={() => toggleItem(item.id)}
+              />
             ))}
           </View>
         </FadeInUp>
 
         {/* Storage condition */}
-        <FadeInUp delay={60}>
-          <Text style={[styles.sectionLabel, { marginTop: 20 }]}>Storage condition</Text>
-          <View style={styles.storageRow}>
-            {STORAGE_OPTIONS.map((opt) => {
-              const selected = storageCondition === opt.key;
-              return (
-                <TouchableOpacity
-                  key={opt.key}
-                  style={[styles.storageChip, selected && styles.storageChipSelected]}
-                  activeOpacity={0.8}
-                  onPress={() => setStorageCondition(opt.key)}
-                >
-                  <Text style={[styles.storageChipText, selected && styles.storageChipTextSelected]}>
-                    {opt.label}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
+        <FadeInUp delay={70}>
+          <Text style={[styles.sectionLabel, { marginTop: 24, marginBottom: 12 }]}>Storage condition</Text>
+          <AnimatedPressable
+            style={styles.storageDropdown}
+            scaleTo={0.98}
+            onPress={() => setShowStoragePicker(true)}
+          >
+            <View style={styles.storageDropdownIconWrap}>
+              <Ionicons
+                name={STORAGE_OPTIONS.find((o) => o.key === storageCondition)?.icon || 'thermometer-outline'}
+                size={18}
+                color={PRIMARY}
+              />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.storageDropdownLabel}>
+                {STORAGE_OPTIONS.find((o) => o.key === storageCondition)?.label || 'Select storage condition'}
+              </Text>
+              <Text style={styles.storageDropdownSub}>
+                {STORAGE_OPTIONS.find((o) => o.key === storageCondition)?.sub || ''}
+              </Text>
+            </View>
+            <Ionicons name="chevron-down" size={18} color="#9CA3AF" />
+          </AnimatedPressable>
         </FadeInUp>
 
         {/* Collector name verification */}
-        <FadeInUp delay={100}>
-          <Text style={[styles.sectionLabel, { marginTop: 20 }]}>Collector name verification</Text>
+        <FadeInUp delay={120}>
+          <Text style={[styles.sectionLabel, { marginTop: 24, marginBottom: 12 }]}>Collector name verification</Text>
           <View style={styles.card}>
-            <TextInput
-              style={styles.collectorInput}
-              value={collectorName}
-              onChangeText={setCollectorName}
-              placeholder="Enter your full name"
-              placeholderTextColor="#9CA3AF"
-            />
+            <View style={styles.inputRow}>
+              <Ionicons name="person-outline" size={17} color="#9CA3AF" style={{ marginRight: 10 }} />
+              <TextInput
+                style={styles.collectorInput}
+                value={collectorName}
+                onChangeText={setCollectorName}
+                placeholder="Enter your full name"
+                placeholderTextColor="#9CA3AF"
+              />
+              {collectorName.trim().length > 0 && (
+                <Ionicons name="checkmark-circle" size={18} color={GREEN_LIGHT} />
+              )}
+            </View>
           </View>
         </FadeInUp>
 
         {/* Collection notes */}
-        <FadeInUp delay={140}>
-          <Text style={[styles.sectionLabel, { marginTop: 20 }]}>Collection notes</Text>
+        <FadeInUp delay={170}>
+          <Text style={[styles.sectionLabel, { marginTop: 24, marginBottom: 12 }]}>Collection notes</Text>
           <View style={styles.card}>
             <TextInput
               style={styles.notesInput}
@@ -313,21 +410,83 @@ export default function CollectCompleteScreen({ route, navigation }) {
             />
           </View>
         </FadeInUp>
+
+        <View style={{ height: 12 }} />
       </ScrollView>
 
       {/* Bottom CTA */}
-      <View style={styles.bottomBar}>
+      <FadeInUp delay={0} distance={20} style={styles.bottomBar}>
+        {!canComplete && (
+          <View style={styles.incompleteNotice}>
+            <Ionicons name="alert-circle-outline" size={14} color={AMBER} />
+            <Text style={styles.incompleteNoticeText}>
+              {checklist.length - doneCount} item{checklist.length - doneCount === 1 ? '' : 's'} remaining
+            </Text>
+          </View>
+        )}
         <AnimatedPressable
           style={[styles.completeButton, (!canComplete || submitting) && styles.completeButtonDisabled]}
           scaleTo={0.97}
           onPress={handleMarkComplete}
           disabled={!canComplete || submitting}
         >
-          {submitting
-            ? <ActivityIndicator color="#FFFFFF" />
-            : <Text style={styles.completeButtonText}>Mark collection complete</Text>}
+          {submitting ? (
+            <ActivityIndicator color="#FFFFFF" />
+          ) : (
+            <>
+              <Ionicons
+                name={canComplete ? 'checkmark-circle' : 'lock-closed-outline'}
+                size={18}
+                color="#FFFFFF"
+                style={{ marginRight: 8 }}
+              />
+              <Text style={styles.completeButtonText}>Mark collection complete</Text>
+            </>
+          )}
         </AnimatedPressable>
-      </View>
+      </FadeInUp>
+
+      {/* Storage condition picker */}
+      <Modal
+        visible={showStoragePicker}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowStoragePicker(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowStoragePicker(false)}
+        >
+          <View style={styles.modalSheet}>
+            <View style={styles.modalHandle} />
+            <Text style={styles.modalTitle}>Storage condition</Text>
+            {STORAGE_OPTIONS.map((opt) => {
+              const selected = storageCondition === opt.key;
+              return (
+                <TouchableOpacity
+                  key={opt.key}
+                  style={[styles.modalOptionRow, selected && styles.modalOptionRowSelected]}
+                  activeOpacity={0.7}
+                  onPress={() => {
+                    setStorageCondition(opt.key);
+                    setShowStoragePicker(false);
+                  }}
+                >
+                  <View style={[styles.modalOptionIconWrap, selected && styles.modalOptionIconWrapSelected]}>
+                    <Ionicons name={opt.icon} size={18} color={selected ? '#FFFFFF' : PRIMARY} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.modalOptionLabel}>{opt.label}</Text>
+                    <Text style={styles.modalOptionSub}>{opt.sub}</Text>
+                  </View>
+                  {selected && <Ionicons name="checkmark-circle" size={20} color={GREEN_LIGHT} />}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 }
@@ -342,16 +501,30 @@ const styles = StyleSheet.create({
   },
 
   header: {
-    backgroundColor: GREEN,
+    backgroundColor: PRIMARY,
     paddingTop: TOP_PADDING,
-    paddingBottom: 18,
+    paddingBottom: 20,
     paddingHorizontal: 20,
+    borderBottomLeftRadius: 26,
+    borderBottomRightRadius: 26,
+    overflow: 'hidden',
+  },
+
+  headerGlow: {
+    position: 'absolute',
+    top: -50,
+    right: -40,
+    width: 160,
+    height: 160,
+    borderRadius: 80,
+    backgroundColor: PRIMARY_LIGHT,
+    opacity: 0.35,
   },
 
   headerTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 14,
   },
 
   backBtn: {
@@ -359,6 +532,8 @@ const styles = StyleSheet.create({
     height: 34,
     borderRadius: 17,
     backgroundColor: 'rgba(255,255,255,0.18)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.3)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -368,6 +543,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
 
+  headerIconWrap: {
+    width: 30,
+    height: 30,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255,255,255,0.16)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
   headerTitle: {
     color: '#FFFFFF',
     fontSize: 17,
@@ -375,9 +559,37 @@ const styles = StyleSheet.create({
   },
 
   headerSubtitle: {
-    color: 'rgba(255,255,255,0.85)',
+    color: 'rgba(255,255,255,0.82)',
     fontSize: 12.5,
     marginTop: 2,
+  },
+
+  headerProgressRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 16,
+    gap: 10,
+  },
+
+  headerProgressText: {
+    color: '#FFFFFF',
+    fontSize: 12.5,
+    fontWeight: '800',
+    minWidth: 34,
+    textAlign: 'right',
+  },
+
+  progressTrack: {
+    flex: 1,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: 'rgba(255,255,255,0.22)',
+    overflow: 'hidden',
+  },
+
+  progressFill: {
+    height: '100%',
+    borderRadius: 3,
   },
 
   scroll: {
@@ -390,11 +602,19 @@ const styles = StyleSheet.create({
     paddingBottom: 24,
   },
 
+  sectionHeadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+
   sectionLabel: {
     fontSize: 14,
     fontWeight: '800',
     color: '#111827',
-    marginBottom: 6,
+    flexShrink: 1,
+    marginRight: 10,
   },
 
   sectionSubLabel: {
@@ -403,21 +623,50 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
 
+  countPill: {
+    backgroundColor: '#EEF2FF',
+    borderRadius: 10,
+    paddingHorizontal: 9,
+    paddingVertical: 3,
+  },
+
+  countPillDone: {
+    backgroundColor: '#DCFCE7',
+  },
+
+  countPillText: {
+    fontSize: 11.5,
+    fontWeight: '800',
+    color: PRIMARY,
+  },
+
+  countPillTextDone: {
+    color: GREEN,
+  },
+
   card: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 16,
-    shadowColor: '#000',
+    borderRadius: 18,
+    padding: 6,
+    borderWidth: 1,
+    borderColor: CARD_BORDER,
+    shadowColor: '#0F172A',
     shadowOpacity: 0.05,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
     elevation: 2,
+    overflow: 'hidden',
   },
 
   checklistRow: {
+    borderRadius: 12,
+  },
+
+  checklistRowTouchable: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 10,
     gap: 12,
   },
 
@@ -426,14 +675,8 @@ const styles = StyleSheet.create({
     height: 24,
     borderRadius: 12,
     borderWidth: 2,
-    borderColor: '#D1D5DB',
     alignItems: 'center',
     justifyContent: 'center',
-  },
-
-  checkCircleDone: {
-    backgroundColor: PRIMARY,
-    borderColor: PRIMARY,
   },
 
   checklistLabel: {
@@ -441,51 +684,145 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: '#111827',
+    lineHeight: 19,
   },
 
   checklistLabelDone: {
-    color: '#374151',
+    color: '#6B7280',
+    textDecorationLine: 'line-through',
+    textDecorationColor: '#9CA3AF',
   },
 
-  storageRow: {
-    gap: 10,
-  },
-
-  storageChip: {
+  storageDropdown: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: '#FFFFFF',
-    borderRadius: 14,
+    borderRadius: 16,
     paddingVertical: 14,
-    paddingHorizontal: 16,
+    paddingHorizontal: 14,
     borderWidth: 1.5,
-    borderColor: '#E5E7EB',
+    borderColor: CARD_BORDER,
+    gap: 12,
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 2,
   },
 
-  storageChipSelected: {
+  storageDropdownIconWrap: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: '#EEF2FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  storageDropdownLabel: {
+    fontSize: 14.5,
+    fontWeight: '800',
+    color: '#111827',
+  },
+
+  storageDropdownSub: {
+    fontSize: 12,
+    color: '#9CA3AF',
+    marginTop: 2,
+  },
+
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15,23,42,0.5)',
+    justifyContent: 'flex-end',
+  },
+
+  modalSheet: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingTop: 12,
+    paddingHorizontal: 16,
+    paddingBottom: Platform.OS === 'ios' ? 32 : 20,
+  },
+
+  modalHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#E5E7EB',
+    alignSelf: 'center',
+    marginBottom: 16,
+  },
+
+  modalTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#111827',
+    marginBottom: 14,
+    paddingHorizontal: 4,
+  },
+
+  modalOptionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 13,
+    paddingHorizontal: 10,
+    borderRadius: 14,
+    marginBottom: 6,
+  },
+
+  modalOptionRowSelected: {
+    backgroundColor: '#EEF2FF',
+  },
+
+  modalOptionIconWrap: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: '#F1F4FA',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  modalOptionIconWrapSelected: {
     backgroundColor: PRIMARY,
-    borderColor: PRIMARY,
   },
 
-  storageChipText: {
-    fontSize: 14,
+  modalOptionLabel: {
+    fontSize: 14.5,
     fontWeight: '700',
     color: '#111827',
   },
 
-  storageChipTextSelected: {
-    color: '#FFFFFF',
+  modalOptionSub: {
+    fontSize: 12,
+    color: '#9CA3AF',
+    marginTop: 1,
+  },
+
+  inputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
   },
 
   collectorInput: {
+    flex: 1,
     fontSize: 14,
     color: '#374151',
-    paddingVertical: 4,
+    paddingVertical: 6,
   },
 
   notesInput: {
     fontSize: 13.5,
     color: '#374151',
     lineHeight: 19,
-    minHeight: 64,
+    minHeight: 72,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
   },
 
   bottomBar: {
@@ -497,15 +834,38 @@ const styles = StyleSheet.create({
     borderTopColor: '#E5E7EB',
   },
 
+  incompleteNotice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginBottom: 10,
+  },
+
+  incompleteNoticeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: AMBER,
+  },
+
   completeButton: {
+    flexDirection: 'row',
     backgroundColor: GREEN,
-    borderRadius: 14,
+    borderRadius: 16,
     paddingVertical: 16,
     alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: GREEN,
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 4,
   },
 
   completeButtonDisabled: {
     backgroundColor: '#9CA3AF',
+    shadowOpacity: 0,
+    elevation: 0,
   },
 
   completeButtonText: {

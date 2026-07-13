@@ -1,5 +1,9 @@
 import React, { useState } from 'react';
 import * as DocumentPicker from 'expo-document-picker';
+import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
 import {
   View,
   Text,
@@ -7,8 +11,8 @@ import {
   TouchableOpacity,
   StyleSheet,
   ScrollView,
-  Linking,
   Alert,
+  Image,
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
@@ -42,8 +46,12 @@ export default function RegisterStep3({ navigation, route }) {
   const [routingNumber, setRoutingNumber] = useState('');
   const [accountNumber, setAccountNumber] = useState('');
 
-  const [method, setMethod] = useState('bank');
+  // Bank statement upload — { name, uri, key, busy } | null
+  const [bankStatement, setBankStatement] = useState(null);
+  const [pendingBankUpload, setPendingBankUpload] = useState(null); // staged file awaiting confirm
+
   const [w9File, setW9File] = useState(null); // { name, uri, key, busy } | null
+  const [downloadingW9, setDownloadingW9] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   const shortName = (uri = '') => {
@@ -52,19 +60,38 @@ export default function RegisterStep3({ navigation, route }) {
     return parts[parts.length - 1] || 'document';
   };
 
+  // ---------- W9: actually download the file to the device ----------
   const handleDownloadW9 = async () => {
+    if (downloadingW9) return;
+    setDownloadingW9(true);
     try {
-      const supported = await Linking.canOpenURL(W9_FORM_URL);
-      if (supported) {
-        await Linking.openURL(W9_FORM_URL);
+      const localUri = FileSystem.cacheDirectory + 'MusB_W9_Form.pdf';
+      const { uri } = await FileSystem.downloadAsync(W9_FORM_URL, localUri);
+
+      const canShare = await Sharing.isAvailableAsync();
+      if (canShare) {
+        // Opens the native "Save to Files / Share" sheet so the user can
+        // actually save the PDF to their device (Files app, Drive, etc.)
+        await Sharing.shareAsync(uri, {
+          mimeType: 'application/pdf',
+          dialogTitle: 'Save W9 form',
+          UTI: 'com.adobe.pdf',
+        });
       } else {
-        Alert.alert('Unable to open link', 'Please try again later.');
+        Alert.alert(
+          'Downloaded',
+          `The W9 form was saved to: ${uri}`
+        );
       }
     } catch (err) {
-      Alert.alert('Something went wrong', 'Could not open the W9 form link.');
+      console.log(err);
+      Alert.alert('Download failed', 'Could not download the W9 form. Please try again.');
+    } finally {
+      setDownloadingW9(false);
     }
   };
 
+  // ---------- W9: upload the filled form back ----------
   const handleUploadW9 = async () => {
     try {
       const result = await DocumentPicker.getDocumentAsync({
@@ -94,9 +121,138 @@ export default function RegisterStep3({ navigation, route }) {
     }
   };
 
+  // ---------- Bank statement: pick + stage (pdf / gallery / camera) ----------
+  const compressImage = async (uri) => {
+    const result = await ImageManipulator.manipulateAsync(
+      uri,
+      [{ resize: { width: 1280 } }],
+      { compress: 0.5, format: ImageManipulator.SaveFormat.JPEG, base64: false }
+    );
+    return result; // { uri, width, height }
+  };
+
+  const pickBankPdf = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: 'application/pdf',
+        copyToCacheDirectory: true,
+      });
+      if (result.canceled) return;
+      const asset = result.assets[0];
+      setPendingBankUpload({ fileName: asset.name, uri: asset.uri, isPdf: true });
+    } catch (err) {
+      console.log(err);
+      Alert.alert('Error', 'Could not open PDF.');
+    }
+  };
+
+  const pickBankImage = async () => {
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        quality: 0.8,
+        base64: false,
+      });
+      if (result.canceled) return;
+      const asset = result.assets[0];
+      const compressed = await compressImage(asset.uri);
+      setPendingBankUpload({
+        fileName: asset.fileName || shortName(asset.uri),
+        uri: compressed.uri,
+        isPdf: false,
+      });
+    } catch (err) {
+      console.log(err);
+      Alert.alert('Could not open photo library', 'Please try picking the photo again.');
+    }
+  };
+
+  const captureBankPhoto = async () => {
+    try {
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert(
+          'Camera access needed',
+          'Please enable camera permissions in your device settings to take a photo.'
+        );
+        return;
+      }
+      const result = await ImagePicker.launchCameraAsync({
+        quality: 0.8,
+        allowsEditing: true,
+        base64: false,
+      });
+      if (!result.canceled && result.assets?.length) {
+        const asset = result.assets[0];
+        const compressed = await compressImage(asset.uri);
+        setPendingBankUpload({
+          fileName: asset.fileName || shortName(asset.uri),
+          uri: compressed.uri,
+          isPdf: false,
+        });
+      }
+    } catch (err) {
+      console.log(err);
+      Alert.alert('Camera error', 'Could not open the camera or process the photo. Please try again.');
+    }
+  };
+
+  const handleBankStatementPress = () => {
+    Alert.alert(
+      'Upload bank statement',
+      'Choose how you would like to add this document',
+      [
+        { text: 'Choose PDF', onPress: pickBankPdf },
+        { text: 'Choose Image', onPress: pickBankImage },
+        { text: 'Take Photo', onPress: captureBankPhoto },
+        { text: 'Cancel', style: 'cancel' },
+      ],
+      { cancelable: true }
+    );
+  };
+
+  // Actually upload the staged bank statement file to S3
+  const confirmBankUpload = async () => {
+    if (!pendingBankUpload) return;
+    const { fileName, uri } = pendingBankUpload;
+    setBankStatement({ name: fileName, uri, key: null, busy: true });
+    setPendingBankUpload(null);
+    try {
+      const { key } = await uploadDocument({
+        uri,
+        filename: fileName,
+        kind: 'phleb-docs',
+      });
+      setBankStatement({ name: fileName, uri, key, busy: false });
+    } catch (err) {
+      setBankStatement(null);
+      Alert.alert('Upload failed', err.message === 'NETWORK_ERROR'
+        ? 'Network error while uploading. Please try again.'
+        : (err.message || 'Could not upload the bank statement.'));
+    }
+  };
+
+  // Auto-confirm as soon as a file is staged (no separate preview modal
+  // needed here — mirrors the simpler flow the W9 upload already uses).
+  React.useEffect(() => {
+    if (pendingBankUpload) {
+      confirmBankUpload();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingBankUpload]);
+
   const handleFinish = async () => {
     if (!bankName.trim() || !holderName.trim() || !routingNumber.trim() || !accountNumber.trim()) {
       Alert.alert('Missing details', 'Please fill in all bank details to continue.');
+      return;
+    }
+    if (bankStatement?.busy) {
+      Alert.alert('Please wait', 'Your bank statement is still uploading.');
+      return;
+    }
+    if (!bankStatement?.key) {
+      Alert.alert('Bank statement required', 'Please upload a bank statement to continue.');
       return;
     }
     if (w9File?.busy) {
@@ -112,8 +268,7 @@ export default function RegisterStep3({ navigation, route }) {
     try {
       // Single submission point for the whole application: personal info
       // (Step 1) + licence/certificate/insurance docs (Step 2, base64) +
-      // password + the W9 (pre-uploaded to S3 above, sent as a storage key).
-      // The backend offloads any base64 docs to S3 and persists keys.
+      // password + the W9 + bank statement (pre-uploaded to S3, sent as keys).
       const data = await applyPhleb({
         fullName,
         email,
@@ -126,6 +281,11 @@ export default function RegisterStep3({ navigation, route }) {
         certificate,
         insuranceDoc,
         w9: w9File.key,
+        bankStatement: bankStatement.key,
+        bankName,
+        holderName,
+        routingNumber,
+        accountNumber,
       });
 
       navigation.replace('AwaitingApproval', {
@@ -168,9 +328,11 @@ export default function RegisterStep3({ navigation, route }) {
 
           {/* Header — same style as Register step 2 */}
           <View style={styles.header}>
-            <View style={styles.logoBox}>
-              <Text style={styles.logoText}>MusB</Text>
-            </View>
+            <Image
+              source={require('../assets/logo.png')}
+              style={styles.logoImage}
+              resizeMode="contain"
+            />
             <View style={styles.headerText}>
               <Text style={styles.stepTitle}>Register — step 3{'\n'}of 3</Text>
               <Text style={styles.stepSubtitle}>Payout & account details</Text>
@@ -226,18 +388,37 @@ export default function RegisterStep3({ navigation, route }) {
             keyboardType="numeric"
           />
 
-          <View style={styles.paymentRow}>
-            <TouchableOpacity
-              style={[
-                styles.paymentButton,
-                method === 'bank' && styles.activeButton,
-              ]}
-              onPress={() => setMethod('bank')}
-            >
-              <Text style={styles.paymentText}>🏦 Bank transfer</Text>
-            </TouchableOpacity>
-          </View>
-
+          {/* Bank statement upload */}
+          <Text style={styles.label}>Bank statement</Text>
+          <TouchableOpacity
+            style={styles.uploadCard}
+            activeOpacity={0.7}
+            onPress={handleBankStatementPress}
+            disabled={bankStatement?.busy}
+          >
+            <View style={[styles.uploadIconBox, bankStatement?.key && { backgroundColor: '#E6F6EC' }]}>
+              {bankStatement?.busy
+                ? <ActivityIndicator color="#1E9E5A" />
+                : <Text style={styles.uploadIconText}>{bankStatement?.key ? '✓' : '🏦'}</Text>}
+            </View>
+            <View style={{ flex: 1, marginRight: 8 }}>
+              <Text style={styles.uploadTitle}>
+                {bankStatement ? bankStatement.name : 'Upload bank statement'}
+              </Text>
+              <Text style={[styles.uploadSubtitle, bankStatement?.key && { color: '#1E9E5A' }]}>
+                {bankStatement?.busy
+                  ? 'Uploading…'
+                  : bankStatement?.key
+                    ? 'Uploaded · tap to replace'
+                    : 'PDF, photo, or camera — most recent statement'}
+              </Text>
+            </View>
+            {bankStatement?.key && (
+              <View style={styles.uploadBadge}>
+                <Text style={styles.uploadBadgeText}>Done</Text>
+              </View>
+            )}
+          </TouchableOpacity>
 
           {/* W9 tax form */}
           <Text style={styles.label}>W9 tax form</Text>
@@ -268,8 +449,16 @@ export default function RegisterStep3({ navigation, route }) {
             </View>
 
             <View style={styles.w9ButtonRow}>
-              <TouchableOpacity style={styles.w9SecondaryButton} onPress={handleDownloadW9}>
-                <Text style={styles.w9SecondaryButtonText}>Download W9 form</Text>
+              <TouchableOpacity
+                style={styles.w9SecondaryButton}
+                onPress={handleDownloadW9}
+                disabled={downloadingW9}
+              >
+                {downloadingW9 ? (
+                  <ActivityIndicator color="#0D2156" />
+                ) : (
+                  <Text style={styles.w9SecondaryButtonText}>Download W9 form</Text>
+                )}
               </TouchableOpacity>
               <TouchableOpacity style={styles.w9PrimaryButton} onPress={handleUploadW9} disabled={w9File?.busy}>
                 <Text style={styles.w9PrimaryButtonText}>
@@ -328,19 +517,10 @@ const styles = StyleSheet.create({
     marginTop: 4,
     gap: 12,
   },
-  logoBox: {
+  logoImage: {
     width: 42,
     height: 42,
-    backgroundColor: '#0D2156',
     borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  logoText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    letterSpacing: 0.3,
   },
   headerText: {
     flex: 1,
@@ -403,27 +583,51 @@ const styles = StyleSheet.create({
     borderColor: '#E4E7EE',
   },
 
-  // Payment method
-  paymentRow: {
+  // Bank statement upload card (mirrors Step 2's document cards)
+  uploadCard: {
     flexDirection: 'row',
-    gap: 12,
-    marginTop: 14,
-  },
-  paymentButton: {
-    flex: 1,
-    backgroundColor: '#FFF',
-    borderRadius: 14,
-    padding: 18,
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#DDD',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 14,
+    shadowColor: '#0D2156',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 10,
+    elevation: 2,
   },
-  activeButton: {
-    borderColor: '#0D2156',
-    borderWidth: 2,
+  uploadIconBox: {
+    width: 46,
+    height: 46,
+    borderRadius: 12,
+    backgroundColor: '#F1F4FA',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
   },
-  paymentText: {
-    fontWeight: '600',
+  uploadIconText: {
+    fontSize: 18,
+  },
+  uploadTitle: {
+    fontWeight: '700',
+    fontSize: 15,
+    color: '#1A2236',
+  },
+  uploadSubtitle: {
+    color: '#8A92A6',
+    fontSize: 12.5,
+    marginTop: 2,
+  },
+  uploadBadge: {
+    backgroundColor: '#E6F6EC',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  uploadBadgeText: {
+    fontWeight: '700',
+    fontSize: 11.5,
+    color: '#1E9E5A',
   },
 
   // W9 card
@@ -486,6 +690,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingVertical: 12,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   w9SecondaryButtonText: {
     color: '#0D2156',

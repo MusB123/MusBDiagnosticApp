@@ -6,12 +6,13 @@ import {
   TouchableOpacity,
   StyleSheet,
   StatusBar,
-  ScrollView,
   KeyboardAvoidingView,
   Platform,
   Modal,
   FlatList,
+  Image,
 } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { requestOtp } from '../utils/auth';
 import { Ionicons } from '@expo/vector-icons';
@@ -32,8 +33,8 @@ const COLORS = {
 };
 
 const COUNTRY_CODES = [
-  { code: '+91', country: '🇮🇳 India' },
   { code: '+1', country: '🇺🇸 USA / Canada' },
+  { code: '+91', country: '🇮🇳 India' },
   { code: '+44', country: '🇬🇧 UK' },
   { code: '+61', country: '🇦🇺 Australia' },
   { code: '+971', country: '🇦🇪 UAE' },
@@ -73,6 +74,13 @@ const PASSWORD_RULES = [
   { key: 'special', label: 'One special character (!@#$...)', test: (v) => /[^A-Za-z0-9]/.test(v) },
 ];
 
+// Oldest allowed DOB year = current year - 100, newest = current year (auto-updates every year)
+const CURRENT_YEAR = new Date().getFullYear();
+const MIN_DOB_YEAR = CURRENT_YEAR - 100;
+const MAX_DOB_YEAR = CURRENT_YEAR;
+
+const USA_CODE = COUNTRY_CODES.find((c) => c.code === '+1');
+
 export default function CreateAccountScreen({ navigation }) {
 
   const [form, setForm] = useState({
@@ -88,10 +96,10 @@ export default function CreateAccountScreen({ navigation }) {
   });
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState({});
-  const [countryCode, setCountryCode] = useState(COUNTRY_CODES[0]);
+  const [countryCode, setCountryCode] = useState(USA_CODE);
   const [showPicker, setShowPicker] = useState(false);
   const [countrySearch, setCountrySearch] = useState('');
-  const [emergencyCountryCode, setEmergencyCountryCode] = useState(COUNTRY_CODES[0]);
+  const [emergencyCountryCode, setEmergencyCountryCode] = useState(USA_CODE);
   const [showEmergencyPicker, setShowEmergencyPicker] = useState(false);
   const [emergencyCountrySearch, setEmergencyCountrySearch] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -138,7 +146,26 @@ export default function CreateAccountScreen({ navigation }) {
 
     if (!form.firstName.trim()) newErrors.firstName = 'First name is required';
     if (!form.lastName.trim()) newErrors.lastName = 'Last name is required';
-    if (!form.dob.trim() || dobClean.length < 8) newErrors.dob = 'Enter a valid date of birth';
+
+    if (!form.dob.trim() || dobClean.length < 8) {
+      newErrors.dob = 'Enter a valid date of birth';
+    } else {
+      const month = parseInt(dobClean.slice(0, 2), 10);
+      const day = parseInt(dobClean.slice(2, 4), 10);
+      const year = parseInt(dobClean.slice(4, 8), 10);
+      const dateObj = new Date(year, month - 1, day);
+      const isRealDate =
+        dateObj.getFullYear() === year &&
+        dateObj.getMonth() === month - 1 &&
+        dateObj.getDate() === day;
+
+      if (month < 1 || month > 12 || day < 1 || day > 31 || !isRealDate) {
+        newErrors.dob = 'Enter a valid date of birth';
+      } else if (year < MIN_DOB_YEAR || year > MAX_DOB_YEAR || dateObj > new Date()) {
+        newErrors.dob = `Year must be between ${MIN_DOB_YEAR} and ${MAX_DOB_YEAR}`;
+      }
+    }
+
     if (!form.phone.trim() || form.phone.length < 7) newErrors.phone = 'Enter a valid phone number';
     if (!form.email.trim()) {
       newErrors.email = 'Email is required';
@@ -199,8 +226,7 @@ export default function CreateAccountScreen({ navigation }) {
       <StatusBar barStyle="dark-content" backgroundColor={COLORS.white} />
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         {/* Header */}
         <View style={styles.header}>
@@ -211,9 +237,11 @@ export default function CreateAccountScreen({ navigation }) {
           >
             <Ionicons name="arrow-back" size={22} color={COLORS.navyDark} />
           </TouchableOpacity>
-          <View style={styles.logoBox}>
-            <Text style={styles.logoText}>MusB</Text>
-          </View>
+          <Image
+            source={require('../assets/logo.png')}
+            style={styles.logoImage}
+            resizeMode="contain"
+          />
           <View style={styles.headerText}>
             <Text style={styles.headerTitle}>Create account</Text>
             <Text style={styles.headerStep}>Step 1 of 2</Text>
@@ -224,12 +252,16 @@ export default function CreateAccountScreen({ navigation }) {
           </View>
         </View>
 
-        <ScrollView
-          style={styles.scroll}
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-        >
+        <KeyboardAwareScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        enableOnAndroid={true}
+        enableAutomaticScroll={true}
+        extraScrollHeight={Platform.OS === 'ios' ? 20 : 80}
+        keyboardOpeningTime={0}
+      >
           {/* First Name - required */}
           <InputField
             label="First name"
@@ -258,7 +290,7 @@ export default function CreateAccountScreen({ navigation }) {
             error={errors.lastName}
           />
 
-          {/* Date of Birth - required */}
+          {/* Date of Birth - required, year limited to past 100 years */}
           <InputField
             label="Date of birth"
             required
@@ -411,7 +443,7 @@ export default function CreateAccountScreen({ navigation }) {
             <Text style={styles.continueBtnText}>{loading ? 'Sending code...' : 'Continue →'}</Text>
           </TouchableOpacity>
           
-        </ScrollView>
+        </KeyboardAwareScrollView>
       </KeyboardAvoidingView>
 
       {/* Country Code Picker Modal - phone */}
@@ -563,18 +595,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COLORS.lightGray,
   },
-  logoBox: {
-    width: 40,
-    height: 40,
+  logoImage: {
+    width: 36,
+    height: 36,
     borderRadius: 10,
-    backgroundColor: COLORS.navy,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  logoText: {
-    color: COLORS.white,
-    fontWeight: '800',
-    fontSize: 13,
   },
   headerText: {
     flex: 1,

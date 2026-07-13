@@ -698,13 +698,13 @@ const styles = StyleSheet.create({
 
   headerArea: { alignItems: 'center', marginBottom: 28, marginTop: 8 },
 
-  logoWrap: { alignItems: 'center', justifyContent: 'center', marginBottom: 18, width: 100, height: 100 },
+  logoWrap: { alignItems: 'center', justifyContent: 'center', marginBottom: 18, width: 132, height: 132 },
   logoGlow: {
-    position: 'absolute', width: 110, height: 110, borderRadius: 55,
+    position: 'absolute', width: 146, height: 146, borderRadius: 73,
     backgroundColor: COLORS.navy,
   },
   logoCard: {
-    width: 92, height: 92, borderRadius: 26,
+    width: 122, height: 122, borderRadius: 32,
     backgroundColor: COLORS.white,
     alignItems: 'center', justifyContent: 'center',
     elevation: 8,
@@ -713,7 +713,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.15,
     shadowRadius: 16,
   },
-  logoImage: { width: 66, height: 66 },
+  logoImage: { width: 115, height: 115 },
 
   headerTitle: { fontSize: 24, fontWeight: '900', color: COLORS.navyDark, textAlign: 'center' },
   headerSub: { fontSize: 13, color: COLORS.gray, textAlign: 'center', marginTop: 6 },

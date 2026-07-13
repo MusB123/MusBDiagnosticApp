@@ -326,9 +326,11 @@ export default function RegisterStep2({ navigation, route }) {
 
         {/* Header */}
         <View style={styles.header}>
-          <View style={styles.logoBox}>
-            <Text style={styles.logoText}>MusB</Text>
-          </View>
+          <Image
+            source={require('../assets/logo.png')}
+            style={styles.logoImage}
+            resizeMode="contain"
+          />
           <View style={styles.headerText}>
             <Text style={styles.stepTitle}>Register — step 2{'\n'}of 3</Text>
             <Text style={styles.stepSubtitle}>Licences & certifications</Text>
@@ -440,19 +442,10 @@ const styles = StyleSheet.create({
     marginTop: 4,
     gap: 12,
   },
-  logoBox: {
+  logoImage: {
     width: 42,
     height: 42,
-    backgroundColor: '#0D2156',
     borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  logoText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    letterSpacing: 0.3,
   },
   headerText: {
     flex: 1,

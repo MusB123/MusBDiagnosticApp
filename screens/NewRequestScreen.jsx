@@ -21,18 +21,8 @@ const RED = '#C0392B';
 const TIMER_SECONDS = 300; // 2 minutes
 
 export default function NewRequestScreen({ route, navigation }) {
-  const { request } = route.params || {};
+  const { request: job } = route.params || {};
 
-  // Fallback mock data so the screen still renders if no params are passed
-  const job = request || {
-    id: 'JOB-1042',
-    location: 'Hyde Park, Tampa',
-    distanceMiles: '2.4 mi',
-    distanceFromYou: '2.4 miles',
-    estimatedDrive: '~9 min',
-    neighbourhood: 'Hyde Park',
-    collectionType: 'Blood draw',
-  };
   const [submitting, setSubmitting] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState(TIMER_SECONDS);
   const progress = useRef(new Animated.Value(1)).current;
@@ -201,7 +191,6 @@ export default function NewRequestScreen({ route, navigation }) {
           <View style={styles.detailsDivider} />
 
           <DetailRow label="Distance from you" value={job.distanceFromYou} />
-          <DetailRow label="Estimated drive" value={job.estimatedDrive} />
           <DetailRow label="Neighbourhood" value={job.neighbourhood} />
           <DetailRow label="Collection type" value={job.collectionType} last />
         </View>

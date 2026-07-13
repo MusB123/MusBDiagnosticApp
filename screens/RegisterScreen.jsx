@@ -8,6 +8,7 @@ import {
   StatusBar,
   ScrollView,
   Alert,
+  Image,
   KeyboardAvoidingView,
   Platform,
   Modal,
@@ -17,8 +18,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons'; // swap for your icon lib if different
 
 const COUNTRY_CODES = [
-  { code: '+91', country: '🇮🇳 India' },
   { code: '+1', country: '🇺🇸 USA / Canada' },
+  { code: '+91', country: '🇮🇳 India' },
   { code: '+44', country: '🇬🇧 UK' },
   { code: '+61', country: '🇦🇺 Australia' },
   { code: '+971', country: '🇦🇪 UAE' },
@@ -49,6 +50,13 @@ const COUNTRY_CODES = [
   { code: '+90', country: '🇹🇷 Turkey' },
 ];
 
+// Oldest allowed DOB year = current year - 100, newest = current year (auto-updates every year)
+const CURRENT_YEAR = new Date().getFullYear();
+const MIN_DOB_YEAR = CURRENT_YEAR - 100;
+const MAX_DOB_YEAR = CURRENT_YEAR;
+
+const USA_CODE = COUNTRY_CODES.find((c) => c.code === '+1');
+
 export default function RegisterScreen({ navigation }) {
   const [form, setForm] = useState({
     firstName: '',
@@ -64,7 +72,7 @@ export default function RegisterScreen({ navigation }) {
 
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [countryCode, setCountryCode] = useState(COUNTRY_CODES[0]);
+  const [countryCode, setCountryCode] = useState(USA_CODE);
   const [showPicker, setShowPicker] = useState(false);
   const [countrySearch, setCountrySearch] = useState('');
 
@@ -97,6 +105,30 @@ export default function RegisterScreen({ navigation }) {
 
   const isValidEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 
+  // Returns null if valid, or an error message string
+  const validateDob = (value) => {
+    if (!value.trim()) return null; // DOB is optional on this screen
+    const digits = value.replace(/\D/g, '');
+    if (digits.length < 8) return 'Please enter a complete date of birth.';
+
+    const month = parseInt(digits.slice(0, 2), 10);
+    const day = parseInt(digits.slice(2, 4), 10);
+    const year = parseInt(digits.slice(4, 8), 10);
+    const dateObj = new Date(year, month - 1, day);
+    const isRealDate =
+      dateObj.getFullYear() === year &&
+      dateObj.getMonth() === month - 1 &&
+      dateObj.getDate() === day;
+
+    if (month < 1 || month > 12 || day < 1 || day > 31 || !isRealDate) {
+      return 'Please enter a valid date of birth.';
+    }
+    if (year < MIN_DOB_YEAR || year > MAX_DOB_YEAR || dateObj > new Date()) {
+      return 'Please enter a valid date of birth.';
+    }
+    return null;
+  };
+
   const handleContinue = () => {
     if (!form.firstName.trim()) {
       Alert.alert('First name required', 'Please enter your first name to continue.');
@@ -104,6 +136,11 @@ export default function RegisterScreen({ navigation }) {
     }
     if (!form.lastName.trim()) {
       Alert.alert('Last name required', 'Please enter your last name to continue.');
+      return;
+    }
+    const dobError = validateDob(form.dob);
+    if (dobError) {
+      Alert.alert('Invalid date of birth', dobError);
       return;
     }
     if (!form.phone.trim() || form.phone.length < 7) {
@@ -168,9 +205,11 @@ export default function RegisterScreen({ navigation }) {
 
           {/* Header */}
           <View style={styles.header}>
-            <View style={styles.logoBox}>
-              <Text style={styles.logoText}>MusB</Text>
-            </View>
+            <Image
+              source={require('../assets/logo.png')}
+              style={styles.logoImage}
+              resizeMode="contain"
+            />
             <View style={styles.headerText}>
               <Text style={styles.stepTitle}>Register — step 1{'\n'}of 3</Text>
               <Text style={styles.stepSubtitle}>Personal information</Text>
@@ -427,24 +466,10 @@ const styles = StyleSheet.create({
     marginBottom: 28,
     gap: 12,
   },
-  logoBox: {
+  logoImage: {
     width: 44,
     height: 44,
-    backgroundColor: '#0D2156',
     borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#0D2156',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  logoText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    letterSpacing: 0.3,
   },
   headerText: {
     flex: 1,

@@ -342,7 +342,7 @@ export const authPatch = (url, body, role = 'phleb') => authFetch(url, { method:
 
 // ── Patient (MusB App) ───────────────────────────────────────────────────
 export async function requestOtp(email,phone) {
-  return postJson(PATIENT_ENDPOINTS.requestOtp, { email,phone });
+  return postJson(PATIENT_ENDPOINTS.requestOtp, { email,phone, client: 'mobile' });
 }
 
 export async function verifyOtpAndCreateAccount({ email, token, name, password,phone }) {

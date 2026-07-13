@@ -8,6 +8,7 @@ import {
   StatusBar,
   KeyboardAvoidingView,
   Platform,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { verifyOtpAndCreateAccount, requestOtp } from '../utils/auth';
@@ -82,9 +83,11 @@ export default function VerifyOtpScreen({ navigation, route }) {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <View style={styles.header}>
-          <View style={styles.logoBox}>
-            <Text style={styles.logoText}>MusB</Text>
-          </View>
+          <Image
+            source={require('../assets/logo.png')}
+            style={styles.logoImage}
+            resizeMode="contain"
+          />
           <View style={styles.headerText}>
             <Text style={styles.headerTitle}>Verify your email</Text>
             <Text style={styles.headerSub}>Code sent to {email}</Text>
@@ -177,4 +180,9 @@ const styles = StyleSheet.create({
   verifyBtnText: { color: COLORS.white, fontSize: 16, fontWeight: '800' },
   resendBtn: { alignItems: 'center', marginTop: 16 },
   resendText: { fontSize: 13, color: COLORS.navy, fontWeight: '600' },
+  logoImage: {
+  width: 36,
+  height: 36,
+  borderRadius: 10,
+},
 });

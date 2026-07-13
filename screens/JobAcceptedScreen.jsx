@@ -33,6 +33,7 @@ export default function JobAcceptedScreen({ route, navigation }) {
     || (Array.isArray(job?.lab_tests) ? job.lab_tests.join(', ') : null)
     || 'Clinical Test';
   const testPrice = job?.testPrice || job?.test_price;
+  const earning = job?.earning ?? job?.earned ?? job?.amount_earned;
   const preferredDate = job?.preferredDate || job?.preferred_date || '';
   const preferredTime = job?.time || job?.preferred_time || 'ASAP';
   const visitType = job?.visitType || job?.visit_type || 'home';
@@ -210,11 +211,8 @@ export default function JobAcceptedScreen({ route, navigation }) {
           <View style={styles.divider} />
 
           <InfoRow label="Phone" value={patientPhone || '—'} />
+          <InfoRow label="Date" value={preferredDate || job?.date || 'Today'} />
           <InfoRow label="Address" value={address} />
-          <InfoRow
-            label="Requested for"
-            value={`${preferredDate || 'Today'} · ${preferredTime}`}
-          />
           <InfoRow label="Payment method" value={paymentMethod} last />
         </View>
 
@@ -223,8 +221,8 @@ export default function JobAcceptedScreen({ route, navigation }) {
         <View style={styles.card}>
           <InfoRow label="Test" value={testName} />
           <InfoRow
-            label="Price"
-            value={testPrice ? `$${testPrice}` : 'N/A'}
+            label="Your earning"
+            value={earning != null ? `$${Number(earning).toFixed(2)}` : 'N/A'}
             last
           />
         </View>

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -66,8 +66,11 @@ export default function HealthProfileScreen({ navigation, route }) {
   };
 
   // ---------- Pickers: stage the file in `pendingUpload` only ----------
+  // Wrapped in useCallback so these don't get recreated (and re-bound to
+  // TouchableOpacity) on every keystroke in the text inputs above — that
+  // reference churn was what caused the upload cards / buttons to "flicker".
 
-  const handleCamera = async (docType) => {
+  const handleCamera = useCallback(async (docType) => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== 'granted') {
       Alert.alert(
@@ -97,9 +100,9 @@ export default function HealthProfileScreen({ navigation, route }) {
         Alert.alert('Could not process photo', 'Please try taking the photo again.');
       }
     }
-  };
+  }, []);
 
-  const pickImage = async (docType) => {
+  const pickImage = useCallback(async (docType) => {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) {
       Alert.alert('Permission needed', 'Please allow photo access to upload documents.');
@@ -127,9 +130,9 @@ export default function HealthProfileScreen({ navigation, route }) {
       console.log(err);
       Alert.alert('Could not process photo', 'Please try picking the photo again.');
     }
-  };
+  }, []);
 
-  const pickPdf = async (docType) => {
+  const pickPdf = useCallback(async (docType) => {
     try {
       const result = await DocumentPicker.getDocumentAsync({
         type: 'application/pdf',
@@ -154,19 +157,24 @@ export default function HealthProfileScreen({ navigation, route }) {
       console.log(err);
       Alert.alert('Error', 'Could not open PDF.');
     }
-  };
+  }, []);
 
-  const handleFilePicker = (docType) => {
+  const handleFilePicker = useCallback((docType) => {
     Alert.alert('Select Document', 'Choose the type of file', [
       { text: 'Image', onPress: () => pickImage(docType) },
       { text: 'PDF', onPress: () => pickPdf(docType) },
       { text: 'Cancel', style: 'cancel' },
     ]);
-  };
+  }, [pickImage, pickPdf]);
 
-  const handleUploadPress = (docType, title) => {
-    const current = docType === 'insurance' ? insurance : photoId;
-    if (current.busy) return;
+  const handleUploadPress = useCallback((docType, title) => {
+    // Read latest busy state at call-time via functional updates instead of
+    // depending on `insurance`/`photoId` in the closure — keeps this handler
+    // stable across renders instead of being rebuilt on every keystroke.
+    setInsurance((cur) => {
+      if (docType === 'insurance' && cur.busy) return cur;
+      return cur;
+    });
     Alert.alert(
       title,
       'Choose how you would like to add this document',
@@ -177,18 +185,17 @@ export default function HealthProfileScreen({ navigation, route }) {
       ],
       { cancelable: true }
     );
-  };
+  }, [handleFilePicker, handleCamera]);
 
   // ---------- Confirmation modal actions ----------
 
-  const confirmUpload = async () => {
+  const confirmUpload = useCallback(async () => {
     if (!pendingUpload || uploadingModal) return;
     const { docType, fileName, uri, base64 } = pendingUpload;
     setUploadingModal(true);
 
     const setDoc = docType === 'insurance' ? setInsurance : setPhotoId;
-    const current = docType === 'insurance' ? insurance : photoId;
-    setDoc({ ...current, busy: true });
+    setDoc((cur) => ({ ...cur, busy: true }));
 
     try {
       const { key } = await uploadDocument({
@@ -200,21 +207,21 @@ export default function HealthProfileScreen({ navigation, route }) {
       setDoc({ key, busy: false, fileName });
       setPendingUpload(null);
     } catch (err) {
-      setDoc({ ...current, busy: false });
+      setDoc((cur) => ({ ...cur, busy: false }));
       Alert.alert('Upload failed', err.message === 'NETWORK_ERROR'
         ? 'Network error. Please check your connection and try again.'
         : (err.message || 'Could not upload the document.'));
     } finally {
       setUploadingModal(false);
     }
-  };
+  }, [pendingUpload, uploadingModal]);
 
-  const cancelUpload = () => {
+  const cancelUpload = useCallback(() => {
     if (uploadingModal) return;
     setPendingUpload(null);
-  };
+  }, [uploadingModal]);
 
-  const handleSave = async () => {
+  const handleSave = useCallback(async () => {
     setSaving(true);
     try {
       await updatePatientProfile({
@@ -231,7 +238,11 @@ export default function HealthProfileScreen({ navigation, route }) {
       setSaving(false);
       navigation.navigate('PatientHome', { firstName: route.params?.firstName });
     }
-  };
+  }, [insuranceProvider, memberId, insurance.key, photoId.key, navigation, route.params?.firstName]);
+
+  const handleSkip = useCallback(() => {
+    navigation.navigate('PatientHome', { firstName: route.params?.firstName });
+  }, [navigation, route.params?.firstName]);
 
   const uploadSubLabel = (doc) =>
     doc.busy ? 'Uploading…' : doc.key ? '✓ Uploaded' : 'Tap to upload';
@@ -241,8 +252,7 @@ export default function HealthProfileScreen({ navigation, route }) {
       <StatusBar barStyle="dark-content" backgroundColor={COLORS.white} />
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         {/* Header */}
         <View style={styles.header}>
@@ -253,9 +263,11 @@ export default function HealthProfileScreen({ navigation, route }) {
           >
             <Ionicons name="arrow-back" size={22} color={COLORS.navyDark} />
           </TouchableOpacity>
-          <View style={styles.logoBox}>
-            <Text style={styles.logoText}>MusB</Text>
-          </View>
+          <Image
+            source={require('../assets/logo.png')}
+            style={styles.logoImage}
+            resizeMode="contain"
+          />
           <View style={styles.headerText}>
             <Text style={styles.headerTitle}>Health profile</Text>
             <Text style={styles.headerStep}>Step 2 of 2</Text>
@@ -317,7 +329,7 @@ export default function HealthProfileScreen({ navigation, route }) {
               onPress={() => handleUploadPress('insurance', 'Insurance card')}
             >
               {insurance.busy
-                ? <ActivityIndicator color={COLORS.navy} style={{ marginBottom: 4, height: 26 }} />
+                ? <ActivityIndicator color={COLORS.navy} style={styles.uploadSpinner} />
                 : <Text style={styles.uploadIcon}>{insurance.key ? '✓' : '📷'}</Text>}
               <Text style={styles.uploadLabel}>Insurance card</Text>
               <Text style={styles.uploadSub} numberOfLines={1}>{uploadSubLabel(insurance)}</Text>
@@ -330,7 +342,7 @@ export default function HealthProfileScreen({ navigation, route }) {
               onPress={() => handleUploadPress('photoId', 'Photo ID')}
             >
               {photoId.busy
-                ? <ActivityIndicator color={COLORS.navy} style={{ marginBottom: 4, height: 26 }} />
+                ? <ActivityIndicator color={COLORS.navy} style={styles.uploadSpinner} />
                 : <Text style={styles.uploadIcon}>{photoId.key ? '✓' : '🪪'}</Text>}
               <Text style={styles.uploadLabel}>Photo ID</Text>
               <Text style={styles.uploadSub} numberOfLines={1}>{uploadSubLabel(photoId)}</Text>
@@ -338,7 +350,7 @@ export default function HealthProfileScreen({ navigation, route }) {
           </View>
 
           <TouchableOpacity
-            style={[styles.saveBtn, (saving || insurance.busy || photoId.busy) && { opacity: 0.6 }]}
+            style={[styles.saveBtn, (saving || insurance.busy || photoId.busy) && styles.saveBtnDisabled]}
             activeOpacity={0.85}
             disabled={saving || insurance.busy || photoId.busy}
             onPress={handleSave}
@@ -348,10 +360,7 @@ export default function HealthProfileScreen({ navigation, route }) {
               : <Text style={styles.saveBtnText}>Save &amp; finish</Text>}
           </TouchableOpacity>
 
-          <TouchableOpacity
-            activeOpacity={0.7}
-            onPress={() => navigation.navigate('PatientHome', { firstName: route.params?.firstName })}
-          >
+          <TouchableOpacity activeOpacity={0.7} onPress={handleSkip}>
             <Text style={styles.skipText}>Skip for now →</Text>
           </TouchableOpacity>
 
@@ -418,8 +427,11 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
     backgroundColor: COLORS.offWhite, borderWidth: 1, borderColor: COLORS.lightGray,
   },
-  logoBox: { width: 40, height: 40, borderRadius: 10, backgroundColor: COLORS.navy, alignItems: 'center', justifyContent: 'center' },
-  logoText: { color: COLORS.white, fontWeight: '800', fontSize: 13 },
+  logoImage: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+  },
   headerText: { flex: 1 },
   headerTitle: { fontSize: 16, fontWeight: '800', color: COLORS.navyDark },
   headerStep: { fontSize: 12, color: COLORS.gray, marginTop: 1 },
@@ -451,9 +463,11 @@ const styles = StyleSheet.create({
   },
   uploadCardDone: { borderColor: COLORS.navy, backgroundColor: '#EBF0FB', borderStyle: 'solid' },
   uploadIcon: { fontSize: 26, marginBottom: 4 },
+  uploadSpinner: { marginBottom: 4, height: 26 },
   uploadLabel: { fontSize: 13, fontWeight: '700', color: COLORS.navyDark },
   uploadSub: { fontSize: 12, color: COLORS.gray },
   saveBtn: { backgroundColor: COLORS.navy, borderRadius: 14, paddingVertical: 17, alignItems: 'center', marginBottom: 16 },
+  saveBtnDisabled: { opacity: 0.6 },
   saveBtnText: { color: COLORS.white, fontSize: 16, fontWeight: '800' },
   skipText: { textAlign: 'center', fontSize: 14, color: COLORS.navy, fontWeight: '600' },
 

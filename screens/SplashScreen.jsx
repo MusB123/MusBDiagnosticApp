@@ -142,12 +142,12 @@ const styles = StyleSheet.create({
 
   // ── Logo ──
   logoWrap: {
-    marginBottom: 20,
+    marginBottom: 30,
     alignItems: 'center',
   },
   logoBox: {
-    width: 150,
-    height: 150,
+    width: 120,
+    height: 120,
     borderRadius: 24,
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
@@ -160,7 +160,7 @@ const styles = StyleSheet.create({
     elevation: 12,
   },
   logoImage: {
-    width: '100%',
+    width: '110%',
     height: '100%',
   },
 
