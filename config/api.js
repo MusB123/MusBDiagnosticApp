@@ -108,4 +108,5 @@ export const PHLEB_ENDPOINTS = {
 export const CATALOG_ENDPOINTS = {
   tests: `${BASE_URL}/api/superadmin/catalog/tests/`,
   pricingPreview: `${BASE_URL}/api/pricing/preview/`,
+  offers: `${BASE_URL}/api/offers/`,
 };

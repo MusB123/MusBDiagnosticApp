@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState,useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,7 @@ import {
   Modal,
   FlatList,
   Image,
+  ActivityIndicator,
 } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -64,6 +65,19 @@ const COUNTRY_CODES = [
   { code: '+41', country: '🇨🇭 Switzerland' },
   { code: '+90', country: '🇹🇷 Turkey' },
 ];
+const PLACES_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY;
+const AUTOCOMPLETE_URL = 'https://maps.googleapis.com/maps/api/place/autocomplete/json';
+const DETAILS_URL = 'https://maps.googleapis.com/maps/api/place/details/json';
+const DEBOUNCE_MS = 350;
+const MIN_QUERY_LENGTH = 3;
+
+function generateSessionToken() {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
 
 // Backend requires: min 10 chars, at least 1 uppercase, 1 lowercase, 1 number, 1 special char
 const PASSWORD_RULES = [
@@ -97,6 +111,12 @@ export default function CreateAccountScreen({ navigation }) {
   });
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState({});
+  const [addressSuggestions, setAddressSuggestions] = useState([]);
+  const [addressSearchLoading, setAddressSearchLoading] = useState(false);
+  const [addressSearchError, setAddressSearchError] = useState('');
+  const sessionTokenRef = useRef(generateSessionToken());
+  const debounceRef = useRef(null);
+  const abortRef = useRef(null);
   const [countryCode, setCountryCode] = useState(USA_CODE);
   const [showPicker, setShowPicker] = useState(false);
   const [countrySearch, setCountrySearch] = useState('');
@@ -138,6 +158,85 @@ export default function CreateAccountScreen({ navigation }) {
     const clean = text.replace(/\D/g, '');
     setForm({ ...form, emergencyContactPhone: clean });
     if (errors.emergencyContactPhone) setErrors({ ...errors, emergencyContactPhone: '' });
+  };
+
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+
+    if (!form.address || form.address.trim().length < MIN_QUERY_LENGTH) {
+      setAddressSuggestions([]);
+      setAddressSearchError('');
+      return;
+    }
+    if (!PLACES_API_KEY) {
+      setAddressSearchError('Autocomplete unavailable — missing API key.');
+      return;
+    }
+
+    debounceRef.current = setTimeout(() => {
+      fetchAddressSuggestions(form.address.trim());
+    }, DEBOUNCE_MS);
+
+    return () => clearTimeout(debounceRef.current);
+  }, [form.address]);
+
+  const fetchAddressSuggestions = async (input) => {
+    if (abortRef.current) abortRef.current.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    setAddressSearchLoading(true);
+    setAddressSearchError('');
+    try {
+      const params = new URLSearchParams({
+        input,
+        key: PLACES_API_KEY,
+        types: 'address',
+        sessiontoken: sessionTokenRef.current,
+      });
+      const res = await fetch(`${AUTOCOMPLETE_URL}?${params.toString()}`, { signal: controller.signal });
+      const data = await res.json();
+
+      if (data.status === 'OK') {
+        setAddressSuggestions(data.predictions || []);
+      } else if (data.status === 'ZERO_RESULTS') {
+        setAddressSuggestions([]);
+      } else {
+        setAddressSuggestions([]);
+        setAddressSearchError(data.error_message || `Autocomplete error: ${data.status}`);
+      }
+    } catch (err) {
+      if (err.name !== 'AbortError') {
+        setAddressSearchError('Could not reach address search. Check your connection.');
+      }
+    } finally {
+      setAddressSearchLoading(false);
+    }
+  };
+
+  const handleSelectAddressSuggestion = async (prediction) => {
+    setAddressSearchLoading(true);
+    setAddressSearchError('');
+    try {
+      const params = new URLSearchParams({
+        place_id: prediction.place_id,
+        key: PLACES_API_KEY,
+        sessiontoken: sessionTokenRef.current,
+        fields: 'formatted_address',
+      });
+      const res = await fetch(`${DETAILS_URL}?${params.toString()}`);
+      const data = await res.json();
+      if (data.status !== 'OK') throw new Error(data.error_message || `Details error: ${data.status}`);
+
+      const address = data.result.formatted_address || prediction.description;
+      setForm((prev) => ({ ...prev, address }));
+      setAddressSuggestions([]);
+      sessionTokenRef.current = generateSessionToken();
+    } catch (err) {
+      setAddressSearchError(err.message || 'Could not load address details.');
+    } finally {
+      setAddressSearchLoading(false);
+    }
   };
 
   const validate = () => {
@@ -344,12 +443,46 @@ export default function CreateAccountScreen({ navigation }) {
             error={errors.email}
           />
 
-          <InputField
-            label="Address"
-            value={form.address}
-            onChangeText={(t) => setForm({ ...form, address: t })}
-            placeholder="Street, City, State, ZIP"
-          />
+          <View style={styles.fieldWrap}>
+            <Text style={styles.label}>Address</Text>
+            <View style={styles.inputWithIconWrap}>
+              <TextInput
+                style={styles.input}
+                value={form.address}
+                onChangeText={(t) => setForm({ ...form, address: t })}
+                placeholder="Street, City, State, ZIP"
+                placeholderTextColor={COLORS.gray}
+              />
+              {addressSearchLoading && (
+                <ActivityIndicator color={COLORS.navy} size="small" style={styles.inputSpinner} />
+              )}
+            </View>
+            {addressSuggestions.length > 0 && (
+              <View style={styles.suggestionsBox}>
+                {addressSuggestions.map((item) => (
+                  <TouchableOpacity
+                    key={item.place_id}
+                    style={styles.suggestionRow}
+                    onPress={() => handleSelectAddressSuggestion(item)}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="location-outline" size={16} color={COLORS.gray} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.suggestionMain} numberOfLines={1}>
+                        {item.structured_formatting?.main_text || item.description}
+                      </Text>
+                      {item.structured_formatting?.secondary_text ? (
+                        <Text style={styles.suggestionSecondary} numberOfLines={1}>
+                          {item.structured_formatting.secondary_text}
+                        </Text>
+                      ) : null}
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+            {addressSearchError ? <Text style={styles.errorText}>⚠ {addressSearchError}</Text> : null}
+          </View>
 
           {/* Emergency contact - section */}
           <Text style={styles.sectionHeading}>Emergency contact</Text>
@@ -590,7 +723,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.lightGray,
     gap: 12,
@@ -606,9 +739,9 @@ const styles = StyleSheet.create({
     borderColor: COLORS.lightGray,
   },
   logoImage: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
+    width: 56,
+    height: 56,
+    borderRadius: 14,
   },
   headerText: {
     flex: 1,
@@ -852,4 +985,26 @@ const styles = StyleSheet.create({
   color: COLORS.navyDark,
   backgroundColor: COLORS.white,
 },
+inputWithIconWrap: { position: 'relative', justifyContent: 'center' },
+inputSpinner: { position: 'absolute', right: 14 },
+suggestionsBox: {
+  borderWidth: 1.5,
+  borderColor: COLORS.border,
+  borderRadius: 12,
+  marginTop: 6,
+  backgroundColor: COLORS.white,
+  overflow: 'hidden',
+  maxHeight: 220,
+},
+suggestionRow: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  gap: 10,
+  paddingHorizontal: 14,
+  paddingVertical: 12,
+  borderBottomWidth: 1,
+  borderBottomColor: COLORS.lightGray,
+},
+suggestionMain: { fontSize: 14, fontWeight: '600', color: COLORS.navyDark },
+suggestionSecondary: { fontSize: 12, color: COLORS.gray, marginTop: 1 },
 });

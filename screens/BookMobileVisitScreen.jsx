@@ -85,10 +85,11 @@ function getSlotFromTime(hour, minute, period) {
 }
 
 /** Wraps a TouchableOpacity with a springy press-scale animation. */
-function AnimatedPressable({ style, onPress, children, scaleTo = 0.96, ...rest }) {
+function AnimatedPressable({ style, onPress, children, scaleTo = 0.96, disabled, ...rest }) {
   const scale = useRef(new Animated.Value(1)).current;
 
   const pressIn = () => {
+    if (disabled) return;
     Animated.spring(scale, { toValue: scaleTo, useNativeDriver: true, speed: 40, bounciness: 6 }).start();
   };
   const pressOut = () => {
@@ -102,6 +103,7 @@ function AnimatedPressable({ style, onPress, children, scaleTo = 0.96, ...rest }
         onPress={onPress}
         onPressIn={pressIn}
         onPressOut={pressOut}
+        disabled={disabled}
         style={style}
         {...rest}
       >
@@ -188,7 +190,7 @@ function PulsingIconBadge({ children, style }) {
 }
 
 /** Doctor's-order selectable card — icon ring, accent bar, checkmark badge, press animation. */
-function OrderOptionCard({ icon, accent, accentBg, title, subtitle, selected, onPress, delay }) {
+function OrderOptionCard({ icon, accent, accentBg, title, subtitle, selected, onPress, delay, disabled }) {
   const check = useRef(new Animated.Value(selected ? 1 : 0)).current;
 
   useEffect(() => {
@@ -203,9 +205,10 @@ function OrderOptionCard({ icon, accent, accentBg, title, subtitle, selected, on
   return (
     <FadeInUp delay={delay} style={{ flex: 1 }}>
       <AnimatedPressable
-        style={[styles.orderCard, selected && styles.orderCardSelected]}
+        style={[styles.orderCard, selected && styles.orderCardSelected, disabled && styles.orderCardDisabled]}
         onPress={onPress}
         scaleTo={0.96}
+        disabled={disabled}
       >
         <View style={[styles.orderAccentBar, { backgroundColor: accent }]} />
         <View style={[styles.orderIconRing, { backgroundColor: accentBg }]}>
@@ -524,70 +527,8 @@ export default function BookMobileVisitScreen() {
           </Text>
         </FadeInUp>
 
-        {/* Doctor's Order */}
-        <FadeInUp delay={60}>
-          <Text style={styles.sectionLabel}>Doctor's order</Text>
-          <Text style={styles.sectionSubtitle}>
-            Having a doctor's request order helps us route your tests automatically.
-          </Text>
-        </FadeInUp>
-        <View style={styles.orderRow}>
-          <OrderOptionCard
-            icon="person-outline"
-            accent={COLORS.teal}
-            accentBg={COLORS.tealLight}
-            title="Self-referred"
-            subtitle="No doctor's order"
-            selected={doctorOrder === 'self'}
-            onPress={() => handleSelectDoctorOrder('self')}
-            delay={90}
-          />
-          <OrderOptionCard
-            icon="document-text-outline"
-            accent={COLORS.purple}
-            accentBg={COLORS.purpleLight}
-            title="Doctor's order"
-            subtitle="I have a request"
-            selected={doctorOrder === 'order'}
-            onPress={() => handleSelectDoctorOrder('order')}
-            delay={130}
-          />
-        </View>
-
-        {/* Upload box — only when doctor's order selected */}
-        {doctorOrder === 'order' && (
-          <FadeInUp delay={0}>
-            <AnimatedPressable
-              style={[styles.uploadBox, prescriptionFile && styles.uploadBoxDone]}
-              onPress={() => showUploadOptions("Doctor's order", setPrescriptionFile, 'prescriptionFile')}
-              scaleTo={0.98}
-            >
-              {prescriptionFile ? (
-                <>
-                  <View style={styles.uploadDoneIconWrap}>
-                    <Ionicons name="checkmark" size={24} color={COLORS.white} />
-                  </View>
-                  <Text style={styles.uploadDoneTitle}>File uploaded</Text>
-                  <Text style={styles.uploadDoneText} numberOfLines={1}>
-                    {prescriptionFile.name}
-                  </Text>
-                  <Text style={styles.uploadChangeText}>Tap to change</Text>
-                </>
-              ) : (
-                <>
-                  <View style={styles.uploadIconWrap}>
-                    <Ionicons name="cloud-upload-outline" size={22} color={COLORS.gray} />
-                  </View>
-                  <Text style={styles.uploadTitle}>Click to Upload or Take Photo</Text>
-                  <Text style={styles.uploadSub}>PDF, PNG, JPG up to 10MB</Text>
-                </>
-              )}
-            </AnimatedPressable>
-          </FadeInUp>
-        )}
-
         {/* Insurance */}
-        <FadeInUp delay={160}>
+        <FadeInUp delay={60}>
           <Text style={styles.sectionLabel}>Insurance</Text>
           <Text style={styles.sectionSubtitle}>
             Add your insurance card so we can verify coverage before your visit.
@@ -602,7 +543,7 @@ export default function BookMobileVisitScreen() {
             subtitle="Self-pay"
             selected={insurance === 'none'}
             onPress={() => handleSelectInsurance('none')}
-            delay={170}
+            delay={90}
           />
           <OrderOptionCard
             icon="card-outline"
@@ -612,8 +553,8 @@ export default function BookMobileVisitScreen() {
             subtitle="Add my card"
             selected={insurance === 'have'}
             onPress={() => handleSelectInsurance('have')}
-            delay={210}
-           />
+            delay={130}
+          />
         </View>
 
         {insurance === 'have' && (
@@ -673,6 +614,87 @@ export default function BookMobileVisitScreen() {
                 )}
               </AnimatedPressable>
             </View>
+          </FadeInUp>
+        )}
+
+        {/* Doctor's Order */}
+        <FadeInUp delay={160}>
+          <View style={styles.sectionLabelRow}>
+            <Text style={styles.sectionLabel}>Doctor's order</Text>
+            {insurance === 'have' && (
+              <View style={styles.requiredBadge}>
+                <Text style={styles.requiredBadgeText}>Required</Text>
+              </View>
+            )}
+          </View>
+          <Text style={styles.sectionSubtitle}>
+            {insurance === 'have'
+              ? "Since you're using insurance, a doctor's order is required to book this visit."
+              : "Having a doctor's request order helps us route your tests automatically."}
+          </Text>
+        </FadeInUp>
+        <View style={styles.orderRow}>
+          <OrderOptionCard
+            icon="person-outline"
+            accent={COLORS.teal}
+            accentBg={COLORS.tealLight}
+            title="Self-referred"
+            subtitle="No doctor's order"
+            selected={doctorOrder === 'self'}
+            onPress={() => {
+              if (insurance === 'have') {
+                Alert.alert(
+                  "Doctor's order required",
+                  "Since you selected insurance, a doctor's order is required — please choose that option and upload it."
+                );
+                return;
+              }
+              handleSelectDoctorOrder('self');
+            }}
+            delay={190}
+            disabled={insurance === 'have'}
+          />
+          <OrderOptionCard
+            icon="document-text-outline"
+            accent={COLORS.purple}
+            accentBg={COLORS.purpleLight}
+            title="Doctor's order"
+            subtitle="I have a request"
+            selected={doctorOrder === 'order'}
+            onPress={() => handleSelectDoctorOrder('order')}
+            delay={230}
+          />
+        </View>
+
+        {/* Upload box — only when doctor's order selected */}
+        {doctorOrder === 'order' && (
+          <FadeInUp delay={0}>
+            <AnimatedPressable
+              style={[styles.uploadBox, prescriptionFile && styles.uploadBoxDone]}
+              onPress={() => showUploadOptions("Doctor's order", setPrescriptionFile, 'prescriptionFile')}
+              scaleTo={0.98}
+            >
+              {prescriptionFile ? (
+                <>
+                  <View style={styles.uploadDoneIconWrap}>
+                    <Ionicons name="checkmark" size={24} color={COLORS.white} />
+                  </View>
+                  <Text style={styles.uploadDoneTitle}>File uploaded</Text>
+                  <Text style={styles.uploadDoneText} numberOfLines={1}>
+                    {prescriptionFile.name}
+                  </Text>
+                  <Text style={styles.uploadChangeText}>Tap to change</Text>
+                </>
+              ) : (
+                <>
+                  <View style={styles.uploadIconWrap}>
+                    <Ionicons name="cloud-upload-outline" size={22} color={COLORS.gray} />
+                  </View>
+                  <Text style={styles.uploadTitle}>Click to Upload or Take Photo</Text>
+                  <Text style={styles.uploadSub}>PDF, PNG, JPG up to 10MB</Text>
+                </>
+              )}
+            </AnimatedPressable>
           </FadeInUp>
         )}
 
@@ -870,6 +892,20 @@ export default function BookMobileVisitScreen() {
           style={styles.confirmBtn}
           scaleTo={0.97}
           onPress={async () => {
+            if (insurance === 'have' && doctorOrder !== 'order') {
+              Alert.alert(
+                "Doctor's order required",
+                "Since you have insurance, please select and upload a doctor's order before continuing."
+              );
+              return;
+            }
+            if (insurance === 'have' && doctorOrder === 'order' && !prescriptionFile) {
+              Alert.alert(
+                "Doctor's order document missing",
+                "Please upload your doctor's order document before continuing."
+              );
+              return;
+            }
             try {
               const preview = await fetchPricing({
                 address,
@@ -1029,6 +1065,19 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: COLORS.amber,
   },
+  requiredBadge: {
+    backgroundColor: '#FEE2E2',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderWidth: 1,
+    borderColor: '#FCA5A5',
+  },
+  requiredBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: COLORS.red,
+  },
   infoBanner: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -1072,6 +1121,9 @@ const styles = StyleSheet.create({
   orderCardSelected: {
     borderColor: COLORS.navy,
     borderWidth: 2,
+  },
+  orderCardDisabled: {
+    opacity: 0.45,
   },
   orderAccentBar: {
     position: 'absolute',

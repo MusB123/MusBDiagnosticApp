@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -13,6 +13,7 @@ import {
   Platform,
   Modal,
   FlatList,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons'; // swap for your icon lib if different
@@ -50,6 +51,19 @@ const COUNTRY_CODES = [
   { code: '+90', country: '🇹🇷 Turkey' },
 ];
 
+const PLACES_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_PLACES_API_KEY;
+const AUTOCOMPLETE_URL = 'https://maps.googleapis.com/maps/api/place/autocomplete/json';
+const DETAILS_URL = 'https://maps.googleapis.com/maps/api/place/details/json';
+const DEBOUNCE_MS = 350;
+const MIN_QUERY_LENGTH = 3;
+
+function generateSessionToken() {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
 // Oldest allowed DOB year = current year - 100, newest = current year (auto-updates every year)
 const CURRENT_YEAR = new Date().getFullYear();
 const MIN_DOB_YEAR = CURRENT_YEAR - 100;
@@ -69,7 +83,12 @@ export default function RegisterScreen({ navigation }) {
     password: '',
     confirmPassword: '',
   });
-
+  const [addressSuggestions, setAddressSuggestions] = useState([]);
+  const [addressSearchLoading, setAddressSearchLoading] = useState(false);
+  const [addressSearchError, setAddressSearchError] = useState('');
+  const sessionTokenRef = useRef(generateSessionToken());
+  const debounceRef = useRef(null);
+  const abortRef = useRef(null);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [countryCode, setCountryCode] = useState(USA_CODE);
@@ -101,6 +120,85 @@ export default function RegisterScreen({ navigation }) {
   const handlePhoneChange = (value) => {
     const digits = value.replace(/\D/g, '');
     handleChange('phone', digits);
+  };
+
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+
+    if (!form.address || form.address.trim().length < MIN_QUERY_LENGTH) {
+      setAddressSuggestions([]);
+      setAddressSearchError('');
+      return;
+    }
+    if (!PLACES_API_KEY) {
+      setAddressSearchError('Autocomplete unavailable — missing API key.');
+      return;
+    }
+
+    debounceRef.current = setTimeout(() => {
+      fetchAddressSuggestions(form.address.trim());
+    }, DEBOUNCE_MS);
+
+    return () => clearTimeout(debounceRef.current);
+  }, [form.address]);
+
+  const fetchAddressSuggestions = async (input) => {
+    if (abortRef.current) abortRef.current.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    setAddressSearchLoading(true);
+    setAddressSearchError('');
+    try {
+      const params = new URLSearchParams({
+        input,
+        key: PLACES_API_KEY,
+        types: 'address',
+        sessiontoken: sessionTokenRef.current,
+      });
+      const res = await fetch(`${AUTOCOMPLETE_URL}?${params.toString()}`, { signal: controller.signal });
+      const data = await res.json();
+
+      if (data.status === 'OK') {
+        setAddressSuggestions(data.predictions || []);
+      } else if (data.status === 'ZERO_RESULTS') {
+        setAddressSuggestions([]);
+      } else {
+        setAddressSuggestions([]);
+        setAddressSearchError(data.error_message || `Autocomplete error: ${data.status}`);
+      }
+    } catch (err) {
+      if (err.name !== 'AbortError') {
+        setAddressSearchError('Could not reach address search. Check your connection.');
+      }
+    } finally {
+      setAddressSearchLoading(false);
+    }
+  };
+
+  const handleSelectAddressSuggestion = async (prediction) => {
+    setAddressSearchLoading(true);
+    setAddressSearchError('');
+    try {
+      const params = new URLSearchParams({
+        place_id: prediction.place_id,
+        key: PLACES_API_KEY,
+        sessiontoken: sessionTokenRef.current,
+        fields: 'formatted_address',
+      });
+      const res = await fetch(`${DETAILS_URL}?${params.toString()}`);
+      const data = await res.json();
+      if (data.status !== 'OK') throw new Error(data.error_message || `Details error: ${data.status}`);
+
+      const address = data.result.formatted_address || prediction.description;
+      setForm((prev) => ({ ...prev, address }));
+      setAddressSuggestions([]);
+      sessionTokenRef.current = generateSessionToken();
+    } catch (err) {
+      setAddressSearchError(err.message || 'Could not load address details.');
+    } finally {
+      setAddressSearchLoading(false);
+    }
   };
 
   const isValidEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
@@ -269,13 +367,43 @@ export default function RegisterScreen({ navigation }) {
             />
 
             <Text style={styles.label}>Home address</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="123 Main St, Tampa, FL"
-              placeholderTextColor="#BBBDC4"
-              value={form.address}
-              onChangeText={(v) => handleChange('address', v)}
-            />
+            <View style={styles.inputWithIconWrap}>
+              <TextInput
+                style={styles.input}
+                placeholder="123 Main St, Tampa, FL"
+                placeholderTextColor="#BBBDC4"
+                value={form.address}
+                onChangeText={(v) => handleChange('address', v)}
+              />
+              {addressSearchLoading && (
+                <ActivityIndicator color="#0D2156" size="small" style={styles.inputSpinner} />
+              )}
+            </View>
+            {addressSuggestions.length > 0 && (
+              <View style={styles.suggestionsBox}>
+                {addressSuggestions.map((item) => (
+                  <TouchableOpacity
+                    key={item.place_id}
+                    style={styles.suggestionRow}
+                    onPress={() => handleSelectAddressSuggestion(item)}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="location-outline" size={16} color="#8A92A6" />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.suggestionMain} numberOfLines={1}>
+                        {item.structured_formatting?.main_text || item.description}
+                      </Text>
+                      {item.structured_formatting?.secondary_text ? (
+                        <Text style={styles.suggestionSecondary} numberOfLines={1}>
+                          {item.structured_formatting.secondary_text}
+                        </Text>
+                      ) : null}
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+            {addressSearchError ? <Text style={{ color: '#E0453D', fontSize: 12, marginTop: 6, fontWeight: '500' }}>⚠ {addressSearchError}</Text> : null}
 
             <Text style={styles.label}>
               Phone number <Text style={styles.required}>*</Text>
@@ -681,4 +809,26 @@ const styles = StyleSheet.create({
     color: '#0D2156',
     backgroundColor: '#FFFFFF',
   },
+  inputWithIconWrap: { position: 'relative', justifyContent: 'center' },
+inputSpinner: { position: 'absolute', right: 14 },
+suggestionsBox: {
+  borderWidth: 1,
+  borderColor: '#E8EAF0',
+  borderRadius: 12,
+  marginTop: 6,
+  backgroundColor: '#FFFFFF',
+  overflow: 'hidden',
+  maxHeight: 220,
+},
+suggestionRow: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  gap: 10,
+  paddingHorizontal: 14,
+  paddingVertical: 12,
+  borderBottomWidth: 1,
+  borderBottomColor: '#E8EAF0',
+},
+suggestionMain: { fontSize: 14, fontWeight: '600', color: '#0D2156' },
+suggestionSecondary: { fontSize: 12, color: '#8A92A6', marginTop: 1 },
 });

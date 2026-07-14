@@ -5,7 +5,6 @@ import {
   StyleSheet,
   TouchableOpacity,
   ScrollView,
-  TextInput,
   Platform,
   StatusBar,
   Alert,
@@ -13,6 +12,7 @@ import {
   Easing,
   ActivityIndicator,
   Modal,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as SecureStore from 'expo-secure-store';
@@ -53,6 +53,60 @@ const STORAGE_OPTIONS = [
   { key: 'Ambient', label: 'Ambient', sub: 'Standard room temp', icon: 'thermometer-outline' },
   { key: 'Refrigerated', label: 'Refrigerated', sub: '2–8°C', icon: 'snow-outline' },
   { key: 'Frozen', label: 'Frozen', sub: '-20°C', icon: 'snow' },
+];
+
+// Partner labs the specimen can be routed to. Hardcoded from the backend's
+// lab directory collection — swap for a fetch(PHLEB_ENDPOINTS.labs) call
+// once that endpoint is confirmed.
+const LAB_OPTIONS = [
+  {
+    id: '6a526dfb0b49a868ce2337d6',
+    name: 'Quest Diagnostics - New Port Richey',
+    address: '5435 Grand Blvd, New Port Richey, FL 34652',
+    phone: '(727) 848-1322',
+    latitude: 28.2435,
+    longitude: -82.7201,
+  },
+  {
+    id: '6a526dfb0b49a868ce2337d7',
+    name: 'Labcorp - New Port Richey',
+    address: '5323 Trouble Creek Rd, New Port Richey, FL 34652',
+    phone: '(727) 841-8622',
+    latitude: 28.2255,
+    longitude: -82.7155,
+  },
+  {
+    id: '6a526dfb0b49a868ce2337d8',
+    name: 'BayCare Laboratories - Trinity',
+    address: '2040 Trinity Oaks Blvd, Trinity, FL 34655',
+    phone: '(727) 372-2300',
+    latitude: 28.192,
+    longitude: -82.668,
+  },
+  {
+    id: '6a526dfb0b49a868ce2337d9',
+    name: 'Quest Diagnostics - Port Richey',
+    address: '9330 US Highway 19, Port Richey, FL 34668',
+    phone: '(727) 847-1234',
+    latitude: 28.2915,
+    longitude: -82.721,
+  },
+  {
+    id: '6a526dfb0b49a868ce2337da',
+    name: 'Tampa General Hospital Urgent Care & Lab',
+    address: '8807 Little Rd, New Port Richey, FL 34654',
+    phone: '(727) 868-2456',
+    latitude: 28.2805,
+    longitude: -82.669,
+  },
+  {
+    id: '6a526dfb0b49a868ce2337db',
+    name: 'AdventHealth Lab - West Florida',
+    address: '4433 Rowan Rd, New Port Richey, FL 34653',
+    phone: '(727) 376-7890',
+    latitude: 28.2312,
+    longitude: -82.6845,
+  },
 ];
 
 /** Springy press-scale wrapper. */
@@ -201,11 +255,11 @@ export default function CollectCompleteScreen({ route, navigation }) {
   };
 
   const [checklist, setChecklist] = useState(INITIAL_CHECKLIST);
-  const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [storageCondition, setStorageCondition] = useState('Ambient');
-  const [collectorName, setCollectorName] = useState('');
   const [showStoragePicker, setShowStoragePicker] = useState(false);
+  const [labId, setLabId] = useState('');
+  const [showLabPicker, setShowLabPicker] = useState(false);
 
   const doneCount = checklist.filter((i) => i.done).length;
   const progress = checklist.length ? doneCount / checklist.length : 0;
@@ -217,14 +271,19 @@ export default function CollectCompleteScreen({ route, navigation }) {
   };
 
   const allChecked = checklist.every((item) => item.done);
-  const canComplete = allChecked;
+  const canComplete = allChecked && !!labId;
+  const selectedLab = LAB_OPTIONS.find((l) => l.id === labId);
 
   const handleMarkComplete = async () => {
-    if (!canComplete) {
+    if (!allChecked) {
       Alert.alert(
         'Collection incomplete',
         'Please complete the checklist before marking collection complete.'
       );
+      return;
+    }
+    if (!labId) {
+      Alert.alert('Lab required', 'Please select the lab this specimen will be sent to.');
       return;
     }
     if (submitting || !job?.id) return;
@@ -246,8 +305,8 @@ export default function CollectCompleteScreen({ route, navigation }) {
         body: JSON.stringify({
           checklist: checklistPayload,
           storage_condition: storageCondition,
-          collector_name: collectorName,
-          specimen_notes: notes,
+          lab_id: labId,
+          lab_name: selectedLab?.name || '',
         }),
       });
       const checklistData = await checklistRes.json();
@@ -283,7 +342,11 @@ export default function CollectCompleteScreen({ route, navigation }) {
   };
 
   return (
-    <View style={styles.outer}>
+    <KeyboardAvoidingView
+      style={styles.outer}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+    >
       <StatusBar barStyle="light-content" backgroundColor={PRIMARY_DARK} />
 
       {/* Header */}
@@ -320,8 +383,9 @@ export default function CollectCompleteScreen({ route, navigation }) {
 
       <ScrollView
         style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: 140 }]}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       >
         {/* Collection checklist */}
         <FadeInUp delay={0}>
@@ -375,40 +439,29 @@ export default function CollectCompleteScreen({ route, navigation }) {
           </AnimatedPressable>
         </FadeInUp>
 
-        {/* Collector name verification */}
+        {/* Lab name */}
         <FadeInUp delay={120}>
-          <Text style={[styles.sectionLabel, { marginTop: 24, marginBottom: 12 }]}>Collector name verification</Text>
-          <View style={styles.card}>
-            <View style={styles.inputRow}>
-              <Ionicons name="person-outline" size={17} color="#9CA3AF" style={{ marginRight: 10 }} />
-              <TextInput
-                style={styles.collectorInput}
-                value={collectorName}
-                onChangeText={setCollectorName}
-                placeholder="Enter your full name"
-                placeholderTextColor="#9CA3AF"
-              />
-              {collectorName.trim().length > 0 && (
-                <Ionicons name="checkmark-circle" size={18} color={GREEN_LIGHT} />
+          <Text style={[styles.sectionLabel, { marginTop: 24, marginBottom: 12 }]}>Lab name</Text>
+          <AnimatedPressable
+            style={styles.storageDropdown}
+            scaleTo={0.98}
+            onPress={() => setShowLabPicker(true)}
+          >
+            <View style={styles.storageDropdownIconWrap}>
+              <Ionicons name="flask-outline" size={18} color={PRIMARY} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.storageDropdownLabel} numberOfLines={1}>
+                {selectedLab?.name || 'Select lab'}
+              </Text>
+              {selectedLab && (
+                <Text style={styles.storageDropdownSub} numberOfLines={1}>
+                  {selectedLab.address}
+                </Text>
               )}
             </View>
-          </View>
-        </FadeInUp>
-
-        {/* Collection notes */}
-        <FadeInUp delay={170}>
-          <Text style={[styles.sectionLabel, { marginTop: 24, marginBottom: 12 }]}>Collection notes</Text>
-          <View style={styles.card}>
-            <TextInput
-              style={styles.notesInput}
-              value={notes}
-              onChangeText={setNotes}
-              placeholder="Add any notes about the collection..."
-              placeholderTextColor="#9CA3AF"
-              multiline
-              textAlignVertical="top"
-            />
-          </View>
+            <Ionicons name="chevron-down" size={18} color="#9CA3AF" />
+          </AnimatedPressable>
         </FadeInUp>
 
         <View style={{ height: 12 }} />
@@ -420,7 +473,9 @@ export default function CollectCompleteScreen({ route, navigation }) {
           <View style={styles.incompleteNotice}>
             <Ionicons name="alert-circle-outline" size={14} color={AMBER} />
             <Text style={styles.incompleteNoticeText}>
-              {checklist.length - doneCount} item{checklist.length - doneCount === 1 ? '' : 's'} remaining
+              {!allChecked
+                ? `${checklist.length - doneCount} item${checklist.length - doneCount === 1 ? '' : 's'} remaining`
+                : 'Select a lab to continue'}
             </Text>
           </View>
         )}
@@ -487,7 +542,51 @@ export default function CollectCompleteScreen({ route, navigation }) {
           </View>
         </TouchableOpacity>
       </Modal>
-    </View>
+
+      {/* Lab picker */}
+      <Modal
+        visible={showLabPicker}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowLabPicker(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowLabPicker(false)}
+        >
+          <View style={styles.modalSheet}>
+            <View style={styles.modalHandle} />
+            <Text style={styles.modalTitle}>Select lab</Text>
+            <ScrollView style={{ maxHeight: 420 }} showsVerticalScrollIndicator={false}>
+              {LAB_OPTIONS.map((opt) => {
+                const selected = labId === opt.id;
+                return (
+                  <TouchableOpacity
+                    key={opt.id}
+                    style={[styles.modalOptionRow, selected && styles.modalOptionRowSelected]}
+                    activeOpacity={0.7}
+                    onPress={() => {
+                      setLabId(opt.id);
+                      setShowLabPicker(false);
+                    }}
+                  >
+                    <View style={[styles.modalOptionIconWrap, selected && styles.modalOptionIconWrapSelected]}>
+                      <Ionicons name="flask-outline" size={18} color={selected ? '#FFFFFF' : PRIMARY} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.modalOptionLabel}>{opt.name}</Text>
+                      <Text style={styles.modalOptionSub} numberOfLines={1}>{opt.address}</Text>
+                    </View>
+                    {selected && <Ionicons name="checkmark-circle" size={20} color={GREEN_LIGHT} />}
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -800,29 +899,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#9CA3AF',
     marginTop: 1,
-  },
-
-  inputRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-  },
-
-  collectorInput: {
-    flex: 1,
-    fontSize: 14,
-    color: '#374151',
-    paddingVertical: 6,
-  },
-
-  notesInput: {
-    fontSize: 13.5,
-    color: '#374151',
-    lineHeight: 19,
-    minHeight: 72,
-    paddingHorizontal: 10,
-    paddingVertical: 10,
   },
 
   bottomBar: {

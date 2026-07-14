@@ -415,12 +415,6 @@ export default function MapScreen({ route, navigation }) {
 
       {/* ── Bottom sheet ── */}
       <View style={styles.bottomSheet}>
-        <View style={styles.statsRow}>
-          <View style={styles.statCard}>
-            <Text style={styles.statLabel}>Jobs</Text>
-            <Text style={styles.statValue}>{jobsToday}</Text>
-          </View>
-        </View>
 
         {/* Go online button — only shown if autoOnline didn't already
             kick in (e.g. someone lands here directly, or the auto

@@ -672,3 +672,24 @@ export async function setPasswordFromGuest(password) {
 
   return data;
 }
+
+export async function fetchOffers() {
+  let response;
+  try {
+    response = await fetch(CATALOG_ENDPOINTS.offers, { method: 'GET' });
+  } catch {
+    throw new Error('NETWORK_ERROR');
+  }
+
+  let data;
+  try {
+    data = await response.json();
+  } catch {
+    throw new Error('BAD_RESPONSE');
+  }
+
+  if (!response.ok) {
+    throw new Error(data?.error || `Request failed (${response.status})`);
+  }
+  return Array.isArray(data) ? data : [];
+}

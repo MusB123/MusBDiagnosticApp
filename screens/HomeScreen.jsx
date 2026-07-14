@@ -17,7 +17,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import AddressBar from '../components/AddressBar';
 import { setBookingDraft } from '../utils/bookingDraft';
-import { fetchPatientDashboard, getStoredPatientUser, rateAppointment } from '../utils/auth';
+import { fetchPatientDashboard, getStoredPatientUser, rateAppointment, fetchOffers } from '../utils/auth';
 
 const COLORS = {
   navy: '#1B3A8C',
@@ -62,6 +62,12 @@ const SERVICES = [
     badge: null,
     selected: false,
   },
+];
+
+const OFFER_GRADIENTS = [
+  ['#7C3AED', '#EC4899'], // purple → pink
+  ['#F59E0B', '#EF4444'], // orange → red
+  ['#0EA5E9', '#22C55E'], // blue → green
 ];
 
 const getGreeting = () => {
@@ -268,6 +274,95 @@ function BreathingBadge({ children, style, textStyle }) {
   );
 }
 
+/** Colorful, animated offer card shown on the home screen. */
+function OfferCard({ offer, index, onPress }) {
+  const anim = useRef(new Animated.Value(0)).current;
+  const shine = useRef(new Animated.Value(0)).current;
+  const scale = useRef(new Animated.Value(1)).current;
+  const [gradA, gradB] = OFFER_GRADIENTS[index % OFFER_GRADIENTS.length];
+
+  useEffect(() => {
+    Animated.sequence([
+      Animated.delay(index * 120),
+      Animated.spring(anim, { toValue: 1, useNativeDriver: true, speed: 14, bounciness: 10 }),
+    ]).start();
+
+    const shineLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(shine, { toValue: 1, duration: 2200, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(shine, { toValue: 0, duration: 2200, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      ])
+    );
+    shineLoop.start();
+    return () => shineLoop.stop();
+  }, []);
+
+  const pressIn = () => Animated.spring(scale, { toValue: 0.96, useNativeDriver: true, speed: 40, bounciness: 6 }).start();
+  const pressOut = () => Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 30, bounciness: 8 }).start();
+
+  return (
+    <Animated.View
+      style={{
+        opacity: anim,
+        transform: [
+          { translateY: anim.interpolate({ inputRange: [0, 1], outputRange: [18, 0] }) },
+          { scale },
+        ],
+        width: 210,
+        marginRight: 12,
+      }}
+    >
+      <TouchableOpacity
+        activeOpacity={0.92}
+        onPress={onPress}
+        onPressIn={pressIn}
+        onPressOut={pressOut}
+        style={[offerStyles.card, { backgroundColor: gradA }]}
+      >
+        {/* Diagonal accent shape gives a layered "gradient" feel without a gradient lib */}
+        <View style={[offerStyles.diagAccent, { backgroundColor: gradB }]} />
+
+        <Animated.View
+          pointerEvents="none"
+          style={[
+            offerStyles.shine,
+            {
+              opacity: shine.interpolate({ inputRange: [0, 1], outputRange: [0, 0.18] }),
+              transform: [{ translateX: shine.interpolate({ inputRange: [0, 1], outputRange: [-60, 180] }) }],
+            },
+          ]}
+        />
+
+        <View style={offerStyles.topRow}>
+          <View style={offerStyles.pill}>
+            <Ionicons name="flash" size={11} color="#FFFFFF" />
+            <Text style={offerStyles.pillText}>{offer.offer_type || 'Offer'}</Text>
+          </View>
+          {!!offer.time_left && (
+            <Text style={offerStyles.timeLeft}>⏳ {offer.time_left}</Text>
+          )}
+        </View>
+
+        <Text style={offerStyles.title} numberOfLines={2}>{offer.title}</Text>
+
+        <Text style={offerStyles.includes} numberOfLines={1}>
+          {(offer.includes || []).join(' · ')}
+        </Text>
+
+        <View style={offerStyles.priceRow}>
+          <Text style={offerStyles.strike}>${parseFloat(offer.original_price).toFixed(0)}</Text>
+          <Text style={offerStyles.price}>${parseFloat(offer.discounted_price).toFixed(0)}</Text>
+        </View>
+
+        <View style={offerStyles.ctaRow}>
+          <Text style={offerStyles.ctaText}>Grab this deal</Text>
+          <Ionicons name="arrow-forward-circle" size={18} color="#FFFFFF" />
+        </View>
+      </TouchableOpacity>
+    </Animated.View>
+  );
+}
+
 export default function HomeScreen({ navigation, route }) {
   const [isGuest, setIsGuest] = useState(false);
   useEffect(() => {
@@ -288,6 +383,9 @@ export default function HomeScreen({ navigation, route }) {
   const [loadingDashboard, setLoadingDashboard] = useState(true);
   const [dashboardError, setDashboardError] = useState('');
   const [hasUnreadNotifs] = useState(true);
+
+  const [offers, setOffers] = useState([]);
+  const [offersLoading, setOffersLoading] = useState(true);
 
   const [ratingAppt, setRatingAppt] = useState(null);
   const [ratingValue, setRatingValue] = useState(5);
@@ -347,6 +445,30 @@ export default function HomeScreen({ navigation, route }) {
     return () => { isMountedRef.current = false; };
   }, []);
 
+  // Offers — automatically shows the 2 newest active offers, swapping out
+  // stale ones whenever the backend adds something new.
+  useEffect(() => {
+    let isMounted = true;
+    async function loadOffers() {
+      try {
+        const data = await fetchOffers();
+        if (isMounted) {
+          const active = (data || []).filter((o) => o.is_active);
+          const sorted = [...active].sort(
+            (a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0)
+          );
+          setOffers(sorted.slice(0, 2));
+        }
+      } catch {
+        // offers are a nice-to-have on the home screen — fail silently
+      } finally {
+        if (isMounted) setOffersLoading(false);
+      }
+    }
+    loadOffers();
+    return () => { isMounted = false; };
+  }, []);
+
   const handleCallPhleb = (phone) => {
     if (!phone) {
       Alert.alert('No phone number', 'This specialist has no phone number on file.');
@@ -386,6 +508,13 @@ export default function HomeScreen({ navigation, route }) {
   const openRatingFromDetail = (appt) => {
     setSelectedAppt(null);
     setRatingAppt(appt);
+  };
+
+  const openOffersScreen = () => {
+    navigation.push('SelectTests', {
+      isGuest: route?.params?.isGuest === true,
+      initialViewMode: 'offers',
+    });
   };
 
   return (
@@ -480,6 +609,32 @@ export default function HomeScreen({ navigation, route }) {
             </AnimatedPressable>
           </FadeInUp>
         ))}
+
+        {/* Offers — sits after the service cards, before upcoming appointments */}
+        {!offersLoading && offers.length > 0 && (
+          <FadeInUp delay={260}>
+            <View style={styles.offersHeaderRow}>
+              <Text style={styles.sectionLabel}>SPECIAL OFFERS FOR YOU</Text>
+              <TouchableOpacity onPress={openOffersScreen} hitSlop={8}>
+                <Text style={styles.seeAllText}>See all</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 4 }}
+            >
+              {offers.map((offer, i) => (
+                <OfferCard
+                  key={offer.id}
+                  offer={offer}
+                  index={i}
+                  onPress={openOffersScreen}
+                />
+              ))}
+            </ScrollView>
+          </FadeInUp>
+        )}
 
         {loadingDashboard ? (
           <View style={styles.dashboardLoading}>
@@ -856,6 +1011,14 @@ const styles = StyleSheet.create({
   sectionTitle: { fontSize: 16, fontWeight: '800', color: COLORS.navyDark, marginBottom: 14, paddingHorizontal: 20 },
   sectionLabel: { fontSize: 10, fontWeight: '700', color: COLORS.gray, letterSpacing: 1, marginTop: 20, marginBottom: 10, paddingHorizontal: 20 },
 
+  offersHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingRight: 20,
+  },
+  seeAllText: { fontSize: 12, fontWeight: '800', color: COLORS.navy, marginTop: 20 },
+
   serviceCard: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1044,4 +1207,50 @@ const styles = StyleSheet.create({
   payStatusText: { fontSize: 10, fontWeight: '800' },
   payStatusTextPaid: { color: '#15803D' },
   payStatusTextUnpaid: { color: '#92400E' },
+});
+
+const offerStyles = StyleSheet.create({
+  card: {
+    borderRadius: 20,
+    padding: 16,
+    minHeight: 150,
+    overflow: 'hidden',
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.18,
+    shadowRadius: 10,
+  },
+  diagAccent: {
+    position: 'absolute',
+    width: 140,
+    height: 140,
+    borderRadius: 70,
+    top: -60,
+    right: -50,
+    opacity: 0.55,
+  },
+  shine: {
+    position: 'absolute',
+    top: -20,
+    bottom: -20,
+    width: 40,
+    backgroundColor: '#FFFFFF',
+    transform: [{ rotate: '20deg' }],
+  },
+  topRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+  pill: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    backgroundColor: 'rgba(255,255,255,0.25)',
+    borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3,
+  },
+  pillText: { fontSize: 10, fontWeight: '800', color: '#FFFFFF', textTransform: 'uppercase', letterSpacing: 0.4 },
+  timeLeft: { fontSize: 10, fontWeight: '700', color: '#FFFFFF' },
+  title: { fontSize: 15, fontWeight: '900', color: '#FFFFFF', marginBottom: 4, lineHeight: 19 },
+  includes: { fontSize: 11, color: 'rgba(255,255,255,0.85)', marginBottom: 10 },
+  priceRow: { flexDirection: 'row', alignItems: 'baseline', gap: 8, marginBottom: 10 },
+  strike: { fontSize: 12, color: 'rgba(255,255,255,0.7)', textDecorationLine: 'line-through' },
+  price: { fontSize: 20, fontWeight: '900', color: '#FFFFFF' },
+  ctaRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 'auto' },
+  ctaText: { fontSize: 12, fontWeight: '800', color: '#FFFFFF' },
 });

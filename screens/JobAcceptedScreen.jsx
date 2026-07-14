@@ -39,6 +39,14 @@ export default function JobAcceptedScreen({ route, navigation }) {
   const visitType = job?.visitType || job?.visit_type || 'home';
   const paymentMethod = job?.paymentMethod || job?.payment_method || 'N/A';
   const isStat = !!(job?.isStat || job?.is_stat);
+  const formatDateLong = (dateStr) => {
+    if (!dateStr) return null;
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return dateStr; // fallback if unparsable
+    const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+    const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+    return `${days[d.getDay()]} ${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`;
+  };
 
   // Documents arrive as { url } (signed S3 link) from the backend; legacy
   // records may still carry { base64 }. Support both, plus flat *_url/*_base64.
@@ -211,7 +219,7 @@ export default function JobAcceptedScreen({ route, navigation }) {
           <View style={styles.divider} />
 
           <InfoRow label="Phone" value={patientPhone || '—'} />
-          <InfoRow label="Date" value={preferredDate || job?.date || 'Today'} />
+          <InfoRow label="Date" value={formatDateLong(preferredDate || job?.date) || 'Today'} />
           <InfoRow label="Address" value={address} />
           <InfoRow label="Payment method" value={paymentMethod} last />
         </View>
