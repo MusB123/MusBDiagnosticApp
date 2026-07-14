@@ -90,6 +90,7 @@ export default function CreateAccountScreen({ navigation }) {
     dob: '',
     phone: '',
     email: '',
+    address: '',
     password: '',
     emergencyContactName: '',
     emergencyContactPhone: '',
@@ -206,6 +207,8 @@ export default function CreateAccountScreen({ navigation }) {
         email: form.email.trim().toLowerCase(),
         password: form.password,
         phone: `${countryCode.code}${form.phone}`,
+        dob: form.dob,
+        address: form.address,
         emergencyContactName: form.emergencyContactName,
         emergencyContactPhone: `${emergencyCountryCode.code}${form.emergencyContactPhone}`,
       });
@@ -339,6 +342,13 @@ export default function CreateAccountScreen({ navigation }) {
             keyboardType="email-address"
             autoCapitalize="none"
             error={errors.email}
+          />
+
+          <InputField
+            label="Address"
+            value={form.address}
+            onChangeText={(t) => setForm({ ...form, address: t })}
+            placeholder="Street, City, State, ZIP"
           />
 
           {/* Emergency contact - section */}

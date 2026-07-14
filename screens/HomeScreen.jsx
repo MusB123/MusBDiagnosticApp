@@ -269,6 +269,14 @@ function BreathingBadge({ children, style, textStyle }) {
 }
 
 export default function HomeScreen({ navigation, route }) {
+  const [isGuest, setIsGuest] = useState(false);
+  useEffect(() => {
+    (async () => {
+      const storedUser = await getStoredPatientUser();
+      setIsGuest(!!storedUser?.isGuest);
+    })();
+  }, []);
+
   const [locationData, setLocationData] = useState({
     address: '',
     latitude: null,
@@ -315,14 +323,19 @@ export default function HomeScreen({ navigation, route }) {
       if (isMountedRef.current) setDashboard(data);
     } catch (err) {
       if (isMountedRef.current) {
-        setDashboardError(
-          err.message === 'NETWORK_ERROR'
+        if (err.message === 'NOT_LOGGED_IN' && route?.params?.isGuest) {
+          setDashboard({ upcoming: [], past: [] });
+          setDashboardError('');
+        } else {
+          setDashboardError(
+           err.message === 'NETWORK_ERROR'
             ? "Can't reach the server."
             : err.message === 'NOT_LOGGED_IN'
             ? 'Please log in again.'
             : err.message
         );
-      }
+       }
+     }
     } finally {
       if (isMountedRef.current) setLoadingDashboard(false);
     }
@@ -429,13 +442,14 @@ export default function HomeScreen({ navigation, route }) {
               style={[styles.serviceCard, service.selected && styles.serviceCardSelected]}
               scaleTo={0.97}
               onPress={() => {
+                const isGuest = route?.params?.isGuest === true;
                 if (service.id === '1') {
                   setBookingDraft(locationData);
-                  navigation.push('BookMobileVisit');
+                  navigation.push('BookMobileVisit', { isGuest });
                 } else if (service.id === '2') {
-                  navigation.push('SelectTests');
+                  navigation.push('SelectTests', { isGuest });
                 } else {
-                  navigation.push('InPersonTests');
+                  navigation.push('InPersonTests', { isGuest });
                 }
               }}
             >

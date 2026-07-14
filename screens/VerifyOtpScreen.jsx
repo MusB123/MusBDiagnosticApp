@@ -11,6 +11,7 @@ import {
   Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import { verifyOtpAndCreateAccount, requestOtp } from '../utils/auth';
 
 const COLORS = {
@@ -28,7 +29,7 @@ const COLORS = {
 };
 
 export default function VerifyOtpScreen({ navigation, route }) {
-  const { firstName, lastName, email, password,phone } = route.params;
+  const { firstName, lastName, email, password,phone, dob, address, emergencyContactName, emergencyContactPhone } = route.params;
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -48,6 +49,10 @@ export default function VerifyOtpScreen({ navigation, route }) {
         name: `${firstName} ${lastName}`.trim(),
         password,
         phone,
+        dob,
+        address,
+        emergencyContactName,
+        emergencyContactPhone,
       });
       navigation.navigate('HealthProfile', { firstName });
     } catch (err) {
@@ -83,6 +88,13 @@ export default function VerifyOtpScreen({ navigation, route }) {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <View style={styles.header}>
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => navigation.goBack()}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Ionicons name="arrow-back" size={22} color={COLORS.navyDark} />
+          </TouchableOpacity>
           <Image
             source={require('../assets/logo.png')}
             style={styles.logoImage}
@@ -144,15 +156,16 @@ const styles = StyleSheet.create({
     borderBottomColor: COLORS.lightGray,
     gap: 12,
   },
-  logoBox: {
-    width: 40,
-    height: 40,
+  logoImage: {
+    width: 36,
+    height: 36,
     borderRadius: 10,
-    backgroundColor: COLORS.navy,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
-  logoText: { color: COLORS.white, fontWeight: '800', fontSize: 13 },
+  backButton: {
+    width: 36, height: 36, borderRadius: 18,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: COLORS.offWhite, borderWidth: 1, borderColor: COLORS.lightGray,
+  },
   headerText: { flex: 1 },
   headerTitle: { fontSize: 16, fontWeight: '800', color: COLORS.navyDark },
   headerSub: { fontSize: 12, color: COLORS.gray, marginTop: 1 },
@@ -180,9 +193,4 @@ const styles = StyleSheet.create({
   verifyBtnText: { color: COLORS.white, fontSize: 16, fontWeight: '800' },
   resendBtn: { alignItems: 'center', marginTop: 16 },
   resendText: { fontSize: 13, color: COLORS.navy, fontWeight: '600' },
-  logoImage: {
-  width: 36,
-  height: 36,
-  borderRadius: 10,
-},
 });

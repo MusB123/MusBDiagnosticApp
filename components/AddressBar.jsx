@@ -9,6 +9,10 @@ import {
   ActivityIndicator,
   Alert,
   ScrollView,
+  KeyboardAvoidingView,
+  Platform,
+  Keyboard,
+  Dimensions,
 } from 'react-native';
 import * as Location from 'expo-location';
 import { Ionicons } from '@expo/vector-icons';
@@ -30,6 +34,8 @@ const AUTOCOMPLETE_URL = 'https://maps.googleapis.com/maps/api/place/autocomplet
 const DETAILS_URL = 'https://maps.googleapis.com/maps/api/place/details/json';
 const DEBOUNCE_MS = 350;
 const MIN_QUERY_LENGTH = 3;
+
+const SCREEN_HEIGHT = Dimensions.get('window').height;
 
 // Lightweight session-token generator (Google bills autocomplete+details as
 // one session when a token is shared across the request sequence).
@@ -56,16 +62,33 @@ export default function AddressBar({ value, onChange }) {
   const [suggestions, setSuggestions] = useState([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState('');
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
 
   const sessionTokenRef = useRef(generateSessionToken());
   const debounceRef = useRef(null);
   const abortRef = useRef(null);
+  const scrollRef = useRef(null);
 
   // Keep internal draft in sync if the parent's value changes externally
   // (e.g. on remount, or if address is set from another screen/source)
   useEffect(() => {
     setManualAddress(value || '');
   }, [value]);
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      () => setKeyboardVisible(true)
+    );
+    const hideSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => setKeyboardVisible(false)
+    );
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   // Debounced autocomplete search — fires ~350ms after typing stops, and
   // cancels any in-flight request from a previous keystroke.
@@ -267,131 +290,163 @@ export default function AddressBar({ value, onChange }) {
         transparent
         onRequestClose={() => setShowModal(false)}
       >
-        <TouchableOpacity
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPress={() => setShowModal(false)}
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          keyboardVerticalOffset={0}
         >
-          <TouchableOpacity activeOpacity={1} style={styles.modalSheet}>
-            <View style={styles.modalHandle} />
-            <Text style={styles.modalTitle}>Set your address</Text>
-
-            {/* Current Location Button */}
+          <TouchableOpacity
+            style={styles.modalOverlay}
+            activeOpacity={1}
+            onPress={() => setShowModal(false)}
+          >
             <TouchableOpacity
-              style={styles.currentLocationBtn}
-              onPress={handleCurrentLocation}
-              activeOpacity={0.85}
-              disabled={loading}
-            >
-              {loading ? (
-                <ActivityIndicator color={COLORS.navy} size="small" />
-              ) : (
-                 <Ionicons name="navigate" size={24} color={COLORS.navyDark} />
-               )}
-               <View>
-                 <Text style={styles.currentLocationTitle}>
-                   Use current location
-                 </Text>
-                 <Text style={styles.currentLocationSub}>
-                   Auto-detect via GPS
-                 </Text>
-               </View>
-            </TouchableOpacity>
-
-            {/* Divider */}
-            <View style={styles.dividerRow}>
-              <View style={styles.dividerLine} />
-              <Text style={styles.dividerText}>or search an address</Text>
-              <View style={styles.dividerLine} />
-            </View>
-
-            {/* Manual / Autocomplete Entry */}
-            <Text style={styles.inputLabel}>Enter address</Text>
-            <View style={styles.inputWithIconWrap}>
-              <TextInput
-                style={styles.input}
-                value={manualAddress}
-                onChangeText={setManualAddress}
-                placeholder="Start typing an address…"
-                placeholderTextColor={COLORS.gray}
-                autoFocus
-              />
-              {searchLoading && (
-                <ActivityIndicator
-                  color={COLORS.navy}
-                  size="small"
-                  style={styles.inputSpinner}
-                />
-              )}
-            </View>
-
-            {/* Suggestions dropdown */}
-            {suggestions.length > 0 && (
-              <View style={styles.suggestionsBox}>
-                <ScrollView keyboardShouldPersistTaps="handled" style={{ maxHeight: 220 }}>
-                  {suggestions.map((item) => (
-                    <TouchableOpacity
-                      key={item.place_id}
-                      style={styles.suggestionRow}
-                      onPress={() => handleSelectSuggestion(item)}
-                      activeOpacity={0.7}
-                    >
-                      <Ionicons name="location-outline" size={16} color={COLORS.gray} />
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.suggestionMain} numberOfLines={1}>
-                          {item.structured_formatting?.main_text || item.description}
-                        </Text>
-                        {item.structured_formatting?.secondary_text ? (
-                          <Text style={styles.suggestionSecondary} numberOfLines={1}>
-                            {item.structured_formatting.secondary_text}
-                          </Text>
-                        ) : null}
-                      </View>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
-              </View>
-            )}
-
-            {searchError ? <Text style={styles.errorText}>⚠ {searchError}</Text> : null}
-
-            <Text style={[styles.inputLabel, { marginTop: suggestions.length > 0 ? 4 : 14 }]}>
-              Zip / PIN code <Text style={styles.required}>*</Text>
-            </Text>
-            <TextInput
+              activeOpacity={1}
               style={[
-                styles.input,
-                zipError ? styles.inputError : null,
-                { marginBottom: zipError ? 6 : 20 },
+                styles.modalSheet,
+                // Cap the sheet height so it can never grow past the screen
+                // and push the input off the top when the keyboard is open.
+                { maxHeight: SCREEN_HEIGHT * (keyboardVisible ? 0.9 : 0.85) },
               ]}
-              value={manualZip}
-              onChangeText={(t) => { setManualZip(t); if (zipError) setZipError(''); }}
-              placeholder="e.g. 12345"
-              placeholderTextColor={COLORS.gray}
-              keyboardType="number-pad"
-              maxLength={10}
-            />
-            {zipError ? <Text style={styles.errorText}>⚠ {zipError}</Text> : null}
+            >
+              <View style={styles.modalHandle} />
 
-            {/* Buttons */}
-            <View style={styles.btnRow}>
-              <TouchableOpacity
-                style={styles.cancelBtn}
-                onPress={() => setShowModal(false)}
-                activeOpacity={0.8}
+              <ScrollView
+                ref={scrollRef}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={{ paddingBottom: 8 }}
               >
-                <Text style={styles.cancelBtnText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.saveBtn}
-                onPress={handleSaveManual}
-                activeOpacity={0.85}
-              >
-                <Text style={styles.saveBtnText}>Save address</Text>
-              </TouchableOpacity>
-            </View>
+                <Text style={styles.modalTitle}>Set your address</Text>
+
+                {/* Current Location Button */}
+                <TouchableOpacity
+                  style={styles.currentLocationBtn}
+                  onPress={handleCurrentLocation}
+                  activeOpacity={0.85}
+                  disabled={loading}
+                >
+                  {loading ? (
+                    <ActivityIndicator color={COLORS.navy} size="small" />
+                  ) : (
+                     <Ionicons name="navigate" size={24} color={COLORS.navyDark} />
+                   )}
+                   <View>
+                     <Text style={styles.currentLocationTitle}>
+                       Use current location
+                     </Text>
+                     <Text style={styles.currentLocationSub}>
+                       Auto-detect via GPS
+                     </Text>
+                   </View>
+                </TouchableOpacity>
+
+                {/* Divider */}
+                <View style={styles.dividerRow}>
+                  <View style={styles.dividerLine} />
+                  <Text style={styles.dividerText}>or search an address</Text>
+                  <View style={styles.dividerLine} />
+                </View>
+
+                {/* Manual / Autocomplete Entry */}
+                <Text style={styles.inputLabel}>Enter address</Text>
+                <View style={styles.inputWithIconWrap}>
+                  <TextInput
+                    style={styles.input}
+                    value={manualAddress}
+                    onChangeText={setManualAddress}
+                    placeholder="Start typing an address…"
+                    placeholderTextColor={COLORS.gray}
+                    onFocus={() => {
+                      // Make sure the input is scrolled into view once the
+                      // keyboard (and any suggestions) appear.
+                      requestAnimationFrame(() => {
+                        scrollRef.current?.scrollTo({ y: 0, animated: true });
+                      });
+                    }}
+                  />
+                  {searchLoading && (
+                    <ActivityIndicator
+                      color={COLORS.navy}
+                      size="small"
+                      style={styles.inputSpinner}
+                    />
+                  )}
+                </View>
+
+                {/* Suggestions dropdown */}
+                {suggestions.length > 0 && (
+                  <View style={styles.suggestionsBox}>
+                    {suggestions.map((item) => (
+                      <TouchableOpacity
+                        key={item.place_id}
+                        style={styles.suggestionRow}
+                        onPress={() => handleSelectSuggestion(item)}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons name="location-outline" size={16} color={COLORS.gray} />
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.suggestionMain} numberOfLines={1}>
+                            {item.structured_formatting?.main_text || item.description}
+                          </Text>
+                          {item.structured_formatting?.secondary_text ? (
+                            <Text style={styles.suggestionSecondary} numberOfLines={1}>
+                              {item.structured_formatting.secondary_text}
+                            </Text>
+                          ) : null}
+                        </View>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                )}
+
+                {searchError ? <Text style={styles.errorText}>⚠ {searchError}</Text> : null}
+
+                {/* Hide the zip field while suggestions are open so the list
+                    isn't competing for space with unrelated inputs. */}
+                {suggestions.length === 0 && (
+                  <>
+                    <Text style={[styles.inputLabel, { marginTop: 14 }]}>
+                      Zip / PIN code <Text style={styles.required}>*</Text>
+                    </Text>
+                    <TextInput
+                      style={[
+                        styles.input,
+                        zipError ? styles.inputError : null,
+                        { marginBottom: zipError ? 6 : 20 },
+                      ]}
+                      value={manualZip}
+                      onChangeText={(t) => { setManualZip(t); if (zipError) setZipError(''); }}
+                      placeholder="e.g. 12345"
+                      placeholderTextColor={COLORS.gray}
+                      keyboardType="number-pad"
+                      maxLength={10}
+                    />
+                    {zipError ? <Text style={styles.errorText}>⚠ {zipError}</Text> : null}
+                  </>
+                )}
+
+                {/* Buttons */}
+                <View style={styles.btnRow}>
+                  <TouchableOpacity
+                    style={styles.cancelBtn}
+                    onPress={() => setShowModal(false)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.cancelBtnText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.saveBtn}
+                    onPress={handleSaveManual}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={styles.saveBtnText}>Save address</Text>
+                  </TouchableOpacity>
+                </View>
+              </ScrollView>
+            </TouchableOpacity>
           </TouchableOpacity>
-        </TouchableOpacity>
+        </KeyboardAvoidingView>
       </Modal>
     </>
   );
@@ -429,7 +484,7 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 24,
     paddingTop: 12,
     paddingHorizontal: 24,
-    paddingBottom: 40,
+    paddingBottom: 24,
   },
   modalHandle: {
     width: 40,
@@ -521,6 +576,7 @@ const styles = StyleSheet.create({
     marginBottom: 14,
     backgroundColor: COLORS.white,
     overflow: 'hidden',
+    maxHeight: 260,
   },
   suggestionRow: {
     flexDirection: 'row',
@@ -535,7 +591,7 @@ const styles = StyleSheet.create({
   suggestionSecondary: { fontSize: 12, color: COLORS.gray, marginTop: 1 },
 
   // Buttons
-  btnRow: { flexDirection: 'row', gap: 12 },
+  btnRow: { flexDirection: 'row', gap: 12, marginTop: 4 },
   cancelBtn: {
     flex: 1,
     borderWidth: 1.5,

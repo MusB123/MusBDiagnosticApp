@@ -41,6 +41,7 @@ export default function HealthProfileScreen({ navigation, route }) {
   const [memberId, setMemberId] = useState('');
   // Each doc: { key: string|null, busy: bool, fileName: string|null }
   const [insurance, setInsurance] = useState({ key: null, busy: false, fileName: null });
+  const [prescription, setPrescription] = useState({ key: null, busy: false, fileName: null });
   const [photoId, setPhotoId] = useState({ key: null, busy: false, fileName: null });
   const [saving, setSaving] = useState(false);
 
@@ -194,7 +195,9 @@ export default function HealthProfileScreen({ navigation, route }) {
     const { docType, fileName, uri, base64 } = pendingUpload;
     setUploadingModal(true);
 
-    const setDoc = docType === 'insurance' ? setInsurance : setPhotoId;
+    const setDoc = docType === 'insurance' ? setInsurance
+      : docType === 'photoId' ? setPhotoId
+      : setPrescription;
     setDoc((cur) => ({ ...cur, busy: true }));
 
     try {
@@ -227,8 +230,9 @@ export default function HealthProfileScreen({ navigation, route }) {
       await updatePatientProfile({
         insurance_provider: insuranceProvider,
         insurance_member_id: memberId,
-        insurance_doc: insurance.key,   // S3 key or null
-        photo_id: photoId.key,          // S3 key or null
+        insurance_doc: insurance.key,   
+        photo_id: photoId.key,
+        prescription_doc: prescription.key,          
       });
     } catch (err) {
       if (err.message !== 'NOT_LOGGED_IN') {
@@ -238,7 +242,7 @@ export default function HealthProfileScreen({ navigation, route }) {
       setSaving(false);
       navigation.navigate('PatientHome', { firstName: route.params?.firstName });
     }
-  }, [insuranceProvider, memberId, insurance.key, photoId.key, navigation, route.params?.firstName]);
+  }, [insuranceProvider, memberId, insurance.key, photoId.key,prescription.key, navigation, route.params?.firstName]);
 
   const handleSkip = useCallback(() => {
     navigation.navigate('PatientHome', { firstName: route.params?.firstName });
@@ -347,12 +351,25 @@ export default function HealthProfileScreen({ navigation, route }) {
               <Text style={styles.uploadLabel}>Photo ID</Text>
               <Text style={styles.uploadSub} numberOfLines={1}>{uploadSubLabel(photoId)}</Text>
             </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.uploadCard, prescription.key && styles.uploadCardDone]}
+              activeOpacity={0.8}
+              disabled={prescription.busy}
+              onPress={() => handleUploadPress('prescription', 'Prescription')}
+            >
+              {prescription.busy
+                ? <ActivityIndicator color={COLORS.navy} style={styles.uploadSpinner} />
+                : <Text style={styles.uploadIcon}>{prescription.key ? '✓' : '📋'}</Text>}
+              <Text style={styles.uploadLabel}>Prescription</Text>
+              <Text style={styles.uploadSub} numberOfLines={1}>{uploadSubLabel(prescription)}</Text>
+            </TouchableOpacity>
           </View>
 
           <TouchableOpacity
-            style={[styles.saveBtn, (saving || insurance.busy || photoId.busy) && styles.saveBtnDisabled]}
+            style={[styles.saveBtn, (saving || insurance.busy || photoId.busy || prescription.busy) && styles.saveBtnDisabled]}
             activeOpacity={0.85}
-            disabled={saving || insurance.busy || photoId.busy}
+            disabled={saving || insurance.busy || photoId.busy||prescription.busy}
             onPress={handleSave}
           >
             {saving

@@ -12,10 +12,11 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as DocumentPicker from 'expo-document-picker';
+import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { getBookingDraft, setBookingDraft } from '../utils/bookingDraft';
-import { fetchPricing } from '../utils/auth';
+import { fetchPricing, getStoredPatientToken } from '../utils/auth';
 
 const COLORS = {
   navy: '#1B3A8C',
@@ -67,9 +68,6 @@ const MINUTES = ['00', '15', '30', '45'];
 const PERIODS = ['AM', 'PM'];
 const ITEM_HEIGHT = 44;
 
-// ── Time-of-day slot helper (mirrors backend get_time_of_day_surcharge) ──
-// Purely cosmetic here — just shows the user which slot they're in.
-// The actual fee calculation now lives entirely in CheckoutScreen.
 const TIME_SLOTS = {
   morning: { label: 'Morning', icon: 'partly-sunny-outline', color: COLORS.amber },
   afternoon: { label: 'Afternoon', icon: 'sunny-outline', color: COLORS.teal },
@@ -319,13 +317,9 @@ function ScrollPicker({ data, selected, onSelect }) {
 }
 
 export default function BookMobileVisitScreen() {
-  // Hooks instead of destructured props — avoids "Cannot read property
-  // 'addListener' of undefined" if this screen is ever mounted somewhere
-  // navigation/route props aren't reliably injected.
   const navigation = useNavigation();
   const route = useRoute();
 
-  // Read-only — address is set on HomeScreen only, never edited here
   const bookingDraft = getBookingDraft();
 
   const address = bookingDraft.address;
@@ -348,7 +342,6 @@ export default function BookMobileVisitScreen() {
 
   const currentSlot = TIME_SLOTS[getSlotFromTime(parseInt(selectedHour, 10), selectedMinute, selectedPeriod)];
 
-  // Pick up tests returned from SelectTests
   useEffect(() => {
     const unsubscribe = navigation.addListener('focus', () => {
       const params = route?.params;
@@ -367,22 +360,101 @@ export default function BookMobileVisitScreen() {
   const formattedTime = `${selectedHour}:${selectedMinute} ${selectedPeriod}`;
   const formattedDateLabel = `${selectedDate.month} ${selectedDate.day} (${selectedDate.weekday})`;
 
-  const handlePickDocument = async () => {
+  // ── Generic upload flow: Choose File (Image/PDF) or Take Photo ──
+  // Mirrors the flow used on RegisterStep2, adapted for this screen's
+  // three upload slots (prescription, insurance front, insurance back).
+
+  const requestCameraPermission = async () => {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    return status === 'granted';
+  };
+
+  const handleCameraFor = async (setter, draftKey) => {
+    const granted = await requestCameraPermission();
+    if (!granted) {
+      Alert.alert(
+        'Camera access needed',
+        'Please enable camera permissions in your device settings to take a photo.'
+      );
+      return;
+    }
     try {
-      const result = await DocumentPicker.getDocumentAsync({
-        type: ['application/pdf', 'image/png', 'image/jpeg'],
-        copyToCacheDirectory: true,
+      const result = await ImagePicker.launchCameraAsync({
+        quality: 0.8,
+        allowsEditing: true,
+        base64: false,
       });
-      if (result.canceled === false && result.assets?.length > 0) {
-        setPrescriptionFile(result.assets[0]);
-        setBookingDraft({ prescriptionFile: result.assets[0] });
-      } else if (result.type === 'success') {
-        setPrescriptionFile(result);
-        setBookingDraft({ prescriptionFile: result });
+      if (!result.canceled && result.assets?.length > 0) {
+        const asset = result.assets[0];
+        const file = {
+          name: asset.fileName || `photo_${Date.now()}.jpg`,
+          uri: asset.uri,
+          mimeType: 'image/jpeg',
+        };
+        setter(file);
+        setBookingDraft({ [draftKey]: file });
       }
     } catch (err) {
-      console.warn('Document pick error:', err);
+      console.warn('Camera error:', err);
     }
+  };
+
+  const handleGalleryImageFor = async (setter, draftKey) => {
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        quality: 0.8,
+        base64: false,
+      });
+      if (result.canceled) return;
+      const asset = result.assets[0];
+      const file = {
+        name: asset.fileName || `image_${Date.now()}.jpg`,
+        uri: asset.uri,
+        mimeType: 'image/jpeg',
+      };
+      setter(file);
+      setBookingDraft({ [draftKey]: file });
+    } catch (err) {
+      console.warn('Image pick error:', err);
+    }
+  };
+
+  const handlePdfFor = async (setter, draftKey) => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: 'application/pdf',
+        copyToCacheDirectory: true,
+      });
+      if (result.canceled) return;
+      if (result.assets?.length > 0) {
+        const asset = result.assets[0];
+        setter(asset);
+        setBookingDraft({ [draftKey]: asset });
+      } else if (result.type === 'success') {
+        setter(result);
+        setBookingDraft({ [draftKey]: result });
+      }
+    } catch (err) {
+      console.warn('PDF pick error:', err);
+    }
+  };
+
+  const showFileTypeChoice = (setter, draftKey) => {
+    Alert.alert('Select Document', 'Choose the type of file', [
+      { text: 'Image', onPress: () => handleGalleryImageFor(setter, draftKey) },
+      { text: 'PDF', onPress: () => handlePdfFor(setter, draftKey) },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  };
+
+  const showUploadOptions = (title, setter, draftKey) => {
+    Alert.alert(title, 'Choose how you would like to add this document', [
+      { text: 'Choose File', onPress: () => showFileTypeChoice(setter, draftKey) },
+      { text: 'Take Photo', onPress: () => handleCameraFor(setter, draftKey) },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
   };
 
   const handleSelectDoctorOrder = (value) => {
@@ -406,42 +478,6 @@ export default function BookMobileVisitScreen() {
       setInsuranceFront(null);
       setInsuranceBack(null);
       setBookingDraft({ insuranceFront: null, insuranceBack: null });
-    }
-  };
-
-  const handlePickInsuranceFront = async () => {
-    try {
-      const result = await DocumentPicker.getDocumentAsync({
-        type: ['application/pdf', 'image/png', 'image/jpeg'],
-        copyToCacheDirectory: true,
-      });
-      if (result.canceled === false && result.assets?.length > 0) {
-        setInsuranceFront(result.assets[0]);
-        setBookingDraft({ insuranceFront: result.assets[0] });
-      } else if (result.type === 'success') {
-        setInsuranceFront(result);
-        setBookingDraft({ insuranceFront: result });
-      }
-    } catch (err) {
-    console.warn('Insurance front pick error:', err);
-    }
-  };
-
-  const handlePickInsuranceBack = async () => {
-    try {
-     const result = await DocumentPicker.getDocumentAsync({
-        type: ['application/pdf', 'image/png', 'image/jpeg'],
-        copyToCacheDirectory: true,
-      });
-      if (result.canceled === false && result.assets?.length > 0) {
-        setInsuranceBack(result.assets[0]);
-        setBookingDraft({ insuranceBack: result.assets[0] });
-      } else if (result.type === 'success') {
-        setInsuranceBack(result);
-        setBookingDraft({ insuranceBack: result });
-      }
-    } catch (err) {
-      console.warn('Insurance back pick error:', err);
     }
   };
 
@@ -523,7 +559,7 @@ export default function BookMobileVisitScreen() {
           <FadeInUp delay={0}>
             <AnimatedPressable
               style={[styles.uploadBox, prescriptionFile && styles.uploadBoxDone]}
-              onPress={handlePickDocument}
+              onPress={() => showUploadOptions("Doctor's order", setPrescriptionFile, 'prescriptionFile')}
               scaleTo={0.98}
             >
               {prescriptionFile ? (
@@ -542,7 +578,7 @@ export default function BookMobileVisitScreen() {
                   <View style={styles.uploadIconWrap}>
                     <Ionicons name="cloud-upload-outline" size={22} color={COLORS.gray} />
                   </View>
-                  <Text style={styles.uploadTitle}>Click to Upload or Drag File</Text>
+                  <Text style={styles.uploadTitle}>Click to Upload or Take Photo</Text>
                   <Text style={styles.uploadSub}>PDF, PNG, JPG up to 10MB</Text>
                 </>
               )}
@@ -585,7 +621,7 @@ export default function BookMobileVisitScreen() {
             <View style={{ gap: 12, marginTop: 14 }}>
               <AnimatedPressable
                 style={[styles.uploadBox, insuranceFront && styles.uploadBoxDone]}
-                onPress={handlePickInsuranceFront}
+                onPress={() => showUploadOptions('Insurance card — front', setInsuranceFront, 'insuranceFront')}
                 scaleTo={0.98}
               >
                 {insuranceFront ? (
@@ -612,7 +648,7 @@ export default function BookMobileVisitScreen() {
 
               <AnimatedPressable
                 style={[styles.uploadBox, insuranceBack && styles.uploadBoxDone]}
-                onPress={handlePickInsuranceBack}
+                onPress={() => showUploadOptions('Insurance card — back', setInsuranceBack, 'insuranceBack')}
                 scaleTo={0.98}
               >
                 {insuranceBack ? (
@@ -828,7 +864,6 @@ export default function BookMobileVisitScreen() {
         </FadeInUp>
       </ScrollView>
 
-      {/* Confirm Button — no pricing fetch here anymore; Checkout owns all fee calculation */}
       {/* Confirm Button */}
       <View style={styles.footer}>
         <AnimatedPressable
@@ -842,9 +877,8 @@ export default function BookMobileVisitScreen() {
                 bookingDate: selectedDate.isoDate,
                 bookingTime: formattedTime,
               });
-             
 
-              navigation.navigate('Checkout', {
+              const checkoutParams = {
                 labTestsTotal: testsTotal,
                 labTestsNames: selectedTests.map((t) => t.name).join(', '),
                 selectedTests,
@@ -864,7 +898,9 @@ export default function BookMobileVisitScreen() {
                 insurance,
                 insuranceFront,
                 insuranceBack,
-              });
+              };
+              const existingToken = await getStoredPatientToken();
+              navigation.navigate(existingToken ? 'Checkout' : 'GuestInfo', checkoutParams);
              
             } catch (err) {
               console.error(err);
@@ -930,8 +966,6 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     marginTop: -6,
   },
-
-  // ── Visit address card ──
   addressCard: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -982,7 +1016,6 @@ const styles = StyleSheet.create({
     marginTop: 6,
     marginLeft: 2,
   },
-
   optionalBadge: {
     backgroundColor: COLORS.amberLight,
     borderRadius: 6,
@@ -1022,8 +1055,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     marginTop: -4,
   },
-
-  // ── Doctor's order option cards ──
   orderRow: { flexDirection: 'row', gap: 12 },
   orderCard: {
     backgroundColor: COLORS.white,
@@ -1062,7 +1093,6 @@ const styles = StyleSheet.create({
     top: 10,
     right: 10,
   },
-
   uploadBox: {
     marginTop: 14,
     borderWidth: 1.5,
@@ -1202,7 +1232,6 @@ const styles = StyleSheet.create({
     textDecorationLine: 'line-through',
   },
   testPillDiscountPrice: { color: COLORS.green },
-
   testsTotalLabel: { fontSize: 13, fontWeight: '700', color: COLORS.bodyText },
   testsTotalValue: { fontSize: 16, fontWeight: '900', color: COLORS.navy },
   selectTestsBtn: {

@@ -32,10 +32,6 @@ async function postJson(url, body) {
   return data;
 }
 
-// ── multipart POST helper (kept for endpoints that genuinely accept files —
-// NOT used by applyPhleb, since submit_application expects JSON/base64) ────
-// Do NOT set 'Content-Type' manually for FormData — fetch/RN needs to set
-// its own multipart boundary, or the backend won't be able to parse parts.
 async function postFormData(url, formData) {
   let response;
   try {
@@ -72,9 +68,6 @@ function guessContentType(name = '') {
   return map[ext] || 'application/octet-stream';
 }
 
-// Direct-to-S3 via a presigned POST — the file bytes go straight to S3 and
-// never touch our server. Returns the storage key, or null when the server
-// says direct upload isn't available (409) so the caller can fall back.
 async function presignedUpload({ uri, kind, filename, contentType }) {
   const type = contentType || guessContentType(filename || uri);
   const presignRes = await fetch(UPLOAD_ENDPOINTS.presign, {
@@ -98,9 +91,7 @@ async function presignedUpload({ uri, kind, filename, contentType }) {
   return key;
 }
 
-// Uploads a single document and returns { key, url? }. Persist the `key`.
-// Prefers direct-to-S3 (presigned) when a file uri is available; otherwise
-// (or on any hiccup) falls back to the through-server endpoint.
+
 export async function uploadDocument({ base64, uri, kind = 'documents', filename, contentType }) {
   if (uri) {
     try {
@@ -142,11 +133,6 @@ export async function uploadDocument({ base64, uri, kind = 'documents', filename
   return data; // { key, url }
 }
 
-// ── Phlebotomist application (steps 1+2 merged, submitted once) ─────────
-// POST /api/phleb/apply/ as JSON. Documents are base64-encoded strings,
-// not multipart files — this matches submit_application's
-// request.data.get('dlFront') / 'dlBack' / 'certificate' / 'insuranceDoc'
-// pattern on the Django side exactly.
 export async function applyPhleb({
   fullName,
   email,
@@ -224,10 +210,6 @@ export async function login(email, password) {
   return data;
 }
 
-// ── Google Sign-In (role-aware) ───────────────────────────────────────
-// `role` is 'patient' or 'phlebotomist' — the caller picks based on which
-// tab/screen the user is signing in from, since a single Google token has
-// no inherent role and the backend has separate collections per role.
 export async function loginWithGoogle({ idToken, email, name, picture, role = 'patient' }) {
   const endpoint = role === 'phlebotomist' ? PHLEB_ENDPOINTS.googleLogin : PATIENT_ENDPOINTS.googleLogin;
   const data = await postJson(endpoint, { id_token: idToken, email, name, picture });
@@ -246,19 +228,12 @@ export async function loginWithGoogle({ idToken, email, name, picture, role = 'p
   return { ...data, role };
 }
 
-// ── Forgot password (role-aware, OTP-based) ────────────────────────────
-// Step 1: request a 6-digit code by email.
 export async function requestPasswordResetOtp(email, role = 'patient') {
   const endpoint = role === 'phlebotomist' ? PHLEB_ENDPOINTS.requestOtp : PATIENT_ENDPOINTS.requestOtp;
-  // Patient's request-otp endpoint doubles as the signup endpoint, so it
-  // validates name/phone/password only if they're present — sending just
-  // the email is enough to trigger a code for an existing account.
+
   return postJson(endpoint, { email });
 }
 
-// Step 2: verify the code and set a new password.
-// Patient's verify-otp expects the new password in `password`;
-// the phlebotomist one (added for this flow) expects `new_password`.
 export async function confirmPasswordReset({ email, code, newPassword, role = 'patient' }) {
   if (role === 'phlebotomist') {
     return postJson(PHLEB_ENDPOINTS.verifyOtp, {
@@ -345,9 +320,19 @@ export async function requestOtp(email,phone) {
   return postJson(PATIENT_ENDPOINTS.requestOtp, { email,phone, client: 'mobile' });
 }
 
-export async function verifyOtpAndCreateAccount({ email, token, name, password,phone }) {
-  const data = await postJson(PATIENT_ENDPOINTS.verifyOtp, { method: 'email', email, token, name, password,phone });
-  // Clear any leftover phlebotomist session so the two roles never coexist
+export async function verifyOtpAndCreateAccount({ email, token, name, password, phone, dob, address, emergencyContactName, emergencyContactPhone }) {
+  const data = await postJson(PATIENT_ENDPOINTS.verifyOtp, {
+    method: 'email',
+    email,
+    token,
+    name,
+    password,
+    phone,
+    dob,
+    address,
+    emergency_contact_name: emergencyContactName,
+    emergency_contact_phone: emergencyContactPhone,
+  });
   await SecureStore.deleteItemAsync(PHLEB_TOKEN_KEY);
   await SecureStore.deleteItemAsync(PHLEB_USER_KEY);
   if (data.token) await SecureStore.setItemAsync(PATIENT_TOKEN_KEY, data.token);
@@ -659,5 +644,31 @@ export async function rateAppointment(appointmentId, rating, comment = '') {
   if (!response.ok) {
     throw new Error(data?.error || `Request failed (${response.status})`);
   }
+  return data;
+}
+
+export async function guestCheckout({ name, email, phone }) {
+  const data = await postJson(PATIENT_ENDPOINTS.guestCheckout, { name, email, phone });
+
+  // Clear any leftover phlebotomist session so the two roles never coexist
+  await SecureStore.deleteItemAsync(PHLEB_TOKEN_KEY);
+  await SecureStore.deleteItemAsync(PHLEB_USER_KEY);
+  if (data.token) await SecureStore.setItemAsync(PATIENT_TOKEN_KEY, data.token);
+  if (data.user)  await SecureStore.setItemAsync(PATIENT_USER_KEY, JSON.stringify({ ...data.user, isGuest: true }));
+
+  return data.user;
+}
+
+export async function setPasswordFromGuest(password) {
+  const data = await authPost(PATIENT_ENDPOINTS.setPassword, { password }, 'patient');
+
+  // Sync the stored user so the app stops treating them as a guest
+  const raw = await SecureStore.getItemAsync(PATIENT_USER_KEY);
+  if (raw) {
+    const user = JSON.parse(raw);
+    const updatedUser = { ...user, isGuest: false, is_guest: false };
+    await SecureStore.setItemAsync(PATIENT_USER_KEY, JSON.stringify(updatedUser));
+  }
+
   return data;
 }

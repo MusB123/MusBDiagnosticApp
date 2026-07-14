@@ -22,6 +22,8 @@ import ScheduleScreen from './screens/ScheduleScreen';
 import NotificationsScreen from './screens/NotificationsScreen';
 import HistoryScreen from './screens/HistoryScreen';
 import ProfileScreen from './screens/ProfileScreen';
+import GuestInfoScreen from './screens/GuestInfoScreen';
+import CreateAccountPromptScreen from './screens/CreateAccountPromptScreen';
 
 // Phlebotomist
 import RegisterScreen from './screens/RegisterScreen';
@@ -69,6 +71,8 @@ export default function App() {
           <Stack.Screen name="PatientNotifications" component={NotificationsScreen} />
           <Stack.Screen name="PatientHistory" component={HistoryScreen} />
           <Stack.Screen name="PatientProfile" component={ProfileScreen} />
+          <Stack.Screen name="GuestInfo" component={GuestInfoScreen} />
+          <Stack.Screen name="CreateAccountPrompt" component={CreateAccountPromptScreen} />
 
           {/* Phlebotomist */}
           <Stack.Screen name="PhlebDashboard" component={DashboardScreen} />

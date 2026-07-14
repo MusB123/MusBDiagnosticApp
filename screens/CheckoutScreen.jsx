@@ -397,7 +397,11 @@ export default function CheckoutScreen({ navigation, route }) {
 
   const handleSuccessContinue = () => {
     setShowSuccess(false);
+    if (route?.params?.isGuest) {
+      navigation.navigate('CreateAccountPrompt', { appointmentId: successData.appointmentId });
+    } else {
     navigation.navigate('PatientHome', { appointmentId: successData.appointmentId });
+    }
   };
 
   // ── Render ────────────────────────────────────────────────────────────────

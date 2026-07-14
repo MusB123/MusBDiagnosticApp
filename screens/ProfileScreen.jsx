@@ -51,6 +51,7 @@ export default function ProfileScreen({ navigation }) {
   const [docsLoading, setDocsLoading] = useState(true);
 
   const [email, setEmail] = useState(''); // read-only
+  const [isGuest, setIsGuest] = useState(false);
   const [form, setForm] = useState({
     name: '',
     phone: '',
@@ -77,6 +78,7 @@ export default function ProfileScreen({ navigation }) {
         const profile = await fetchPatientProfile();
         if (!isMounted) return;
         setEmail(profile.email || '');
+        setIsGuest(!!profile.is_guest); // set server-side in guest_checkout
         setForm({
           name: profile.name || '',
           phone: profile.phone || '',
@@ -166,17 +168,23 @@ export default function ProfileScreen({ navigation }) {
   };
 
   const handleLogout = () => {
-    Alert.alert('Log out', 'Are you sure you want to log out?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Log out',
-        style: 'destructive',
-        onPress: async () => {
-          await logoutPatient();
-          navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
+    Alert.alert(
+      isGuest ? 'Exit guest session' : 'Log out',
+      isGuest
+        ? 'You can always come back and book again as a guest, or create an account to save your info.'
+        : 'Are you sure you want to log out?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: isGuest ? 'Exit' : 'Log out',
+          style: 'destructive',
+          onPress: async () => {
+            await logoutPatient();
+            navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
+          },
         },
-      },
-    ]);
+      ]
+    );
   };
 
   // ── Need help? ── opens the device mail app with SUPPORT_EMAIL pre-filled.
@@ -207,11 +215,24 @@ export default function ProfileScreen({ navigation }) {
   }
 
   if (loadError) {
+    // The account may have been deleted server-side (e.g. "Patient not
+    // found") while a stale session token is still saved locally. There's
+    // no profile to show in that case, so give the user a way out instead
+    // of leaving them stuck on an error screen with no navigation.
     return (
       <SafeAreaView style={[styles.safeArea, styles.centered]}>
-        <Text style={{ color: COLORS.error, textAlign: 'center', paddingHorizontal: 24 }}>
+        <Text style={{ color: COLORS.error, textAlign: 'center', paddingHorizontal: 24, marginBottom: 20 }}>
           ⚠ {loadError}
         </Text>
+        <TouchableOpacity
+          style={styles.errorLogoutBtn}
+          onPress={async () => {
+            await logoutPatient();
+            navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
+          }}
+        >
+          <Text style={styles.errorLogoutBtnText}>Log out</Text>
+        </TouchableOpacity>
       </SafeAreaView>
     );
   }
@@ -247,6 +268,12 @@ export default function ProfileScreen({ navigation }) {
           </View>
           <Text style={styles.avatarName}>{form.name || 'Patient'}</Text>
           <Text style={styles.avatarEmail}>{email}</Text>
+          {isGuest && (
+            <View style={styles.guestPill}>
+              <Ionicons name="person-outline" size={12} color={COLORS.navy} style={{ marginRight: 4 }} />
+              <Text style={styles.guestPillText}>Guest</Text>
+            </View>
+          )}
         </View>
          
 
@@ -355,8 +382,8 @@ export default function ProfileScreen({ navigation }) {
           </TouchableOpacity>
         )}
 
-        {/* Security / Change Password — hidden while editing profile info */}
-        {!editing && (
+        {/* Security / Change Password — logged-in users only; hidden while editing profile info */}
+        {!editing && !isGuest && (
           <>
             <Text style={styles.sectionLabel}>SECURITY</Text>
 
@@ -423,6 +450,25 @@ export default function ProfileScreen({ navigation }) {
           </>
         )}
 
+        {/* Guest account upsell — replaces Security section for guests */}
+        {!editing && isGuest && (
+          <>
+            <Text style={styles.sectionLabel}>ACCOUNT</Text>
+            <View style={styles.guestBanner}>
+              <Text style={styles.guestBannerTitle}>You're browsing as a guest</Text>
+              <Text style={styles.guestBannerSub}>
+                Create an account with a password to save your details and log back in anytime.
+              </Text>
+              <TouchableOpacity
+                style={styles.createAccountBtn}
+                onPress={() => navigation.navigate('CreateAccountPrompt', {})}
+              >
+                <Text style={styles.createAccountBtnText}>Create account</Text>
+              </TouchableOpacity>
+            </View>
+          </>
+        )}
+
         {/* Need help? */}
         {!editing && (
           <>
@@ -439,7 +485,7 @@ export default function ProfileScreen({ navigation }) {
 
         {!editing && (
           <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
-            <Text style={styles.logoutBtnText}>Log out</Text>
+            <Text style={styles.logoutBtnText}>{isGuest ? 'Exit guest session' : 'Log out'}</Text>
           </TouchableOpacity>
         )}
       </ScrollView>
@@ -512,6 +558,16 @@ const styles = StyleSheet.create({
   avatarText: { color: COLORS.white, fontWeight: '800', fontSize: 24 },
   avatarName: { fontSize: 18, fontWeight: '800', color: COLORS.navyDark },
   avatarEmail: { fontSize: 13, color: COLORS.gray, marginTop: 2 },
+  guestPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#EAF0FB',
+    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    marginTop: 8,
+  },
+  guestPillText: { fontSize: 11, fontWeight: '700', color: COLORS.navy },
 
   sectionLabel: {
     fontSize: 11,
@@ -602,6 +658,24 @@ const styles = StyleSheet.create({
   },
   savePasswordBtnText: { color: COLORS.white, fontSize: 14, fontWeight: '700' },
 
+  guestBanner: {
+    backgroundColor: COLORS.offWhite,
+    borderRadius: 14,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    marginBottom: 8,
+  },
+  guestBannerTitle: { fontSize: 14, fontWeight: '800', color: COLORS.navyDark, marginBottom: 4 },
+  guestBannerSub: { fontSize: 13, color: COLORS.gray, lineHeight: 18, marginBottom: 12 },
+  createAccountBtn: {
+    backgroundColor: COLORS.navy,
+    borderRadius: 12,
+    paddingVertical: 13,
+    alignItems: 'center',
+  },
+  createAccountBtnText: { color: COLORS.white, fontSize: 14, fontWeight: '700' },
+
   logoutBtn: {
     alignItems: 'center',
     paddingVertical: 14,
@@ -610,6 +684,16 @@ const styles = StyleSheet.create({
     borderTopColor: COLORS.lightGray,
   },
   logoutBtnText: { fontSize: 14, fontWeight: '700', color: COLORS.error },
+
+  errorLogoutBtn: {
+    backgroundColor: COLORS.navy,
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 32,
+    alignItems: 'center',
+  },
+  errorLogoutBtnText: { fontSize: 14, fontWeight: '700', color: COLORS.white },
+
   linkRow: {
     flexDirection: 'row',
     alignItems: 'center',

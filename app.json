@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "MusBDiagnostics",
-    "slug": "MusBDiagnostics",
+    "slug": "MusbDiagnostics",
     "scheme": "musbdiagnostics",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -14,7 +14,12 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.musb.diagnostics"
+      "bundleIdentifier": "com.musb.diagnostics",
+      "infoPlist": {
+        "NSCameraUsageDescription": "MusB Diagnostics needs camera access so you can take photos of documents like prescriptions and insurance cards.",
+        "NSPhotoLibraryUsageDescription": "MusB Diagnostics needs photo library access so you can upload documents like prescriptions and insurance cards.",
+        "NSPhotoLibraryAddUsageDescription": "MusB Diagnostics needs permission to save photos you take of your documents."
+      }
     },
     "android": {
       "package": "com.musb.diagnostics",
@@ -22,7 +27,12 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "permissions": [
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE",
+        "READ_MEDIA_IMAGES"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -35,7 +45,14 @@
         }
       ],
       "expo-secure-store",
-      "expo-web-browser"
+      "expo-web-browser",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "MusB Diagnostics needs photo library access so you can upload documents like prescriptions and insurance cards.",
+          "cameraPermission": "MusB Diagnostics needs camera access so you can take photos of documents like prescriptions and insurance cards."
+        }
+      ]
     ],
     "extra": {
       "eas": {

@@ -105,7 +105,7 @@ export default function SplashScreen({ navigation }) {
 
             <TouchableOpacity
               activeOpacity={0.7}
-              onPress={() => navigation?.navigate('PatientHome')}
+              onPress={() => navigation?.navigate('PatientHome', {isGuest:true })}
             >
               <Text style={styles.guestText}>Continue as guest ›</Text>
             </TouchableOpacity>

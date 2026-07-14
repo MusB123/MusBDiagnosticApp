@@ -289,6 +289,7 @@ export default function InPersonTestsScreen({ navigation, route }) {
   const [selectedCenter, setSelectedCenter] = useState('1');
   const [submitting, setSubmitting] = useState(false);
   const [patientUser, setPatientUser] = useState(null);
+  const isGuest = route?.params?.isGuest === true;
 
   // ── Date / time state ──
   const dates = generateDates();
@@ -305,8 +306,11 @@ export default function InPersonTestsScreen({ navigation, route }) {
   }, [route?.params?.selectedTestsData]);
 
   useEffect(() => {
-    getStoredPatientUser().then(setPatientUser);
-  }, []);
+    const unsub = navigation.addListener('focus', () => {
+      getStoredPatientUser().then(setPatientUser);
+    });
+    return unsub;
+  }, [navigation]);
 
   const testsTotal = selectedTestsData.reduce(
     (sum, t) => sum + (t.discountPrice != null ? t.discountPrice : t.price),
@@ -366,6 +370,14 @@ export default function InPersonTestsScreen({ navigation, route }) {
   const handleBookAppointment = () => {
     if (selectedTestsData.length === 0) {
       Alert.alert('No tests selected', 'Please select at least one test before booking.');
+      return;
+    }
+
+    if (isGuest && !patientUser) {
+      navigation.navigate('GuestInfo', {
+        returnTo: 'InPersonTests',
+        isGuest: true,
+      });
       return;
     }
 
