@@ -16,7 +16,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as SecureStore from 'expo-secure-store';
-import { PHLEB_ENDPOINTS } from '../config/api';
+import { PHLEB_ENDPOINTS, CATALOG_ENDPOINTS } from '../config/api';
 
 const PRIMARY      = '#18377D';
 const PRIMARY_DARK = '#0F2557';
@@ -24,6 +24,7 @@ const PRIMARY_LIGHT = '#3B5BA9';
 const GREEN        = '#1B7A4D';
 const GREEN_LIGHT  = '#22C55E';
 const AMBER        = '#D97706';
+const RED          = '#DC2626';
 const BG           = '#F6F8FC';
 const CARD_BORDER  = '#EEF1F7';
 const PHLEB_TOKEN_KEY = 'musb_phleb_token';
@@ -55,12 +56,12 @@ const STORAGE_OPTIONS = [
   { key: 'Frozen', label: 'Frozen', sub: '-20°C', icon: 'snow' },
 ];
 
-// Partner labs the specimen can be routed to. Hardcoded from the backend's
-// lab directory collection — swap for a fetch(PHLEB_ENDPOINTS.labs) call
-// once that endpoint is confirmed.
-const LAB_OPTIONS = [
+// Fallback seed labs — used ONLY if the backend fetch fails, so the picker
+// never leaves the phlebotomist stuck with an empty list in the field.
+// Mirrors the Django SEED_LABS in bookings/views.py (manage_labs).
+const FALLBACK_LABS = [
   {
-    id: '6a526dfb0b49a868ce2337d6',
+    id: 'fallback-1',
     name: 'Quest Diagnostics - New Port Richey',
     address: '5435 Grand Blvd, New Port Richey, FL 34652',
     phone: '(727) 848-1322',
@@ -68,7 +69,7 @@ const LAB_OPTIONS = [
     longitude: -82.7201,
   },
   {
-    id: '6a526dfb0b49a868ce2337d7',
+    id: 'fallback-2',
     name: 'Labcorp - New Port Richey',
     address: '5323 Trouble Creek Rd, New Port Richey, FL 34652',
     phone: '(727) 841-8622',
@@ -76,7 +77,7 @@ const LAB_OPTIONS = [
     longitude: -82.7155,
   },
   {
-    id: '6a526dfb0b49a868ce2337d8',
+    id: 'fallback-3',
     name: 'BayCare Laboratories - Trinity',
     address: '2040 Trinity Oaks Blvd, Trinity, FL 34655',
     phone: '(727) 372-2300',
@@ -84,7 +85,7 @@ const LAB_OPTIONS = [
     longitude: -82.668,
   },
   {
-    id: '6a526dfb0b49a868ce2337d9',
+    id: 'fallback-4',
     name: 'Quest Diagnostics - Port Richey',
     address: '9330 US Highway 19, Port Richey, FL 34668',
     phone: '(727) 847-1234',
@@ -92,7 +93,7 @@ const LAB_OPTIONS = [
     longitude: -82.721,
   },
   {
-    id: '6a526dfb0b49a868ce2337da',
+    id: 'fallback-5',
     name: 'Tampa General Hospital Urgent Care & Lab',
     address: '8807 Little Rd, New Port Richey, FL 34654',
     phone: '(727) 868-2456',
@@ -100,7 +101,7 @@ const LAB_OPTIONS = [
     longitude: -82.669,
   },
   {
-    id: '6a526dfb0b49a868ce2337db',
+    id: 'fallback-6',
     name: 'AdventHealth Lab - West Florida',
     address: '4433 Rowan Rd, New Port Richey, FL 34653',
     phone: '(727) 376-7890',
@@ -246,6 +247,20 @@ function ChecklistRow({ item, index, onToggle }) {
   );
 }
 
+// Normalize a lab record coming back from the backend (transform_doc output)
+// into the shape this screen uses. Handles either `id` or `_id`.
+function normalizeLab(raw) {
+  return {
+    id: raw.id || raw._id || String(raw.name || Math.random()),
+    name: raw.name || 'Unnamed lab',
+    address: raw.address || '',
+    phone: raw.phone || '',
+    latitude: raw.latitude,
+    longitude: raw.longitude,
+    distanceMiles: raw.distance_miles,
+  };
+}
+
 export default function CollectCompleteScreen({ route, navigation }) {
   const { job, patient: paramPatient, order: paramOrder } = route?.params || {};
 
@@ -261,6 +276,38 @@ export default function CollectCompleteScreen({ route, navigation }) {
   const [labId, setLabId] = useState('');
   const [showLabPicker, setShowLabPicker] = useState(false);
 
+  // ── Labs from backend ────────────────────────────────────────────────
+  const [labs, setLabs] = useState([]);
+  const [labsLoading, setLabsLoading] = useState(true);
+  const [labsError, setLabsError] = useState(false);
+
+  const fetchLabs = async () => {
+    setLabsLoading(true);
+    setLabsError(false);
+    try {
+      // Sort by proximity to the patient's address when we have one.
+      const addr = patient?.address && patient.address !== 'Address not provided'
+        ? `?address=${encodeURIComponent(patient.address)}`
+        : '';
+      const res = await fetch(`${CATALOG_ENDPOINTS.labs}${addr}`, { method: 'GET' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Failed to load labs');
+
+      const list = Array.isArray(data) ? data : (Array.isArray(data?.labs) ? data.labs : []);
+      const normalized = list.map(normalizeLab);
+      setLabs(normalized.length ? normalized : FALLBACK_LABS);
+    } catch (err) {
+      setLabsError(true);
+      setLabs(FALLBACK_LABS);
+    } finally {
+      setLabsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchLabs();
+  }, []);
+
   const doneCount = checklist.filter((i) => i.done).length;
   const progress = checklist.length ? doneCount / checklist.length : 0;
 
@@ -272,7 +319,7 @@ export default function CollectCompleteScreen({ route, navigation }) {
 
   const allChecked = checklist.every((item) => item.done);
   const canComplete = allChecked && !!labId;
-  const selectedLab = LAB_OPTIONS.find((l) => l.id === labId);
+  const selectedLab = labs.find((l) => l.id === labId);
 
   const handleMarkComplete = async () => {
     if (!allChecked) {
@@ -441,27 +488,49 @@ export default function CollectCompleteScreen({ route, navigation }) {
 
         {/* Lab name */}
         <FadeInUp delay={120}>
-          <Text style={[styles.sectionLabel, { marginTop: 24, marginBottom: 12 }]}>Lab name</Text>
-          <AnimatedPressable
-            style={styles.storageDropdown}
-            scaleTo={0.98}
-            onPress={() => setShowLabPicker(true)}
-          >
-            <View style={styles.storageDropdownIconWrap}>
-              <Ionicons name="flask-outline" size={18} color={PRIMARY} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.storageDropdownLabel} numberOfLines={1}>
-                {selectedLab?.name || 'Select lab'}
-              </Text>
-              {selectedLab && (
-                <Text style={styles.storageDropdownSub} numberOfLines={1}>
-                  {selectedLab.address}
-                </Text>
-              )}
-            </View>
-            <Ionicons name="chevron-down" size={18} color="#9CA3AF" />
-          </AnimatedPressable>
+          <View style={styles.sectionHeadingRow}>
+            <Text style={[styles.sectionLabel, { marginTop: 24 }]}>Lab name</Text>
+            {labsError && (
+              <TouchableOpacity onPress={fetchLabs} style={styles.retryPill}>
+                <Ionicons name="refresh" size={12} color={RED} />
+                <Text style={styles.retryPillText}>Retry</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+          <View style={{ marginTop: 12 }}>
+            {labsLoading ? (
+              <View style={[styles.storageDropdown, { justifyContent: 'center' }]}>
+                <ActivityIndicator color={PRIMARY} size="small" />
+                <Text style={[styles.storageDropdownSub, { marginLeft: 10 }]}>Loading labs…</Text>
+              </View>
+            ) : (
+              <AnimatedPressable
+                style={styles.storageDropdown}
+                scaleTo={0.98}
+                onPress={() => setShowLabPicker(true)}
+              >
+                <View style={styles.storageDropdownIconWrap}>
+                  <Ionicons name="flask-outline" size={18} color={PRIMARY} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.storageDropdownLabel} numberOfLines={1}>
+                    {selectedLab?.name || 'Select lab'}
+                  </Text>
+                  {selectedLab ? (
+                    <Text style={styles.storageDropdownSub} numberOfLines={1}>
+                      {selectedLab.address}
+                      {typeof selectedLab.distanceMiles === 'number' ? ` · ${selectedLab.distanceMiles} mi` : ''}
+                    </Text>
+                  ) : labsError ? (
+                    <Text style={[styles.storageDropdownSub, { color: RED }]}>
+                      Couldn't load live labs — showing defaults
+                    </Text>
+                  ) : null}
+                </View>
+                <Ionicons name="chevron-down" size={18} color="#9CA3AF" />
+              </AnimatedPressable>
+            )}
+          </View>
         </FadeInUp>
 
         <View style={{ height: 12 }} />
@@ -557,9 +626,15 @@ export default function CollectCompleteScreen({ route, navigation }) {
         >
           <View style={styles.modalSheet}>
             <View style={styles.modalHandle} />
-            <Text style={styles.modalTitle}>Select lab</Text>
+            <View style={styles.sectionHeadingRow}>
+              <Text style={styles.modalTitle}>Select lab</Text>
+              <TouchableOpacity onPress={fetchLabs} style={styles.retryPill}>
+                <Ionicons name="refresh" size={12} color={PRIMARY} />
+                <Text style={[styles.retryPillText, { color: PRIMARY }]}>Refresh</Text>
+              </TouchableOpacity>
+            </View>
             <ScrollView style={{ maxHeight: 420 }} showsVerticalScrollIndicator={false}>
-              {LAB_OPTIONS.map((opt) => {
+              {labs.map((opt) => {
                 const selected = labId === opt.id;
                 return (
                   <TouchableOpacity
@@ -576,7 +651,10 @@ export default function CollectCompleteScreen({ route, navigation }) {
                     </View>
                     <View style={{ flex: 1 }}>
                       <Text style={styles.modalOptionLabel}>{opt.name}</Text>
-                      <Text style={styles.modalOptionSub} numberOfLines={1}>{opt.address}</Text>
+                      <Text style={styles.modalOptionSub} numberOfLines={1}>
+                        {opt.address}
+                        {typeof opt.distanceMiles === 'number' ? ` · ${opt.distanceMiles} mi` : ''}
+                      </Text>
                     </View>
                     {selected && <Ionicons name="checkmark-circle" size={20} color={GREEN_LIGHT} />}
                   </TouchableOpacity>
@@ -741,6 +819,22 @@ const styles = StyleSheet.create({
 
   countPillTextDone: {
     color: GREEN,
+  },
+
+  retryPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#FEF2F2',
+    borderRadius: 10,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+  },
+
+  retryPillText: {
+    fontSize: 11.5,
+    fontWeight: '800',
+    color: RED,
   },
 
   card: {

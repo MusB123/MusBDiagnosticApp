@@ -28,7 +28,9 @@ export default function RegisterStep3({ navigation, route }) {
   // certificate / insurance docs) arrives here in route.params. This screen
   // adds password + bank + W9, then submits the whole application once.
   const {
-    fullName,
+    firstName,
+    middleName,
+    lastName,
     email,
     phone,
     address,
@@ -40,6 +42,8 @@ export default function RegisterStep3({ navigation, route }) {
     insuranceDoc,
     password,
   } = route.params || {};
+
+  const fullName = [firstName, middleName, lastName].filter(Boolean).join(' ');
 
   const [bankName, setBankName] = useState('');
   const [holderName, setHolderName] = useState(fullName || '');

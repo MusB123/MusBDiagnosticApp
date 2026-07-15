@@ -274,8 +274,9 @@ export default function DashboardScreen({ route, navigation }) {
   const fetchDashboard = async () => {
     try {
       const data = await authGet(PHLEB_ENDPOINTS.dashboard);
-      // Dashboard also carries the specialist's name — prefer it if present.
-      const nameFromDashboard = data.full_name || data.fullName || data.name;
+      const specialist = data.specialist || {};
+      const nameFromDashboard =
+        specialist.name || data.full_name || data.fullName || data.name;
       if (nameFromDashboard) setFullName(nameFromDashboard);
 
       const activeCase = data?.active_case;

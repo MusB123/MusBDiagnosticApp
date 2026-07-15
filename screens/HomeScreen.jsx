@@ -1213,7 +1213,8 @@ const offerStyles = StyleSheet.create({
   card: {
     borderRadius: 20,
     padding: 16,
-    minHeight: 150,
+    height: 172,
+    flexDirection: 'column',
     overflow: 'hidden',
     elevation: 5,
     shadowColor: '#000',
@@ -1246,7 +1247,14 @@ const offerStyles = StyleSheet.create({
   },
   pillText: { fontSize: 10, fontWeight: '800', color: '#FFFFFF', textTransform: 'uppercase', letterSpacing: 0.4 },
   timeLeft: { fontSize: 10, fontWeight: '700', color: '#FFFFFF' },
-  title: { fontSize: 15, fontWeight: '900', color: '#FFFFFF', marginBottom: 4, lineHeight: 19 },
+  title: {
+    fontSize: 15,
+    fontWeight: '900',
+    color: '#FFFFFF',
+    marginBottom: 4,
+    lineHeight: 19,
+    height: 38, // reserves space for 2 lines so 1-line titles don't shrink the card
+  },
   includes: { fontSize: 11, color: 'rgba(255,255,255,0.85)', marginBottom: 10 },
   priceRow: { flexDirection: 'row', alignItems: 'baseline', gap: 8, marginBottom: 10 },
   strike: { fontSize: 12, color: 'rgba(255,255,255,0.7)', textDecorationLine: 'line-through' },

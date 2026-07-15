@@ -385,7 +385,7 @@ export default function CheckoutScreen({ navigation, route }) {
        Alert.alert(
         'Payment received, booking issue',
         `Your payment was successful, but we couldn't save your appointment details (${bookingErr.message}). Please contact support.`,
-        [{ text: 'OK', onPress: () => navigation.navigate('Home') }]
+        [{ text: 'OK', onPress: () => navigation.navigate('PatientHome') }]
        );
       }
      }

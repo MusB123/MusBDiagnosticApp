@@ -10,10 +10,16 @@ import {
   Alert,
   Animated,
   Easing,
+  Modal,
+  Pressable,
+  Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { getStoredPatientUser, bookAppointment } from '../utils/auth';
+import { CATALOG_ENDPOINTS } from '../config/api';
+
+const { height: SCREEN_H } = Dimensions.get('window');
 
 const COLORS = {
   navy: '#1B3A8C',
@@ -31,18 +37,126 @@ const COLORS = {
   amberBorder: '#FCD34D',
   amberText: '#92400E',
   error: '#E63946',
+  teal: '#0D9488',
+  tealLight: '#CCFBF1',
+  purple: '#7C3AED',
+  purpleLight: '#EDE9FE',
+  pink: '#DB2777',
+  pinkLight: '#FCE7F3',
+  sky: '#0284C7',
+  skyLight: '#E0F2FE',
+  orange: '#EA580C',
 };
 
-const CENTERS = [
+// Fallback list — used ONLY if the backend labs fetch fails, so the screen
+// never leaves the patient with an empty center list. Mirrors the Django
+// SEED_LABS in bookings/views.py (manage_labs).
+const FALLBACK_CENTERS = [
   {
-    id: '1',
+    id: 'fallback-1',
     name: 'MusB Diagnostics - New Port Richey',
     address: '6331 State Road, New Port Richey, FL 34653',
-    lat: 28.21778,
-    lng: -82.70957,
-    hours: 'Open until 6 PM', // TODO: confirm real hours with the team
-    icon: 'business',
+    latitude: 28.21778,
+    longitude: -82.70957,
+    phone: '',
   },
+  {
+    id: 'fallback-2',
+    name: 'Quest Diagnostics - New Port Richey',
+    address: '5435 Grand Blvd, New Port Richey, FL 34652',
+    latitude: 28.2435,
+    longitude: -82.7201,
+    phone: '(727) 848-1322',
+  },
+  {
+    id: 'fallback-3',
+    name: 'Labcorp - New Port Richey',
+    address: '5323 Trouble Creek Rd, New Port Richey, FL 34652',
+    latitude: 28.2255,
+    longitude: -82.7155,
+    phone: '(727) 841-8622',
+  },
+  {
+    id: 'fallback-4',
+    name: 'BayCare Laboratories - Trinity',
+    address: '2040 Trinity Oaks Blvd, Trinity, FL 34655',
+    latitude: 28.192,
+    longitude: -82.668,
+    phone: '(727) 372-2300',
+  },
+  {
+    id: 'fallback-5',
+    name: 'Quest Diagnostics - Port Richey',
+    address: '9330 US Highway 19, Port Richey, FL 34668',
+    latitude: 28.2915,
+    longitude: -82.721,
+    phone: '(727) 847-1234',
+  },
+  {
+    id: 'fallback-6',
+    name: 'Tampa General Hospital Urgent Care & Lab',
+    address: '8807 Little Rd, New Port Richey, FL 34654',
+    latitude: 28.2805,
+    longitude: -82.669,
+    phone: '(727) 868-2456',
+  },
+  {
+    id: 'fallback-7',
+    name: 'AdventHealth Lab - West Florida',
+    address: '4433 Rowan Rd, New Port Richey, FL 34653',
+    latitude: 28.2312,
+    longitude: -82.6845,
+    phone: '(727) 376-7890',
+  },
+];
+
+// "What to bring" checklist — shown as an animated, professional reminder
+// card so patients arrive prepared.
+const BRING_ITEMS = [
+  {
+    id: 'id',
+    icon: 'card-outline',
+    title: 'Photo ID',
+    desc: 'A government-issued ID for identity verification.',
+    color: COLORS.sky,
+    bg: COLORS.skyLight,
+  },
+  {
+    id: 'insurance',
+    icon: 'shield-checkmark-outline',
+    title: 'Insurance card',
+    desc: 'Please carry your insurance card, if applicable.',
+    color: COLORS.teal,
+    bg: COLORS.tealLight,
+  },
+  {
+    id: 'order',
+    icon: 'document-text-outline',
+    title: "Doctor's order",
+    desc: 'Bring your lab requisition or physician order, if you have one.',
+    color: COLORS.purple,
+    bg: COLORS.purpleLight,
+  },
+  {
+    id: 'fasting',
+    icon: 'time-outline',
+    title: 'Check fasting requirements',
+    desc: 'Some tests require fasting — confirm with your provider beforehand.',
+    color: COLORS.amber,
+    bg: COLORS.amberLight,
+  },
+];
+
+// Rotating accent colors applied to each center's icon ring, purely for a
+// livelier, more colorful list.
+const CENTER_ACCENTS = [
+  { color: COLORS.navy, bg: '#EAF0FB' },
+  { color: COLORS.teal, bg: COLORS.tealLight },
+  { color: COLORS.purple, bg: COLORS.purpleLight },
+  { color: COLORS.pink, bg: COLORS.pinkLight },
+  { color: COLORS.sky, bg: COLORS.skyLight },
+  { color: COLORS.orange, bg: COLORS.amberLight },
+  { color: COLORS.green, bg: COLORS.greenLight },
 ];
 
 // ── Date / time helpers ──────────────────────────────────────────────────
@@ -96,6 +210,20 @@ function nextValidSlot(date = new Date()) {
     hour: String(hour12).padStart(2, '0'),
     minute: String(m).padStart(2, '0'),
     period,
+  };
+}
+
+// Normalize a lab record coming back from the backend (transform_doc output).
+function normalizeLab(raw) {
+  return {
+    id: raw.id || raw._id || String(raw.name || Math.random()),
+    name: raw.name || 'Unnamed center',
+    address: raw.address || '',
+    phone: raw.phone || '',
+    latitude: raw.latitude,
+    longitude: raw.longitude,
+    distanceMiles: raw.distance_miles,
+    icon: 'business',
   };
 }
 
@@ -193,34 +321,40 @@ function DateCard({ date, isSelected, onPress }) {
   );
 }
 
-/** A single tappable chip — used for hour/minute options. Springs on selection. */
+/**
+ * A single tappable chip — used for hour/minute options.
+ *
+ * NOTE: this used to drive its background color through an Animated.Value
+ * interpolation keyed off `isSelected`. Under fast re-renders (e.g. tapping
+ * a different minute right after another) that animated value could get out
+ * of sync, which is what caused two chips (e.g. "00" and "30") to both show
+ * as selected/blue at once. Switching to a plain, directly-derived style
+ * removes that whole class of bug — the highlighted chip is always exactly
+ * the one matching `selected`, every render, no animation lag involved.
+ */
 function TimeChip({ label, isSelected, isDisabled, onPress }) {
-  const scale = useRef(new Animated.Value(isSelected ? 1 : 0)).current;
-  useEffect(() => {
-    Animated.spring(scale, { toValue: isSelected ? 1 : 0, useNativeDriver: false, speed: 22, bounciness: 8 }).start();
-  }, [isSelected]);
-
-  const bg = scale.interpolate({ inputRange: [0, 1], outputRange: [COLORS.white, COLORS.navy] });
-  const borderColor = scale.interpolate({ inputRange: [0, 1], outputRange: [COLORS.border, COLORS.navy] });
-
   return (
     <TouchableOpacity onPress={() => !isDisabled && onPress()} activeOpacity={isDisabled ? 1 : 0.8} disabled={isDisabled}>
-      <Animated.View
+      <View
         style={[
           pickerStyles.chip,
-          { backgroundColor: isDisabled ? COLORS.offWhite : bg, borderColor: isDisabled ? COLORS.lightGray : borderColor },
+          isDisabled
+            ? pickerStyles.chipDisabled
+            : isSelected
+            ? pickerStyles.chipSelected
+            : pickerStyles.chipUnselected,
         ]}
       >
         <Text
           style={[
             pickerStyles.chipText,
-            isSelected && pickerStyles.chipTextSelected,
+            isSelected && !isDisabled && pickerStyles.chipTextSelected,
             isDisabled && pickerStyles.chipTextDisabled,
           ]}
         >
           {label}
         </Text>
-      </Animated.View>
+      </View>
     </TouchableOpacity>
   );
 }
@@ -284,12 +418,333 @@ function PeriodToggle({ selected, onSelect, isDisabled }) {
   );
 }
 
+/** A single "what to bring" row — icon pops in, whole row fades/slides up. */
+function BringItemRow({ item, index }) {
+  return (
+    <FadeInUp delay={220 + index * 70} distance={10}>
+      <View style={bringStyles.row}>
+        <IconPop delay={260 + index * 70}>
+          <View style={[bringStyles.iconRing, { backgroundColor: item.bg }]}>
+            <Ionicons name={item.icon} size={19} color={item.color} />
+          </View>
+        </IconPop>
+        <View style={{ flex: 1 }}>
+          <Text style={bringStyles.itemTitle}>{item.title}</Text>
+          <Text style={bringStyles.itemDesc}>{item.desc}</Text>
+        </View>
+      </View>
+    </FadeInUp>
+  );
+}
+
+/** Professional, colored, animated "please remember to bring" card. */
+function BringChecklistCard({ delay = 0 }) {
+  const glow = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(glow, { toValue: 1, duration: 1800, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(glow, { toValue: 0, duration: 1800, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      ])
+    ).start();
+  }, []);
+
+  return (
+    <FadeInUp delay={delay}>
+      <View style={bringStyles.card}>
+        <Animated.View
+          style={[
+            bringStyles.glowDot,
+            {
+              opacity: glow.interpolate({ inputRange: [0, 1], outputRange: [0.35, 0.85] }),
+              transform: [{ scale: glow.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1.15] }) }],
+            },
+          ]}
+        />
+        <View style={bringStyles.headerRow}>
+          <View style={bringStyles.headerIconRing}>
+            <Ionicons name="checkmark-done-circle" size={20} color={COLORS.white} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={bringStyles.headerTitle}>Please remember to bring</Text>
+            <Text style={bringStyles.headerSub}>A quick checklist for a smooth visit</Text>
+          </View>
+        </View>
+
+        <View style={bringStyles.itemsWrap}>
+          {BRING_ITEMS.map((item, i) => (
+            <BringItemRow key={item.id} item={item} index={i} />
+          ))}
+        </View>
+      </View>
+    </FadeInUp>
+  );
+}
+
+/** Row shown in place of the old always-expanded center list. Tapping it
+ *  opens the CenterSelectModal so the picker feels like a deliberate,
+ *  focused choice rather than a long scroll of cards. */
+function CenterPickerRow({ center, loading, error, onPress, accentIndex = 0 }) {
+  const accent = CENTER_ACCENTS[accentIndex % CENTER_ACCENTS.length];
+  return (
+    <AnimatedPressable style={centerModalStyles.pickerRow} onPress={onPress} scaleTo={0.98} disabled={loading}>
+      <View style={[centerModalStyles.pickerIconRing, { backgroundColor: accent.bg }]}>
+        <Ionicons name="business" size={20} color={accent.color} />
+      </View>
+      <View style={{ flex: 1 }}>
+        {loading ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <ActivityIndicator size="small" color={COLORS.navy} />
+            <Text style={centerModalStyles.pickerLoadingText}>Finding nearby centers…</Text>
+          </View>
+        ) : center ? (
+          <>
+            <Text style={centerModalStyles.pickerName} numberOfLines={1}>{center.name}</Text>
+            <Text style={centerModalStyles.pickerMeta} numberOfLines={1}>{center.address}</Text>
+          </>
+        ) : (
+          <Text style={centerModalStyles.pickerPlaceholder}>Tap to choose a lab center</Text>
+        )}
+        {error ? <Text style={centerModalStyles.pickerError}>Showing default centers</Text> : null}
+      </View>
+      <View style={centerModalStyles.pickerChangeBtn}>
+        <Text style={centerModalStyles.pickerChangeText}>{center ? 'Change' : 'Select'}</Text>
+        <Ionicons name="chevron-forward" size={14} color={COLORS.navy} />
+      </View>
+    </AnimatedPressable>
+  );
+}
+
+/** Full-screen-ish sliding modal that lists every available lab center. */
+function CenterSelectModal({ visible, centers, selectedId, onSelect, onClose, onRetry, error }) {
+  const slide = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(slide, {
+      toValue: visible ? 1 : 0,
+      duration: 320,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [visible]);
+
+  const translateY = slide.interpolate({ inputRange: [0, 1], outputRange: [SCREEN_H, 0] });
+
+  return (
+    <Modal visible={visible} transparent animationType="none" onRequestClose={onClose}>
+      <Pressable style={centerModalStyles.backdrop} onPress={onClose} />
+      <Animated.View style={[centerModalStyles.sheet, { transform: [{ translateY }] }]}>
+        <View style={centerModalStyles.sheetHandle} />
+        <View style={centerModalStyles.sheetHeader}>
+          <Text style={centerModalStyles.sheetTitle}>Choose a lab center</Text>
+          <TouchableOpacity onPress={onClose} style={centerModalStyles.sheetCloseBtn}>
+            <Ionicons name="close" size={18} color={COLORS.navyDark} />
+          </TouchableOpacity>
+        </View>
+
+        {error ? (
+          <View style={centerModalStyles.errorBanner}>
+            <Ionicons name="alert-circle" size={14} color={COLORS.error} />
+            <Text style={centerModalStyles.errorBannerText}>Couldn't load live centers — showing defaults.</Text>
+            <TouchableOpacity onPress={onRetry}>
+              <Text style={centerModalStyles.errorRetry}>Retry</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
+
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 24 }}>
+          {centers.map((c, i) => {
+            const isSelected = selectedId === c.id;
+            const accent = CENTER_ACCENTS[i % CENTER_ACCENTS.length];
+            return (
+              <FadeInUp key={c.id} delay={i * 40} distance={8}>
+                <AnimatedPressable
+                  style={[centerModalStyles.centerCard, isSelected && centerModalStyles.centerCardSelected]}
+                  onPress={() => onSelect(c.id)}
+                  scaleTo={0.98}
+                >
+                  <View style={[centerModalStyles.centerIconRing, { backgroundColor: accent.bg }]}>
+                    <Ionicons name={c.icon || 'business'} size={20} color={accent.color} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[centerModalStyles.centerName, isSelected && { color: COLORS.navy }]} numberOfLines={1}>
+                      {c.name}
+                    </Text>
+                    <Text style={centerModalStyles.centerMeta} numberOfLines={1}>{c.address}</Text>
+                    {typeof c.distanceMiles === 'number' && (
+                      <Text style={centerModalStyles.centerMeta}>{c.distanceMiles} mi away</Text>
+                    )}
+                  </View>
+                  <View style={[centerModalStyles.radioBtn, isSelected && centerModalStyles.radioBtnSelected]}>
+                    {isSelected && <Ionicons name="checkmark" size={14} color={COLORS.white} />}
+                  </View>
+                </AnimatedPressable>
+              </FadeInUp>
+            );
+          })}
+        </ScrollView>
+      </Animated.View>
+    </Modal>
+  );
+}
+
+/** Beautiful animated "booking confirmed" overlay — replaces the plain
+ *  text-only Alert. A ring draws itself in, the checkmark pops with a
+ *  spring, and a few soft confetti dots drift and fade. */
+function SuccessModal({ visible, centerName, dateLabel, timeLabel, amount, onDone }) {
+  const ringProgress = useRef(new Animated.Value(0)).current;
+  const checkScale = useRef(new Animated.Value(0)).current;
+  const cardIn = useRef(new Animated.Value(0)).current;
+  const confetti = useRef(BRING_ITEMS.map(() => new Animated.Value(0))).current;
+
+  useEffect(() => {
+    if (!visible) return;
+    ringProgress.setValue(0);
+    checkScale.setValue(0);
+    cardIn.setValue(0);
+    confetti.forEach((v) => v.setValue(0));
+
+    Animated.sequence([
+      Animated.timing(cardIn, { toValue: 1, duration: 320, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+      Animated.timing(ringProgress, { toValue: 1, duration: 480, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+      Animated.spring(checkScale, { toValue: 1, useNativeDriver: true, speed: 16, bounciness: 16 }),
+    ]).start();
+
+    Animated.stagger(
+      90,
+      confetti.map((v) =>
+        Animated.timing(v, { toValue: 1, duration: 900, easing: Easing.out(Easing.quad), useNativeDriver: true })
+      )
+    ).start();
+  }, [visible]);
+
+  if (!visible) return null;
+
+  const confettiColors = [COLORS.teal, COLORS.purple, COLORS.pink, COLORS.amber];
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onDone}>
+      <View style={successStyles.backdrop}>
+        <Animated.View
+          style={[
+            successStyles.card,
+            {
+              opacity: cardIn,
+              transform: [
+                { scale: cardIn.interpolate({ inputRange: [0, 1], outputRange: [0.85, 1] }) },
+                { translateY: cardIn.interpolate({ inputRange: [0, 1], outputRange: [24, 0] }) },
+              ],
+            },
+          ]}
+        >
+          <View style={successStyles.ringWrap}>
+            {confetti.map((v, i) => {
+              const angle = (i / confetti.length) * Math.PI * 2;
+              const dist = 58;
+              return (
+                <Animated.View
+                  key={i}
+                  style={[
+                    successStyles.confettiDot,
+                    {
+                      backgroundColor: confettiColors[i % confettiColors.length],
+                      opacity: v.interpolate({ inputRange: [0, 0.7, 1], outputRange: [1, 1, 0] }),
+                      transform: [
+                        { translateX: v.interpolate({ inputRange: [0, 1], outputRange: [0, Math.cos(angle) * dist] }) },
+                        { translateY: v.interpolate({ inputRange: [0, 1], outputRange: [0, Math.sin(angle) * dist] }) },
+                        { scale: v.interpolate({ inputRange: [0, 0.3, 1], outputRange: [0, 1, 0.4] }) },
+                      ],
+                    },
+                  ]}
+                />
+              );
+            })}
+            <Animated.View
+              style={[
+                successStyles.ring,
+                {
+                  transform: [{ scale: ringProgress.interpolate({ inputRange: [0, 1], outputRange: [0.6, 1] }) }],
+                  opacity: ringProgress,
+                },
+              ]}
+            >
+              <Animated.View style={{ transform: [{ scale: checkScale }] }}>
+                <Ionicons name="checkmark" size={44} color={COLORS.white} />
+              </Animated.View>
+            </Animated.View>
+          </View>
+
+          <Text style={successStyles.title}>Appointment booked!</Text>
+          <Text style={successStyles.subtitle}>
+            Your visit to {centerName} is confirmed for {dateLabel} at {timeLabel}.
+          </Text>
+
+          {amount ? (
+            <View style={successStyles.payPill}>
+              <Ionicons name="cash-outline" size={14} color={COLORS.amberText} />
+              <Text style={successStyles.payPillText}>Please pay ${amount} at the center</Text>
+            </View>
+          ) : null}
+
+          <AnimatedPressable style={successStyles.doneBtn} onPress={onDone} scaleTo={0.97}>
+            <Text style={successStyles.doneBtnText}>Great, thanks!</Text>
+          </AnimatedPressable>
+        </Animated.View>
+      </View>
+    </Modal>
+  );
+}
+
 export default function InPersonTestsScreen({ navigation, route }) {
   const [selectedTestsData, setSelectedTestsData] = useState([]);
-  const [selectedCenter, setSelectedCenter] = useState('1');
+  const [selectedCenter, setSelectedCenter] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [patientUser, setPatientUser] = useState(null);
-  const isGuest = route?.params?.isGuest === true;
+
+  // ── Guest info (captured after a trip through GuestInfoScreen) ──
+  // Booking with no account should work end-to-end: this screen no longer
+  // gates on the `isGuest` route param (which isn't always set correctly by
+  // the caller) — it gates on whether we actually have a logged-in patient.
+  // If not, we send the user to GuestInfo, then remember what they typed
+  // here so "Book appointment" / "Pay in app" can use it without asking
+  // again or looping back to GuestInfo a second time.
+  const [guestInfo, setGuestInfo] = useState(null);
+
+  // ── Centers / labs from backend ──
+  const [centers, setCenters] = useState([]);
+  const [centersLoading, setCentersLoading] = useState(true);
+  const [centersError, setCentersError] = useState(false);
+  const [centerModalVisible, setCenterModalVisible] = useState(false);
+
+  // ── Success overlay state ──
+  const [successVisible, setSuccessVisible] = useState(false);
+  const [successPayload, setSuccessPayload] = useState(null);
+
+  const fetchCenters = async () => {
+    setCentersLoading(true);
+    setCentersError(false);
+    try {
+      const res = await fetch(CATALOG_ENDPOINTS.labs, { method: 'GET' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Failed to load centers');
+
+      const list = Array.isArray(data) ? data : (Array.isArray(data?.labs) ? data.labs : []);
+      const normalized = list.map(normalizeLab).slice(0, 7); // show up to 7 centers
+      const finalList = normalized.length ? normalized : FALLBACK_CENTERS;
+      setCenters(finalList);
+      setSelectedCenter((prev) => prev || finalList[0]?.id);
+    } catch (err) {
+      setCentersError(true);
+      setCenters(FALLBACK_CENTERS);
+      setSelectedCenter((prev) => prev || FALLBACK_CENTERS[0]?.id);
+    } finally {
+      setCentersLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchCenters();
+  }, []);
 
   // ── Date / time state ──
   const dates = generateDates();
@@ -305,6 +760,19 @@ export default function InPersonTestsScreen({ navigation, route }) {
     }
   }, [route?.params?.selectedTestsData]);
 
+  // Pick up guest details returned from GuestInfoScreen (fullName/phone/email)
+  // and immediately open the payment-option prompt — the user just finished
+  // filling in their details, so there's no reason to make them tap
+  // "Book appointment" a second time.
+  useEffect(() => {
+    const { fullName, phone, email } = route?.params || {};
+    if (fullName || phone || email) {
+      const info = { fullName: fullName || '', phone: phone || '', email: email || '' };
+      setGuestInfo(info);
+      promptPaymentOptions(info);
+    }
+  }, [route?.params?.fullName, route?.params?.phone, route?.params?.email]);
+
   useEffect(() => {
     const unsub = navigation.addListener('focus', () => {
       getStoredPatientUser().then(setPatientUser);
@@ -317,7 +785,8 @@ export default function InPersonTestsScreen({ navigation, route }) {
     0
   );
   const selectedTestIds = selectedTestsData.map((t) => t.id);
-  const center = CENTERS.find((c) => c.id === selectedCenter);
+  const center = centers.find((c) => c.id === selectedCenter);
+  const centerIndex = centers.findIndex((c) => c.id === selectedCenter);
 
   const formattedTime = `${selectedHour}:${selectedMinute} ${selectedPeriod}`;
   const formattedDateLabel = `${selectedDate.month} ${selectedDate.day} (${selectedDate.weekday})`;
@@ -367,17 +836,17 @@ export default function InPersonTestsScreen({ navigation, route }) {
     });
   };
 
-  const handleBookAppointment = () => {
+  // Accepts an optional guest object so it can be called right after
+  // GuestInfoScreen returns — reading `guestInfo` state at that exact
+  // moment would still show the old (empty) value since setState is async.
+  const promptPaymentOptions = (guestOverride) => {
     if (selectedTestsData.length === 0) {
       Alert.alert('No tests selected', 'Please select at least one test before booking.');
       return;
     }
 
-    if (isGuest && !patientUser) {
-      navigation.navigate('GuestInfo', {
-        returnTo: 'InPersonTests',
-        isGuest: true,
-      });
+    if (!selectedCenter) {
+      setCenterModalVisible(true);
       return;
     }
 
@@ -386,13 +855,41 @@ export default function InPersonTestsScreen({ navigation, route }) {
       `Total: $${testsTotal.toFixed(0)}`,
       [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Pay at center', onPress: () => confirmBooking('pay_at_center') },
-        { text: 'Pay in app', onPress: payInApp },
+        { text: 'Pay at center', onPress: () => confirmBooking('pay_at_center', guestOverride) },
+        { text: 'Pay in app', onPress: () => payInApp(guestOverride) },
       ]
     );
   };
 
-  const payInApp = () => {
+  const handleBookAppointment = () => {
+    if (selectedTestsData.length === 0) {
+      Alert.alert('No tests selected', 'Please select at least one test before booking.');
+      return;
+    }
+
+    if (!selectedCenter) {
+      setCenterModalVisible(true);
+      return;
+    }
+
+    // No logged-in patient and we haven't collected guest details yet —
+    // go get them first. Once GuestInfoScreen sends the user back here with
+    // fullName/phone/email params, the effect above stores them in
+    // `guestInfo` AND opens the payment prompt automatically, so this
+    // check won't fire again.
+    if (!patientUser && !guestInfo) {
+      navigation.navigate('GuestInfo', {
+        returnTo: 'InPersonTests',
+        isGuest: true,
+      });
+      return;
+    }
+
+    promptPaymentOptions(guestInfo);
+  };
+
+  const payInApp = (guestOverride) => {
+    const info = guestOverride || guestInfo;
     navigation.navigate('Checkout', {
       mobileVisitTotal: 0, // no visit fee for in-person
       labTestsTotal: testsTotal,
@@ -401,32 +898,42 @@ export default function InPersonTestsScreen({ navigation, route }) {
       visitType: 'in_person',
       preferredDate: selectedDate.isoDate,
       preferredTime: formattedTime,
+      labId: center?.id || '',
+      labName: center?.name || '',
+      fullName: info?.fullName || patientUser?.name || '',
+      email: info?.email || patientUser?.email || '',
+      phone: info?.phone || patientUser?.phone || '',
+      isGuest: !patientUser,
     });
   };
 
-  const confirmBooking = async (paymentMethod) => {
+  const confirmBooking = async (paymentMethod, guestOverride) => {
+    const info = guestOverride || guestInfo;
     setSubmitting(true);
     try {
-      const result = await bookAppointment({
+      await bookAppointment({
         test_name: selectedTestsData.map((t) => t.name).join(', '),
         test_price: testsTotal,
-        full_name: patientUser?.name || '',
-        email: patientUser?.email || '',
-        phone: patientUser?.phone || '',
+        full_name: info?.fullName || patientUser?.name || '',
+        email: info?.email || patientUser?.email || '',
+        phone: info?.phone || patientUser?.phone || '',
         address: center?.address || '',
         visit_type: 'in_person',
         preferred_date: selectedDate.isoDate,
         preferred_time: formattedTime,
         payment_method: paymentMethod === 'pay_at_center' ? 'Pay at Center' : 'Card',
+        labId: center?.id || '',
+        labName: center?.name || '',
+        labAddress: center?.address || '',
       });
 
-      Alert.alert(
-        '✅ Appointment booked!',
-        paymentMethod === 'pay_at_center'
-          ? `Your visit to ${center?.name} on ${formattedDateLabel} at ${formattedTime} is confirmed. Please pay $${testsTotal.toFixed(0)} at the center.`
-          : 'Your appointment is confirmed.',
-        [{ text: 'OK', onPress: () => navigation.navigate('PatientHome') }]
-      );
+      setSuccessPayload({
+        centerName: center?.name || 'the center',
+        dateLabel: formattedDateLabel,
+        timeLabel: formattedTime,
+        amount: paymentMethod === 'pay_at_center' ? testsTotal.toFixed(0) : null,
+      });
+      setSuccessVisible(true);
     } catch (err) {
       Alert.alert('Booking failed', err.message || 'Something went wrong. Please try again.');
     } finally {
@@ -434,11 +941,20 @@ export default function InPersonTestsScreen({ navigation, route }) {
     }
   };
 
+  const handleSuccessDone = () => {
+    setSuccessVisible(false);
+    if (!patientUser && guestInfo) {
+      navigation.navigate('CreateAccountPrompt');
+    } else {
+      navigation.navigate('PatientHome');
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="dark-content" backgroundColor={COLORS.white} />
 
-      {/* Header */}
+      {/* Header (accent stripe removed) */}
       <View style={styles.header}>
         <AnimatedPressable style={styles.backBtn} onPress={() => navigation.goBack()} scaleTo={0.85}>
           <Ionicons name="arrow-back" size={20} color={COLORS.navyDark} />
@@ -469,11 +985,12 @@ export default function InPersonTestsScreen({ navigation, route }) {
         ) : (
           selectedTestsData.map((test, i) => {
             const hasDiscount = test.discountPrice != null && test.discountPrice < test.price;
+            const accent = CENTER_ACCENTS[i % CENTER_ACCENTS.length];
             return (
               <FadeInUp key={test.id} delay={40 + i * 40} distance={10}>
                 <View style={styles.testCard}>
-                  <View style={styles.testIconRing}>
-                    <Ionicons name="flask" size={18} color={COLORS.navy} />
+                  <View style={[styles.testIconRing, { backgroundColor: accent.bg }]}>
+                    <Ionicons name="flask" size={18} color={accent.color} />
                   </View>
                   <View style={styles.testInfo}>
                     <Text style={styles.testName}>{test.name}</Text>
@@ -524,37 +1041,23 @@ export default function InPersonTestsScreen({ navigation, route }) {
           </View>
         </FadeInUp>
 
-        {/* Select Center */}
+        {/* What to bring — animated, professional checklist */}
+        <BringChecklistCard delay={160} />
+
+        {/* Select Center — now a single tappable row that opens a picker
+            sheet listing every center, instead of a long inline list. */}
         <FadeInUp delay={180}>
           <Text style={styles.sectionLabel}>Select center</Text>
         </FadeInUp>
-
-        {CENTERS.map((c, i) => {
-          const isSelected = selectedCenter === c.id;
-          return (
-            <FadeInUp key={c.id} delay={200 + i * 40}>
-              <AnimatedPressable
-                style={[styles.centerCard, isSelected && styles.centerCardSelected]}
-                onPress={() => setSelectedCenter(c.id)}
-                scaleTo={0.98}
-              >
-                <View style={[styles.centerIconRing, isSelected && styles.centerIconRingSelected]}>
-                  <Ionicons name={c.icon} size={20} color={isSelected ? COLORS.navy : COLORS.gray} />
-                </View>
-                <View style={styles.centerInfo}>
-                  <Text style={[styles.centerName, isSelected && styles.centerNameSelected]}>
-                    {c.name}
-                  </Text>
-                  <Text style={styles.centerMeta}>{c.address}</Text>
-                  <Text style={styles.centerMeta}>{c.hours}</Text>
-                </View>
-                <View style={[styles.radioBtn, isSelected && styles.radioBtnSelected]}>
-                  {isSelected && <Ionicons name="checkmark" size={14} color={COLORS.white} />}
-                </View>
-              </AnimatedPressable>
-            </FadeInUp>
-          );
-        })}
+        <FadeInUp delay={200}>
+          <CenterPickerRow
+            center={center}
+            loading={centersLoading}
+            error={centersError}
+            accentIndex={centerIndex >= 0 ? centerIndex : 0}
+            onPress={() => setCenterModalVisible(true)}
+          />
+        </FadeInUp>
 
         {/* Select Date */}
         <FadeInUp delay={260}>
@@ -638,6 +1141,28 @@ export default function InPersonTestsScreen({ navigation, route }) {
           )}
         </AnimatedPressable>
       </View>
+
+      <CenterSelectModal
+        visible={centerModalVisible}
+        centers={centers}
+        selectedId={selectedCenter}
+        error={centersError}
+        onRetry={fetchCenters}
+        onSelect={(id) => {
+          setSelectedCenter(id);
+          setCenterModalVisible(false);
+        }}
+        onClose={() => setCenterModalVisible(false)}
+      />
+
+      <SuccessModal
+        visible={successVisible}
+        centerName={successPayload?.centerName}
+        dateLabel={successPayload?.dateLabel}
+        timeLabel={successPayload?.timeLabel}
+        amount={successPayload?.amount}
+        onDone={handleSuccessDone}
+      />
     </SafeAreaView>
   );
 }
@@ -713,7 +1238,7 @@ const styles = StyleSheet.create({
   },
   testIconRing: {
     width: 38, height: 38, borderRadius: 12,
-    backgroundColor: '#EAF0FB', alignItems: 'center', justifyContent: 'center',
+    alignItems: 'center', justifyContent: 'center',
   },
   testInfo: { flex: 1 },
   testName: { fontSize: 14, fontWeight: '700', color: COLORS.navyDark, marginBottom: 2 },
@@ -755,38 +1280,6 @@ const styles = StyleSheet.create({
   noFeeText: { flex: 1 },
   noFeeTitle: { fontSize: 14, fontWeight: '800', color: COLORS.amberText, marginBottom: 4 },
   noFeeDesc: { fontSize: 13, color: COLORS.amberText, lineHeight: 19 },
-
-  centerCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: COLORS.white,
-    borderRadius: 16,
-    padding: 14,
-    marginBottom: 10,
-    borderWidth: 1.5,
-    borderColor: COLORS.border,
-    gap: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
-    elevation: 1,
-  },
-  centerCardSelected: { borderColor: COLORS.navy, backgroundColor: '#F0F4FF' },
-  centerIconRing: {
-    width: 44, height: 44, borderRadius: 14,
-    backgroundColor: COLORS.offWhite, alignItems: 'center', justifyContent: 'center',
-  },
-  centerIconRingSelected: { backgroundColor: '#E0E9FA' },
-  centerInfo: { flex: 1 },
-  centerName: { fontSize: 14, fontWeight: '700', color: COLORS.navyDark, marginBottom: 3 },
-  centerNameSelected: { color: COLORS.navy },
-  centerMeta: { fontSize: 12, color: COLORS.gray },
-  radioBtn: {
-    width: 24, height: 24, borderRadius: 12, borderWidth: 2,
-    borderColor: COLORS.border, alignItems: 'center', justifyContent: 'center',
-  },
-  radioBtnSelected: { backgroundColor: COLORS.navy, borderColor: COLORS.navy },
 
   scheduleSummary: {
     flexDirection: 'row',
@@ -881,6 +1374,9 @@ const pickerStyles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  chipSelected: { backgroundColor: COLORS.navy, borderColor: COLORS.navy },
+  chipUnselected: { backgroundColor: COLORS.white, borderColor: COLORS.border },
+  chipDisabled: { backgroundColor: COLORS.offWhite, borderColor: COLORS.lightGray },
   chipText: { fontSize: 15, color: COLORS.bodyText, fontWeight: '700' },
   chipTextSelected: { color: COLORS.white },
   chipTextDisabled: { color: COLORS.lightGray, textDecorationLine: 'line-through' },
@@ -900,4 +1396,249 @@ const pickerStyles = StyleSheet.create({
   periodBtnDisabled: { backgroundColor: COLORS.offWhite, borderColor: COLORS.lightGray },
   periodText: { fontSize: 15, fontWeight: '800', color: COLORS.bodyText },
   periodTextSelected: { color: COLORS.white },
+});
+
+const bringStyles = StyleSheet.create({
+  card: {
+    backgroundColor: COLORS.navyDark,
+    borderRadius: 20,
+    padding: 18,
+    marginBottom: 24,
+    overflow: 'hidden',
+    shadowColor: COLORS.navy,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.25,
+    shadowRadius: 16,
+    elevation: 6,
+  },
+  glowDot: {
+    position: 'absolute',
+    top: -30,
+    right: -30,
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: COLORS.navy,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 16,
+  },
+  headerIconRing: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerTitle: { fontSize: 15.5, fontWeight: '800', color: COLORS.white },
+  headerSub: { fontSize: 12, color: 'rgba(255,255,255,0.7)', marginTop: 2 },
+  itemsWrap: {
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 14,
+    padding: 12,
+    gap: 4,
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    paddingVertical: 8,
+  },
+  iconRing: {
+    width: 36,
+    height: 36,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  itemTitle: { fontSize: 13.5, fontWeight: '800', color: COLORS.white, marginBottom: 2 },
+  itemDesc: { fontSize: 12, color: 'rgba(255,255,255,0.72)', lineHeight: 17 },
+});
+
+const centerModalStyles = StyleSheet.create({
+  pickerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.white,
+    borderRadius: 16,
+    padding: 14,
+    borderWidth: 1.5,
+    borderColor: COLORS.border,
+    gap: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 1,
+    marginBottom: 8,
+  },
+  pickerIconRing: {
+    width: 44, height: 44, borderRadius: 14,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  pickerName: { fontSize: 14, fontWeight: '700', color: COLORS.navyDark, marginBottom: 3 },
+  pickerMeta: { fontSize: 12, color: COLORS.gray },
+  pickerPlaceholder: { fontSize: 13.5, color: COLORS.gray, fontWeight: '600' },
+  pickerLoadingText: { fontSize: 13, color: COLORS.gray, fontWeight: '600' },
+  pickerError: { fontSize: 11, color: COLORS.error, fontWeight: '600', marginTop: 2 },
+  pickerChangeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    backgroundColor: '#F0F4FF',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  pickerChangeText: { fontSize: 12.5, fontWeight: '800', color: COLORS.navy },
+
+  backdrop: { flex: 1, backgroundColor: 'rgba(13,31,60,0.5)' },
+  sheet: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    maxHeight: SCREEN_H * 0.82,
+    backgroundColor: COLORS.white,
+    borderTopLeftRadius: 26,
+    borderTopRightRadius: 26,
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    paddingBottom: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 16,
+    elevation: 12,
+  },
+  sheetHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: COLORS.lightGray,
+    alignSelf: 'center',
+    marginBottom: 14,
+  },
+  sheetHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+  },
+  sheetTitle: { fontSize: 17, fontWeight: '900', color: COLORS.navyDark },
+  sheetCloseBtn: {
+    width: 30, height: 30, borderRadius: 15,
+    backgroundColor: COLORS.offWhite, alignItems: 'center', justifyContent: 'center',
+  },
+  errorBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#FEF2F2',
+    borderRadius: 12,
+    padding: 10,
+    marginBottom: 12,
+  },
+  errorBannerText: { flex: 1, fontSize: 12, color: COLORS.error, fontWeight: '600' },
+  errorRetry: { fontSize: 12, color: COLORS.error, fontWeight: '900', textDecorationLine: 'underline' },
+
+  centerCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.white,
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 10,
+    borderWidth: 1.5,
+    borderColor: COLORS.border,
+    gap: 12,
+  },
+  centerCardSelected: { borderColor: COLORS.navy, backgroundColor: '#F0F4FF' },
+  centerIconRing: {
+    width: 44, height: 44, borderRadius: 14,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  centerName: { fontSize: 14, fontWeight: '700', color: COLORS.navyDark, marginBottom: 3 },
+  centerMeta: { fontSize: 12, color: COLORS.gray },
+  radioBtn: {
+    width: 24, height: 24, borderRadius: 12, borderWidth: 2,
+    borderColor: COLORS.border, alignItems: 'center', justifyContent: 'center',
+  },
+  radioBtnSelected: { backgroundColor: COLORS.navy, borderColor: COLORS.navy },
+});
+
+const successStyles = StyleSheet.create({
+  backdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(13,31,60,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 28,
+  },
+  card: {
+    width: '100%',
+    backgroundColor: COLORS.white,
+    borderRadius: 28,
+    paddingTop: 28,
+    paddingBottom: 22,
+    paddingHorizontal: 22,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.25,
+    shadowRadius: 24,
+    elevation: 16,
+  },
+  ringWrap: {
+    width: 96,
+    height: 96,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 18,
+  },
+  ring: {
+    width: 84,
+    height: 84,
+    borderRadius: 42,
+    backgroundColor: COLORS.green,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: COLORS.green,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.4,
+    shadowRadius: 14,
+    elevation: 8,
+  },
+  confettiDot: {
+    position: 'absolute',
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    top: 44,
+    left: 44,
+  },
+  title: { fontSize: 19, fontWeight: '900', color: COLORS.navyDark, marginBottom: 8, textAlign: 'center' },
+  subtitle: { fontSize: 13.5, color: COLORS.bodyText, textAlign: 'center', lineHeight: 20, marginBottom: 14 },
+  payPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: COLORS.amberLight,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  payPillText: { fontSize: 12.5, fontWeight: '800', color: COLORS.amberText },
+  doneBtn: {
+    width: '100%',
+    backgroundColor: COLORS.navy,
+    borderRadius: 14,
+    paddingVertical: 15,
+    alignItems: 'center',
+  },
+  doneBtnText: { color: COLORS.white, fontSize: 15, fontWeight: '800' },
 });

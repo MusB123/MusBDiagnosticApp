@@ -28,8 +28,8 @@ const COLORS = {
   unreadDot: '#3B6FE0',
 };
 
-const FILTERS = ['All', 'Appointments', 'Documents'];
-const filterMap = { All: null, Appointments: 'appointment', Documents: 'document' };
+const FILTERS = ['All', 'Appointments'];
+const filterMap = { All: null, Appointments: 'appointment' };
 
 // ── Derive notifications from dashboard payload ────────────────────────────
 function deriveNotifications(dashboard) {
@@ -113,23 +113,6 @@ function deriveNotifications(dashboard) {
       time: appt.created_at ? _relativeTime(appt.created_at) : 'Recently',
       read: true, // past = already seen
       raw: appt,
-    });
-  });
-
-  // Documents
-  (dashboard.documents ?? []).forEach((doc) => {
-    notifs.push({
-      id: `doc-${doc.id ?? doc._id}`,
-      type: 'document',
-      title: 'Document Available',
-      message: `${doc.name ?? 'A clinical document'} (${doc.type ?? 'Document'}) is available on ${doc.date ?? ''}.`,
-      icon: '📄',
-      iconBg: COLORS.blueLight,
-      action: 'View Document',
-      date: doc.date || 'Recent',
-      time: doc.date || 'Recently',
-      read: true,
-      raw: doc,
     });
   });
 

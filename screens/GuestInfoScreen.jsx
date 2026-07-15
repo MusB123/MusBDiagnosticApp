@@ -7,13 +7,12 @@ import {
   StyleSheet,
   ActivityIndicator,
   StatusBar,
-  ScrollView,
   Animated,
   Easing,
-  KeyboardAvoidingView,
   Platform,
   Alert,
 } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -132,7 +131,19 @@ export default function GuestInfoScreen() {
   const navigation = useNavigation();
   const route = useRoute();
 
-  const [fullName, setFullName] = useState(route?.params?.fullName || '');
+  // Full name is now captured as three separate required fields (First,
+  // Middle, Last) and recombined into a single `fullName` string when
+  // submitting / navigating onward, so every other screen that expects
+  // `fullName` (CheckoutScreen, InPersonTestsScreen, bookAppointment, etc.)
+  // keeps working unchanged.
+  const initialNameParts = (route?.params?.fullName || '').split(' ').filter(Boolean);
+  const [firstName, setFirstName] = useState(route?.params?.firstName || initialNameParts[0] || '');
+  const [middleName, setMiddleName] = useState(
+    route?.params?.middleName || (initialNameParts.length > 2 ? initialNameParts.slice(1, -1).join(' ') : '')
+  );
+  const [lastName, setLastName] = useState(
+    route?.params?.lastName || (initialNameParts.length > 1 ? initialNameParts[initialNameParts.length - 1] : '')
+  );
   const [phone, setPhone] = useState(route?.params?.phone || '');
   const [email, setEmail] = useState(route?.params?.email || '');
   const [errors, setErrors] = useState({});
@@ -140,7 +151,9 @@ export default function GuestInfoScreen() {
 
   const validate = () => {
     const next = {};
-    if (!fullName.trim()) next.fullName = 'Please enter your full name';
+    if (!firstName.trim()) next.firstName = 'Please enter your first name';
+    if (!middleName.trim()) next.middleName = 'Please enter your middle name';
+    if (!lastName.trim()) next.lastName = 'Please enter your last name';
     if (!phone.trim()) next.phone = 'Please enter a phone number';
     else if (!isValidPhone(phone)) next.phone = 'Enter a valid phone number';
     if (!email.trim()) next.email = 'Please enter an email address';
@@ -151,10 +164,15 @@ export default function GuestInfoScreen() {
 
   const handleContinue = async () => {
     if (!validate()) return;
+
+    const combinedFullName = `${firstName.trim()} ${middleName.trim()} ${lastName.trim()}`
+      .replace(/\s+/g, ' ')
+      .trim();
+
     setSubmitting(true);
     try {
       await guestCheckout({
-        name: fullName.trim(),
+        name: combinedFullName,
         email: email.trim(),
         phone: phone.trim(),
       });
@@ -162,7 +180,10 @@ export default function GuestInfoScreen() {
       const { isGuest, returnTo, ...rest } = route?.params || {};
       navigation.navigate(returnTo || 'Checkout', {
         ...rest,
-        fullName: fullName.trim(),
+        fullName: combinedFullName,
+        firstName: firstName.trim(),
+        middleName: middleName.trim(),
+        lastName: lastName.trim(),
         phone: phone.trim(),
         email: email.trim(),
         isGuest: true,
@@ -186,70 +207,87 @@ export default function GuestInfoScreen() {
         <View style={{ width: 38 }} />
       </View>
 
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}
+      <KeyboardAwareScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        enableOnAndroid={true}
+        extraScrollHeight={30}
+        keyboardOpeningTime={0}
       >
-        <ScrollView
-          style={styles.scroll}
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-        >
-          <FadeInUp delay={0}>
-            <View style={styles.introIconRing}>
-              <Ionicons name="person-circle-outline" size={28} color={COLORS.navy} />
-            </View>
-            <Text style={styles.introTitle}>Just a few details</Text>
-            <Text style={styles.introSub}>
-              We need this to confirm your appointment and send updates — no account required.
-            </Text>
-          </FadeInUp>
-
-          <View style={{ marginTop: 24, gap: 16 }}>
-            <FormField
-              icon="person-outline"
-              label="Full name"
-              value={fullName}
-              onChangeText={setFullName}
-              placeholder="Jane Doe"
-              autoCapitalize="words"
-              error={errors.fullName}
-              delay={60}
-            />
-            <FormField
-              icon="call-outline"
-              label="Phone number"
-              value={phone}
-              onChangeText={setPhone}
-              placeholder="(555) 123-4567"
-              keyboardType="phone-pad"
-              error={errors.phone}
-              delay={100}
-            />
-            <FormField
-              icon="mail-outline"
-              label="Email address"
-              value={email}
-              onChangeText={setEmail}
-              placeholder="jane@example.com"
-              keyboardType="email-address"
-              error={errors.email}
-              delay={140}
-            />
+        <FadeInUp delay={0}>
+          <View style={styles.introIconRing}>
+            <Ionicons name="person-circle-outline" size={28} color={COLORS.navy} />
           </View>
+          <Text style={styles.introTitle}>Just a few details</Text>
+          <Text style={styles.introSub}>
+            We need this to confirm your appointment and send updates — no account required.
+          </Text>
+        </FadeInUp>
 
-          <FadeInUp delay={200}>
-            <View style={styles.guestNote}>
-              <Ionicons name="information-circle-outline" size={16} color={COLORS.gray} style={{ marginRight: 8 }} />
-              <Text style={styles.guestNoteText}>
-                Booking as a guest. You can create an account after your visit to track appointments and view reports.
-              </Text>
-            </View>
-          </FadeInUp>
-        </ScrollView>
-      </KeyboardAvoidingView>
+        <View style={{ marginTop: 24, gap: 16 }}>
+          <FormField
+            icon="person-outline"
+            label="First name"
+            value={firstName}
+            onChangeText={setFirstName}
+            placeholder="Jane"
+            autoCapitalize="words"
+            error={errors.firstName}
+            delay={60}
+          />
+          <FormField
+            icon="person-outline"
+            label="Middle name"
+            value={middleName}
+            onChangeText={setMiddleName}
+            placeholder="Marie"
+            autoCapitalize="words"
+            error={errors.middleName}
+            delay={90}
+          />
+          <FormField
+            icon="person-outline"
+            label="Last name"
+            value={lastName}
+            onChangeText={setLastName}
+            placeholder="Doe"
+            autoCapitalize="words"
+            error={errors.lastName}
+            delay={120}
+          />
+          <FormField
+            icon="call-outline"
+            label="Phone number"
+            value={phone}
+            onChangeText={setPhone}
+            placeholder="(555) 123-4567"
+            keyboardType="phone-pad"
+            error={errors.phone}
+            delay={150}
+          />
+          <FormField
+            icon="mail-outline"
+            label="Email address"
+            value={email}
+            onChangeText={setEmail}
+            placeholder="jane@example.com"
+            keyboardType="email-address"
+            error={errors.email}
+            delay={180}
+          />
+        </View>
+
+        <FadeInUp delay={220}>
+          <View style={styles.guestNote}>
+            <Ionicons name="information-circle-outline" size={16} color={COLORS.gray} style={{ marginRight: 8 }} />
+            <Text style={styles.guestNoteText}>
+              Booking as a guest. You can create an account after your visit to track appointments and view reports.
+            </Text>
+          </View>
+        </FadeInUp>
+      </KeyboardAwareScrollView>
 
       <View style={styles.footer}>
         <AnimatedPressable
@@ -290,7 +328,7 @@ const styles = StyleSheet.create({
   },
   headerTitle: { fontSize: 16, fontWeight: '800', color: COLORS.navyDark },
   scroll: { flex: 1 },
-  scrollContent: { padding: 20, paddingBottom: 20 },
+  scrollContent: { padding: 20, paddingBottom: 120 },
 
   introIconRing: {
     width: 52,
