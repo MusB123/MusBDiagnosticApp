@@ -117,9 +117,37 @@ export default function RegisterScreen({ navigation }) {
     handleChange('dob', formatted);
   };
 
+  // Formats a raw digit string into US-style (555) 123-4567 as the user types.
+  // Only applied when the selected country code is +1 (USA/Canada); other
+  // countries just get the raw digits since formats vary widely.
+  const formatUsPhoneNumber = (digits) => {
+    const d = digits.slice(0, 10);
+    if (d.length === 0) return '';
+    if (d.length < 4) return `(${d}`;
+    if (d.length < 7) return `(${d.slice(0, 3)}) ${d.slice(3)}`;
+    return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
+  };
+
   const handlePhoneChange = (value) => {
     const digits = value.replace(/\D/g, '');
-    handleChange('phone', digits);
+    if (countryCode.code === '+1') {
+      handleChange('phone', formatUsPhoneNumber(digits));
+    } else {
+      handleChange('phone', digits);
+    }
+  };
+
+  // When the user switches country code, re-format (or strip formatting from)
+  // whatever digits are currently in the phone field.
+  const handleSelectCountryCode = (item) => {
+    const digits = form.phone.replace(/\D/g, '');
+    setCountryCode(item);
+    if (item.code === '+1') {
+      handleChange('phone', formatUsPhoneNumber(digits));
+    } else {
+      handleChange('phone', digits);
+    }
+    setShowPicker(false);
   };
 
   useEffect(() => {
@@ -241,7 +269,8 @@ export default function RegisterScreen({ navigation }) {
       Alert.alert('Invalid date of birth', dobError);
       return;
     }
-    if (!form.phone.trim() || form.phone.length < 7) {
+    const phoneDigits = form.phone.replace(/\D/g, '');
+    if (!phoneDigits || phoneDigits.length < 7) {
       Alert.alert('Phone number required', 'Please enter a valid phone number to continue.');
       return;
     }
@@ -273,7 +302,7 @@ export default function RegisterScreen({ navigation }) {
       lastName: form.lastName,
       dob: form.dob,
       address: form.address,
-      phone: `${countryCode.code}${form.phone}`,
+      phone: `${countryCode.code}${phoneDigits}`,
       email: form.email,
       password: form.password,
     });
@@ -421,10 +450,10 @@ export default function RegisterScreen({ navigation }) {
                 style={styles.phoneInput}
                 value={form.phone}
                 onChangeText={handlePhoneChange}
-                placeholder="Enter phone number"
+                placeholder={countryCode.code === '+1' ? '(555) 123-4567' : 'Enter phone number'}
                 placeholderTextColor="#BBBDC4"
                 keyboardType="phone-pad"
-                maxLength={15}
+                maxLength={countryCode.code === '+1' ? 14 : 15}
               />
             </View>
 
@@ -536,10 +565,7 @@ export default function RegisterScreen({ navigation }) {
                     styles.modalItem,
                     item.code === countryCode.code && styles.modalItemActive,
                   ]}
-                  onPress={() => {
-                    setCountryCode(item);
-                    setShowPicker(false);
-                  }}
+                  onPress={() => handleSelectCountryCode(item)}
                 >
                   <Text style={styles.modalItemCountry}>{item.country}</Text>
                   <Text

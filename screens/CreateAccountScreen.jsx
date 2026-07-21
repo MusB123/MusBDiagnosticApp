@@ -79,6 +79,16 @@ function generateSessionToken() {
   });
 }
 
+// Formats digits into US-style (555) 123-4567 as the user types.
+// Only used when the selected country code is +1 (USA/Canada).
+function formatUsPhoneNumber(digits) {
+  const d = digits.slice(0, 10);
+  if (d.length === 0) return '';
+  if (d.length < 4) return `(${d}`;
+  if (d.length < 7) return `(${d.slice(0, 3)}) ${d.slice(3)}`;
+  return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
+}
+
 // Backend requires: min 10 chars, at least 1 uppercase, 1 lowercase, 1 number, 1 special char
 const PASSWORD_RULES = [
   { key: 'length', label: 'At least 10 characters', test: (v) => v.length >= 10 },
@@ -150,13 +160,15 @@ export default function CreateAccountScreen({ navigation }) {
 
   const handlePhone = (text) => {
     const clean = text.replace(/\D/g, '');
-    setForm({ ...form, phone: clean });
+    const formatted = countryCode.code === '+1' ? formatUsPhoneNumber(clean) : clean;
+    setForm({ ...form, phone: formatted });
     if (errors.phone) setErrors({ ...errors, phone: '' });
   };
 
   const handleEmergencyPhone = (text) => {
     const clean = text.replace(/\D/g, '');
-    setForm({ ...form, emergencyContactPhone: clean });
+    const formatted = emergencyCountryCode.code === '+1' ? formatUsPhoneNumber(clean) : clean;
+    setForm({ ...form, emergencyContactPhone: formatted });
     if (errors.emergencyContactPhone) setErrors({ ...errors, emergencyContactPhone: '' });
   };
 
@@ -243,6 +255,8 @@ export default function CreateAccountScreen({ navigation }) {
     const newErrors = {};
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     const dobClean = form.dob.replace(/\D/g, '');
+    const phoneDigits = form.phone.replace(/\D/g, '');
+    const emergencyPhoneDigits = form.emergencyContactPhone.replace(/\D/g, '');
 
     if (!form.firstName.trim()) newErrors.firstName = 'First name is required';
     if (!form.lastName.trim()) newErrors.lastName = 'Last name is required';
@@ -266,7 +280,7 @@ export default function CreateAccountScreen({ navigation }) {
       }
     }
 
-    if (!form.phone.trim() || form.phone.length < 7) newErrors.phone = 'Enter a valid phone number';
+    if (!phoneDigits || phoneDigits.length < 7) newErrors.phone = 'Enter a valid phone number';
     if (!form.email.trim()) {
       newErrors.email = 'Email is required';
     } else if (!emailRegex.test(form.email)) {
@@ -274,11 +288,11 @@ export default function CreateAccountScreen({ navigation }) {
     }
 
     if (!form.emergencyContactName.trim()) newErrors.emergencyContactName = 'Emergency contact name is required';
-    if (!form.emergencyContactPhone.trim() || form.emergencyContactPhone.length < 7) {
+    if (!emergencyPhoneDigits || emergencyPhoneDigits.length < 7) {
       newErrors.emergencyContactPhone = 'Enter a valid emergency contact number';
     } else if (
       emergencyCountryCode.code === countryCode.code &&
-      form.emergencyContactPhone === form.phone
+      emergencyPhoneDigits === phoneDigits
     ) {
       newErrors.emergencyContactPhone = 'Emergency contact number must be different from your own';
     }
@@ -297,19 +311,22 @@ export default function CreateAccountScreen({ navigation }) {
   const handleContinue = async () => {
     if (!validate()) return;
 
+    const phoneDigits = form.phone.replace(/\D/g, '');
+    const emergencyPhoneDigits = form.emergencyContactPhone.replace(/\D/g, '');
+
     setLoading(true);
     try {
-      await requestOtp(form.email.trim().toLowerCase(), `${countryCode.code}${form.phone}`);
+      await requestOtp(form.email.trim().toLowerCase(), `${countryCode.code}${phoneDigits}`);
       navigation.navigate('PatientVerifyOtp', {
         firstName: form.firstName,
         lastName: form.lastName,
         email: form.email.trim().toLowerCase(),
         password: form.password,
-        phone: `${countryCode.code}${form.phone}`,
+        phone: `${countryCode.code}${phoneDigits}`,
         dob: form.dob,
         address: form.address,
         emergencyContactName: form.emergencyContactName,
-        emergencyContactPhone: `${emergencyCountryCode.code}${form.emergencyContactPhone}`,
+        emergencyContactPhone: `${emergencyCountryCode.code}${emergencyPhoneDigits}`,
       });
     } catch (err) {
       const msg = err.message === 'NETWORK_ERROR'
@@ -422,10 +439,10 @@ export default function CreateAccountScreen({ navigation }) {
                 style={styles.phoneInput}
                 value={form.phone}
                 onChangeText={handlePhone}
-                placeholder="Enter phone number"
+                placeholder={countryCode.code === '+1' ? '(555) 123-4567' : 'Enter phone number'}
                 placeholderTextColor={COLORS.gray}
                 keyboardType="phone-pad"
-                maxLength={15}
+                maxLength={countryCode.code === '+1' ? 14 : 15}
               />
             </View>
             {errors.phone ? <Text style={styles.errorText}>⚠ {errors.phone}</Text> : null}
@@ -513,10 +530,10 @@ export default function CreateAccountScreen({ navigation }) {
                 style={styles.phoneInput}
                 value={form.emergencyContactPhone}
                 onChangeText={handleEmergencyPhone}
-                placeholder="Enter phone number"
+                placeholder={emergencyCountryCode.code === '+1' ? '(555) 123-4567' : 'Enter phone number'}
                 placeholderTextColor={COLORS.gray}
                 keyboardType="phone-pad"
-                maxLength={15}
+                maxLength={emergencyCountryCode.code === '+1' ? 14 : 15}
               />
             </View>
             {errors.emergencyContactPhone ? <Text style={styles.errorText}>⚠ {errors.emergencyContactPhone}</Text> : null}
@@ -622,6 +639,8 @@ export default function CreateAccountScreen({ navigation }) {
                   ]}
                   onPress={() => {
                     setCountryCode(item);
+                    const clean = form.phone.replace(/\D/g, '');
+                    setForm({ ...form, phone: item.code === '+1' ? formatUsPhoneNumber(clean) : clean });
                     setShowPicker(false);
                   }}
                 >
@@ -672,6 +691,8 @@ export default function CreateAccountScreen({ navigation }) {
                   ]}
                   onPress={() => {
                     setEmergencyCountryCode(item);
+                    const clean = form.emergencyContactPhone.replace(/\D/g, '');
+                    setForm({ ...form, emergencyContactPhone: item.code === '+1' ? formatUsPhoneNumber(clean) : clean });
                     setShowEmergencyPicker(false);
                   }}
                 >

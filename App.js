@@ -5,6 +5,7 @@ import { StripeProvider } from '@stripe/stripe-react-native';
 
 // Shared
 import SplashScreen from './screens/SplashScreen';
+import TermsScreen from './screens/TermsScreen';
 import LoginScreen from './screens/LoginScreen';
 import RoleSelectScreen from './screens/RoleSelectScreen';
 
@@ -14,6 +15,7 @@ import VerifyOtpScreen from './screens/VerifyOtpScreen';
 import HealthProfileScreen from './screens/HealthProfileScreen';
 import HomeScreen from './screens/HomeScreen';
 import BookMobileVisitScreen from './screens/BookMobileVisitScreen';
+import ScheduleVisitScreen from './screens/ScheduleVisitScreen';
 import SelectTestsScreen from './screens/SelectTestsScreen';
 import InPersonTestsScreen from './screens/InPersonTestsScreen';
 import CheckoutScreen from './screens/CheckoutScreen';
@@ -54,6 +56,7 @@ export default function App() {
         >
           {/* Shared */}
           <Stack.Screen name="Splash" component={SplashScreen} />
+          <Stack.Screen name="Terms" component={TermsScreen} />
           <Stack.Screen name="Login" component={LoginScreen} />
           <Stack.Screen name="RoleSelect" component={RoleSelectScreen} />
 
@@ -63,6 +66,7 @@ export default function App() {
           <Stack.Screen name="HealthProfile" component={HealthProfileScreen} />
           <Stack.Screen name="PatientHome" component={HomeScreen} />
           <Stack.Screen name="BookMobileVisit" component={BookMobileVisitScreen} />
+          <Stack.Screen name="ScheduleVisit" component={ScheduleVisitScreen} />
           <Stack.Screen name="SelectTests" component={SelectTestsScreen} />
           <Stack.Screen name="InPersonTests" component={InPersonTestsScreen} />
           <Stack.Screen name="Checkout" component={CheckoutScreen} />

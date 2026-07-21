@@ -199,6 +199,7 @@ export default function LoginScreen({ navigation }) {
   const emailBorder = useRef(new Animated.Value(0)).current;
   const passwordBorder = useRef(new Animated.Value(0)).current;
 
+
   const focusIn = (anim) => Animated.timing(anim, { toValue: 1, duration: 180, useNativeDriver: false }).start();
   const focusOut = (anim) => Animated.timing(anim, { toValue: 0, duration: 180, useNativeDriver: false }).start();
 
@@ -239,13 +240,20 @@ export default function LoginScreen({ navigation }) {
     }
   };
 
-  const [request, response, promptAsync] = Google.useAuthRequest({
-    webClientId: '591181560891-jm09fm75b83t82f2daqpiqocfoq2899a.apps.googleusercontent.com',
-    androidClientId: '357644965650-1bf0e03nnfld2qmv5o3cid47hufmd27i.apps.googleusercontent.com',
-    iosClientId: '591181560891-jm09fm75b83t82f2daqpiqocfoq2899a.apps.googleusercontent.com',
-    redirectUri: AuthSession.makeRedirectUri({ useProxy: true }),
-  });
+  useEffect(() => {
+    console.log('Redirect URI:', AuthSession.makeRedirectUri({
+      scheme: 'com.googleusercontent.apps.357644965650-a56dcup9k1q040bj1oji7ut8kng1h2k2',
+    }));
+  }, []);
 
+  const [request, response, promptAsync] = Google.useAuthRequest({
+    webClientId: '357644965650-00qvkpfitaeh7sikgii00o54fkatq29d.apps.googleusercontent.com',
+    androidClientId: '357644965650-a56dcup9k1q040bj1oji7ut8kng1h2k2.apps.googleusercontent.com',
+    iosClientId: '357644965650-00qvkpfitaeh7sikgii00o54fkatq29d.apps.googleusercontent.com',
+    redirectUri: AuthSession.makeRedirectUri({
+      scheme: 'com.googleusercontent.apps.357644965650-a56dcup9k1q040bj1oji7ut8kng1h2k2',
+    }),
+  });
   useEffect(() => {
     const handleGoogleResponse = async () => {
       if (response?.type !== 'success') return;

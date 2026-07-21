@@ -536,14 +536,19 @@ export async function fetchAvailableTests() {
   let response;
   try {
     response = await fetch(CATALOG_ENDPOINTS.tests, { method: 'GET' });
-  } catch {
+  } catch (e) {
+    console.log('TESTS FETCH NETWORK ERROR:', e.message);
     throw new Error('NETWORK_ERROR');
   }
 
+  const raw = await response.text();
+  console.log('TESTS RAW RESPONSE:', response.status, 'length:', raw.length, 'body:', raw.slice(0, 300));
+
   let data;
   try {
-    data = await response.json();
-  } catch {
+    data = JSON.parse(raw);
+  } catch (e) {
+    console.log('TESTS JSON PARSE FAILED:', e.message);
     throw new Error('BAD_RESPONSE');
   }
 
@@ -553,7 +558,8 @@ export async function fetchAvailableTests() {
   return Array.isArray(data) ? data : [];
 }
 
-export async function fetchPricing({ address, zipCode, bookingDate, bookingTime } = {}) {
+
+export async function fetchPricing({ address, zipCode, bookingDate, bookingTime, slotType, testTotal, slotIndex } = {}) {
   if (!address && !zipCode) {
     throw new Error('Address or zip code is required to calculate pricing.');
   }
@@ -568,10 +574,13 @@ export async function fetchPricing({ address, zipCode, bookingDate, bookingTime 
         zip_code: zipCode || '',
         booking_date: bookingDate || '',
         booking_time: bookingTime || '',
+        slot_type: slotType || 'flexible',
+        slot_index: slotIndex ?? null,
+        test_total: testTotal ?? 0,
         provider_type: 'INDEPENDENT_PHLEBOTOMIST',
       }),
     });
-  } catch {
+  } catch (e) {
     throw new Error('NETWORK_ERROR');
   }
 

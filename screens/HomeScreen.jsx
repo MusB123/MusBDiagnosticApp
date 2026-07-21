@@ -668,8 +668,18 @@ export default function HomeScreen({ navigation, route }) {
                         <Text style={styles.apptDay}>{appt.day}</Text>
                       </View>
                       <View style={styles.apptInfo}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                          <Text style={styles.apptTest}>{appt.test}</Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 6 }}>
+                          <View style={{ flex: 1 }}>
+                            {appt.test
+                              ?.split(',')
+                              .map((t) => t.trim())
+                              .filter(Boolean)
+                              .map((t, i) => (
+                                <Text key={i} style={styles.apptTest}>
+                                  {t}
+                                </Text>
+                              ))}
+                            </View>
                           {isLive && <PulseDot color={statusColor} />}
                         </View>
                         <Text style={styles.apptMeta}>

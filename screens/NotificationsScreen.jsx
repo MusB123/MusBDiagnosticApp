@@ -31,6 +31,14 @@ const COLORS = {
 const FILTERS = ['All', 'Appointments'];
 const filterMap = { All: null, Appointments: 'appointment' };
 
+function formatTestNames(raw) {
+  return (raw ?? 'Clinical Test')
+    .split(',')
+    .map((t) => t.trim())
+    .filter(Boolean)
+    .join('\n');
+}
+
 // ── Derive notifications from dashboard payload ────────────────────────────
 function deriveNotifications(dashboard) {
   const notifs = [];
@@ -38,43 +46,43 @@ function deriveNotifications(dashboard) {
   // Upcoming appointments
   (dashboard.upcoming ?? []).forEach((appt) => {
     const status = (appt.status ?? '').toLowerCase();
-    const testName = appt.test_name ?? appt.test ?? 'Clinical Test';
+    const testName = formatTestNames(appt.test_name ?? appt.test);
     const date = appt.month && appt.day ? `${appt.month} ${appt.day}` : (appt.preferred_date ?? '');
     const time = appt.preferred_time ?? appt.time ?? 'TBD';
     const phleb = appt.assigned_phlebotomist_name ?? null;
 
     let title = 'Upcoming Appointment';
-    let message = `${testName} on ${date} at ${time}.`;
+    let message = testName;
     let icon = '📅';
     let iconBg = COLORS.blueLight;
     let action = 'View Appointment';
 
     if (status === 'rejected' || status === 'declined') {
       title = 'Appointment Rejected';
-      message = `Your request for ${testName} was not approved.${appt.rejection_reason ? ` Reason: ${appt.rejection_reason}` : ''}`;
+      message = testName;
       icon = '❌';
       iconBg = COLORS.redLight;
       action = null;
     } else if (status === 'assigned' || status === 'enroute' || status === 'in_progress') {
       title = 'Specialist Assigned';
-      message = `${phleb ?? 'A specialist'} has been assigned to your ${testName} visit on ${date}.`;
+      message = testName;
       icon = '🚗';
       iconBg = COLORS.purpleLight;
       action = 'Track Visit';
     } else if (status === 'arrived') {
       title = 'Specialist Arrived';
-      message = `${phleb ?? 'Your specialist'} has arrived for your ${testName} appointment.`;
+      message = testName;
       icon = '📍';
       iconBg = COLORS.greenLight;
       action = 'View PIN';
     } else if (status === 'pending_approval' || status === 'hub_review') {
       title = 'Appointment Under Review';
-      message = `Your ${testName} request is being reviewed by our team.`;
+      message = testName;
       icon = '⏳';
       iconBg = COLORS.orangeLight;
       action = null;
     } else if (phleb) {
-      message = `${testName} on ${date} at ${time}. ${phleb} will assist you.`;
+      message = testName;
       action = 'View Appointment';
     }
 
@@ -96,16 +104,14 @@ function deriveNotifications(dashboard) {
   // Past appointments
   (dashboard.past ?? []).forEach((appt) => {
     const status = (appt.status ?? '').toLowerCase();
-    const testName = appt.test_name ?? appt.test ?? 'Clinical Test';
+    const testName = formatTestNames(appt.test_name ?? appt.test);
     const date = appt.month && appt.day ? `${appt.month} ${appt.day}` : (appt.preferred_date ?? '');
 
     notifs.push({
       id: `past-${appt.id ?? appt._id}`,
       type: 'appointment',
       title: status === 'completed' ? 'Visit Completed' : 'Appointment Cancelled',
-      message: status === 'completed'
-        ? `Your ${testName} visit on ${date} is complete. Results will be available soon.`
-        : `Your ${testName} appointment on ${date} was cancelled.`,
+      message: testName,
       icon: status === 'completed' ? '✅' : '🚫',
       iconBg: status === 'completed' ? COLORS.greenLight : COLORS.redLight,
       action: status === 'completed' ? 'View History' : null,
@@ -266,7 +272,6 @@ export default function NotificationsScreen({ navigation }) {
           ) : (
             Object.entries(grouped).map(([date, items]) => (
               <View key={date}>
-                <Text style={styles.dateLabel}>{date}</Text>
                 {items.map((notif) => (
                   <TouchableOpacity
                     key={notif.id}
@@ -284,9 +289,8 @@ export default function NotificationsScreen({ navigation }) {
                           <Text style={[styles.notifTitle, !notif.read && styles.notifTitleUnread]} numberOfLines={1}>
                             {notif.title}
                           </Text>
-                          <Text style={styles.notifTime}>{notif.time}</Text>
                         </View>
-                        <Text style={styles.notifMessage} numberOfLines={2}>{notif.message}</Text>
+                        <Text style={styles.notifMessage}>{notif.message}</Text>
                         {notif.action && (
                           <TouchableOpacity style={styles.notifActionBtn} onPress={() => markRead(notif.id)}>
                             <Text style={styles.notifActionText}>{notif.action} →</Text>

@@ -29,9 +29,17 @@ export default function JobAcceptedScreen({ route, navigation }) {
   const patientName = job?.patientName || job?.patient_name || 'Patient';
   const patientPhone = job?.patientPhone || job?.patient_phone || '';
   const address = job?.address || job?.patient_address || job?.location || 'Address not provided';
-  const testName = job?.testName || job?.test_name || job?.tests
+  const rawTestName = job?.testName || job?.test_name || job?.tests
     || (Array.isArray(job?.lab_tests) ? job.lab_tests.join(', ') : null)
     || 'Clinical Test';
+
+const testName = Array.isArray(rawTestName)
+  ? rawTestName.filter(Boolean).map(String).join('\n')
+  : String(rawTestName ?? '')
+      .split(',')
+      .map((t) => t.trim())
+      .filter(Boolean)
+      .join('\n') || 'Clinical Test';
   const testPrice = job?.testPrice || job?.test_price;
   const earning = job?.earning ?? job?.earned ?? job?.amount_earned;
   const preferredDate = job?.preferredDate || job?.preferred_date || '';

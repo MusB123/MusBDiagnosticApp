@@ -70,6 +70,28 @@ function getIconColors(iconName) {
   return ICON_COLOR_MAP[iconName] || ICON_COLOR_MAP.default;
 }
 
+// Computes milliseconds remaining until an offer's expires_at timestamp.
+// Returns null if the offer has no expires_at (treated as "never expires").
+function getMsLeft(expiresAt) {
+  if (!expiresAt) return null;
+  const expiryTime = new Date(expiresAt).getTime();
+  if (isNaN(expiryTime)) return null;
+  return expiryTime - Date.now();
+}
+
+// Formats remaining milliseconds into a short human label, e.g. "2d 4h left".
+function formatTimeLeft(ms) {
+  if (ms <= 0) return 'Expired';
+  const totalMinutes = Math.floor(ms / 60000);
+  const days = Math.floor(totalMinutes / 1440);
+  const hours = Math.floor((totalMinutes % 1440) / 60);
+  const minutes = totalMinutes % 60;
+
+  if (days > 0) return `${days}d ${hours}h left`;
+  if (hours > 0) return `${hours}h ${minutes}m left`;
+  return `${minutes}m left · expires today`;
+}
+
 /** Springy press-scale wrapper, shared across the screen. */
 function AnimatedPressable({ style, onPress, disabled, children, scaleTo = 0.96, ...rest }) {
   const scale = useRef(new Animated.Value(1)).current;
@@ -406,9 +428,18 @@ export default function SelectTestsScreen({ navigation, route }) {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
 
+  // Ticking clock used to recompute each offer's remaining time and drop
+  // any offer whose expires_at has passed, without needing to refetch.
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const interval = setInterval(() => setNow(Date.now()), 60000); // recheck every minute
+    return () => clearInterval(interval);
+  }, []);
+
   useEffect(() => {
     let isMounted = true;
     async function load() {
+      setLoadError('');   // ← ADD THIS LINE — clears any previous error before retrying
       try {
         const tests = await fetchAvailableTests();
         if (!isMounted) return;
@@ -438,6 +469,7 @@ export default function SelectTestsScreen({ navigation, route }) {
         setCategories(uniqueCategories);
         setActiveCategory(uniqueCategories[0] || '');
       } catch (err) {
+        console.log('LOAD TESTS ERROR:', err.message, err);
         if (isMounted) {
           setLoadError(
             err.message === 'NETWORK_ERROR'
@@ -473,8 +505,14 @@ export default function SelectTestsScreen({ navigation, route }) {
     return (str || '').toLowerCase().trim().replace(/[^a-z0-9]/g, '');
   }
 
-  function matchTestsToOffer(offerIncludes, tests) {
-    return offerIncludes
+  function matchTestsToOffer(offer, tests) {
+    if (Array.isArray(offer.included_test_ids) && offer.included_test_ids.length > 0) {
+      return offer.included_test_ids
+        .map((id) => tests.find((t) => t.id === String(id)))
+        .filter(Boolean);
+    }
+    const includes = offer.includes || [];
+    return includes
       .map((includedTitle) => {
         const normIncluded = normalizeTitle(includedTitle);
         return (
@@ -500,7 +538,7 @@ export default function SelectTestsScreen({ navigation, route }) {
 
     const includes = offer.includes || [];
     console.log("Offer includes:", includes);
-    const matched = matchTestsToOffer(includes, allTests);
+    const matched = matchTestsToOffer(offer, allTests);
 
     console.log("Available tests:", allTests.map(t => t.name));
     console.log("Matched:", matched);
@@ -517,6 +555,7 @@ export default function SelectTestsScreen({ navigation, route }) {
       price: parseFloat(offer.discounted_price) || 0,
       matchedCount: matched.length,
       totalCount: includes.length,
+      testIds: matched.map((t) => t.id),
     });
     setViewMode('tests'); // switch back so they can see the highlighted selection
   };
@@ -527,7 +566,17 @@ export default function SelectTestsScreen({ navigation, route }) {
   };
 
   const toggleTest = (id) => {
-    setAppliedOffer(null); // customizing selection invalidates the bundle price
+    if (appliedOffer) {
+      const isPartOfOffer = (appliedOffer.testIds || []) .includes(id);
+      if (isPartOfOffer) {
+      // Removing one of the bundle's own tests breaks the bundle pricing.
+        setAppliedOffer(null);
+        setSelectedTests((prev) => prev.filter((t) => t !== id));
+        return;
+      }
+    // Adding/removing a test outside the bundle — keep the offer applied,
+    // just add its normal price on top.
+    }
     setSelectedTests((prev) =>
       prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id]
     );
@@ -542,8 +591,15 @@ export default function SelectTestsScreen({ navigation, route }) {
   });
 
   const selectedTestsData = allTests.filter((t) => selectedTests.includes(t.id));
+  const extraTestsData = appliedOffer
+    ? selectedTestsData.filter((t) => !(appliedOffer.testIds || []).includes(t.id))
+    : [];
   const testsTotal = appliedOffer
-    ? appliedOffer.price
+    ? appliedOffer.price +
+      extraTestsData.reduce(
+        (sum, t) => sum + (t.discountPrice != null ? t.discountPrice : t.price),
+       0
+      )
     : selectedTestsData.reduce(
         (sum, t) => sum + (t.discountPrice != null ? t.discountPrice : t.price),
         0
@@ -551,14 +607,31 @@ export default function SelectTestsScreen({ navigation, route }) {
 
   const handleConfirm = () => {
     if (returnTo) {
-      navigation.navigate(returnTo, { selectedTestsData, testsTotal });
+      navigation.navigate(returnTo, { selectedTestsData, testsTotal, appliedOffer, extraTestsData });
     } else {
       navigation.navigate('Checkout', {
         labTestsTotal: testsTotal,
         labTestsNames: selectedTestsData.map(t => t.name).join(', '),
+        appliedOffer,
+        extraTestsData,
       });
     }
   };
+
+  // Active offers, annotated with live remaining time, and with any offer
+  // whose expires_at has passed dropped from the list. This is what makes
+  // the countdown actually count down and the offer auto-remove at zero,
+  // rather than showing a static "4 days" forever. `now` is bumped every
+  // minute above, which forces this to re-run.
+  const liveOffers = offers
+    .filter((o) => o.is_active)
+    .map((o) => ({ ...o, msLeft: getMsLeft(o.expires_at) }))
+    .filter((o) => o.msLeft === null || o.msLeft > 0)
+    .map((o) => (o.msLeft !== null ? { ...o, time_left: formatTimeLeft(o.msLeft) } : o));
+
+  console.log('liveOffers time_left values:', liveOffers.map(o => ({ title: o.title, time_left: o.time_left })));
+  // eslint-disable-next-line no-unused-expressions
+  now; // referenced so this block re-evaluates each minute tick
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -683,15 +756,15 @@ export default function SelectTestsScreen({ navigation, route }) {
               <Text style={styles.errorText}>{offersError}</Text>
             </View>
           </FadeInUp>
-        ) : offers.filter((o) => o.is_active).length === 0 ? (
+        ) : liveOffers.length === 0 ? (
           <View style={{ alignItems: 'center', marginVertical: 32 }}>
             <Feather name="tag" size={22} color={COLORS.gray} />
             <Text style={{ color: COLORS.gray, marginTop: 8 }}>No offers right now.</Text>
           </View>
         ) : (
-          offers.filter((o) => o.is_active).map((offer, i) => {
+          liveOffers.map((offer, i) => {
             const includes = offer.includes || [];
-            const matched = matchTestsToOffer(includes, allTests);
+            const matched = matchTestsToOffer(offer, allTests);
             return (
               <OfferCard
                 key={offer.id}

@@ -697,6 +697,8 @@ function SuccessModal({ visible, centerName, dateLabel, timeLabel, amount, onDon
 
 export default function InPersonTestsScreen({ navigation, route }) {
   const [selectedTestsData, setSelectedTestsData] = useState([]);
+  const [appliedOffer, setAppliedOffer] = useState(null);
+  const [extraTestsData, setExtraTestsData] = useState([]);
   const [selectedCenter, setSelectedCenter] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [patientUser, setPatientUser] = useState(null);
@@ -753,12 +755,17 @@ export default function InPersonTestsScreen({ navigation, route }) {
   const [selectedMinute, setSelectedMinute] = useState('00');
   const [selectedPeriod, setSelectedPeriod] = useState('AM');
 
-  // Pick up tests returned from SelectTestsScreen
+  // Pick up tests (and any applied offer / extra tests) returned from
+  // SelectTestsScreen — mirrors BookMobileVisitScreen's handling so an
+  // offer bundle plus extra a-la-carte tests both show correctly here.
   useEffect(() => {
-    if (route?.params?.selectedTestsData) {
-      setSelectedTestsData(route.params.selectedTestsData);
+    const params = route?.params;
+    if (params?.selectedTestsData) {
+      setSelectedTestsData(params.selectedTestsData);
+      setAppliedOffer(params.appliedOffer ?? null);
+      setExtraTestsData(params.extraTestsData ?? []);
     }
-  }, [route?.params?.selectedTestsData]);
+  }, [route?.params?.selectedTestsData, route?.params?.appliedOffer, route?.params?.extraTestsData]);
 
   // Pick up guest details returned from GuestInfoScreen (fullName/phone/email)
   // and immediately open the payment-option prompt — the user just finished
@@ -780,10 +787,15 @@ export default function InPersonTestsScreen({ navigation, route }) {
     return unsub;
   }, [navigation]);
 
-  const testsTotal = selectedTestsData.reduce(
-    (sum, t) => sum + (t.discountPrice != null ? t.discountPrice : t.price),
-    0
-  );
+  // Offer-aware total: if an offer bundle is applied, its bundled price
+  // replaces the sum of the individually-priced tests it covers (extra
+  // a-la-carte tests still add on top of that, same as BookMobileVisit).
+  const testsTotal = appliedOffer
+    ? appliedOffer.price
+    : selectedTestsData.reduce(
+        (sum, t) => sum + (t.discountPrice != null ? t.discountPrice : t.price),
+        0
+      );
   const selectedTestIds = selectedTestsData.map((t) => t.id);
   const center = centers.find((c) => c.id === selectedCenter);
   const centerIndex = centers.findIndex((c) => c.id === selectedCenter);
@@ -968,60 +980,116 @@ export default function InPersonTestsScreen({ navigation, route }) {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Tests Section */}
+        {/* Tests Section — offer-aware lab tests card, same pattern as
+            BookMobileVisitScreen (icon header, count badge, offer pill +
+            extra tests, discount strikethrough, running total). */}
         <FadeInUp delay={0}>
-          <Text style={styles.sectionLabel}>Selected tests</Text>
+          <View style={styles.sectionLabelRow}>
+            <Text style={styles.sectionLabel}>Lab tests</Text>
+          </View>
         </FadeInUp>
 
-        {selectedTestsData.length === 0 ? (
-          <FadeInUp delay={40}>
-            <View style={styles.emptyTestsCard}>
-              <View style={styles.emptyIconRing}>
-                <Ionicons name="flask-outline" size={20} color={COLORS.gray} />
-              </View>
-              <Text style={styles.emptyTestsText}>No tests selected yet</Text>
-            </View>
-          </FadeInUp>
-        ) : (
-          selectedTestsData.map((test, i) => {
-            const hasDiscount = test.discountPrice != null && test.discountPrice < test.price;
-            const accent = CENTER_ACCENTS[i % CENTER_ACCENTS.length];
-            return (
-              <FadeInUp key={test.id} delay={40 + i * 40} distance={10}>
-                <View style={styles.testCard}>
-                  <View style={[styles.testIconRing, { backgroundColor: accent.bg }]}>
-                    <Ionicons name="flask" size={18} color={accent.color} />
-                  </View>
-                  <View style={styles.testInfo}>
-                    <Text style={styles.testName}>{test.name}</Text>
-                    {test.desc ? <Text style={styles.testDesc}>{test.desc}</Text> : null}
-                  </View>
-                  {hasDiscount ? (
-                    <View style={styles.testPriceCol}>
-                      <Text style={styles.testPriceStrike}>${test.price.toFixed(0)}</Text>
-                      <Text style={styles.testPriceDiscount}>${test.discountPrice.toFixed(0)}</Text>
-                    </View>
-                  ) : (
-                    <Text style={styles.testPrice}>${test.price.toFixed(0)}</Text>
-                  )}
+        <FadeInUp delay={40}>
+          <View style={styles.labCard}>
+            <View style={styles.labCardHeader}>
+              <View style={styles.labIconRing}>
+                <View style={styles.labIconWrap}>
+                  <IconPop delay={80}>
+                    <Ionicons name="flask" size={22} color={COLORS.purple} />
+                  </IconPop>
                 </View>
-              </FadeInUp>
-            );
-          })
-        )}
+              </View>
+              <View style={styles.labHeaderText}>
+                <Text style={styles.labTitle}>
+                  {selectedTestsData.length > 0 ? 'Selected tests' : 'Do you want to buy a discounted lab test?'}
+                </Text>
+                <Text style={styles.labSub}>
+                  {selectedTestsData.length > 0 ? 'Review your selection below' : 'Choose from our full test catalogue'}
+                </Text>
+              </View>
+              {selectedTestsData.length > 0 && (
+                <View style={styles.testCountBadge}>
+                  <Text style={styles.testCountText}>{selectedTestsData.length} selected</Text>
+                </View>
+              )}
+            </View>
 
-        <FadeInUp delay={100}>
-          <AnimatedPressable style={styles.selectTestsBtn} onPress={goToSelectTests} scaleTo={0.98}>
-            <Ionicons
-              name={selectedTestsData.length === 0 ? 'add-circle-outline' : 'create-outline'}
-              size={17}
-              color={COLORS.navy}
-              style={{ marginRight: 8 }}
-            />
-            <Text style={styles.selectTestsBtnText}>
-              {selectedTestsData.length === 0 ? 'Browse discounted lab tests' : 'Edit tests'}
-            </Text>
-          </AnimatedPressable>
+            {selectedTestsData.length > 0 && (
+              <>
+                <View style={styles.labDivider} />
+                <View style={styles.labBody}>
+                  {appliedOffer ? (
+                    <>
+                      <View style={styles.testPill}>
+                        <View style={styles.testPillLeft}>
+                          <Ionicons name="pricetag" size={14} color={COLORS.navy} style={{ marginRight: 2 }} />
+                          <Text style={styles.testPillName} numberOfLines={1}>
+                            {appliedOffer.title} ({appliedOffer.testIds?.length ?? appliedOffer.matchedCount} tests)
+                          </Text>
+                        </View>
+                        <Text style={[styles.testPillPrice, { color: COLORS.green }]}>
+                          ${appliedOffer.price.toFixed(0)}
+                        </Text>
+                      </View>
+                      {extraTestsData.map((test, i) => (
+                        <FadeInUp key={test.id ?? i} delay={i * 50} distance={8}>
+                          <View style={styles.testPill}>
+                            <View style={styles.testPillLeft}>
+                              <View style={styles.testDot} />
+                              <Text style={styles.testPillName} numberOfLines={1}>
+                                {test.name}
+                              </Text>
+                            </View>
+                            <Text style={styles.testPillPrice}>
+                              ${(test.discountPrice ?? test.price).toFixed(0)}
+                            </Text>
+                          </View>
+                        </FadeInUp>
+                      ))}
+                    </>
+                  ) : (
+                    selectedTestsData.map((test, i) => {
+                      const hasDiscount = test.discountPrice != null && test.discountPrice < test.price;
+                      return (
+                        <FadeInUp key={test.id ?? i} delay={i * 50} distance={8}>
+                          <View style={styles.testPill}>
+                            <View style={styles.testPillLeft}>
+                              <View style={styles.testDot} />
+                              <Text style={styles.testPillName} numberOfLines={1}>
+                                {test.name}
+                              </Text>
+                            </View>
+                            {hasDiscount ? (
+                              <View style={styles.testPillPriceRow}>
+                                <Text style={styles.testPillStrikePrice}>${test.price.toFixed(0)}</Text>
+                                <Text style={[styles.testPillPrice, styles.testPillDiscountPrice]}>
+                                  ${test.discountPrice.toFixed(0)}
+                                </Text>
+                              </View>
+                            ) : (
+                              <Text style={styles.testPillPrice}>${test.price.toFixed(0)}</Text>
+                            )}
+                          </View>
+                        </FadeInUp>
+                      );
+                    })
+                  )}
+                  <View style={styles.testsTotalRow}>
+                    <Text style={styles.testsTotalLabel}>
+                      {appliedOffer ? 'Offer total' : 'Tests subtotal'}
+                    </Text>
+                    <Text style={styles.testsTotalValue}>${testsTotal.toFixed(0)}</Text>
+                  </View>
+                </View>
+              </>
+            )}
+
+            <AnimatedPressable style={styles.selectTestsBtnFull} scaleTo={0.97} onPress={goToSelectTests}>
+              <Text style={styles.selectTestsBtnFullText}>
+                {selectedTestsData.length > 0 ? '＋ Add or change tests' : '＋ Browse and select tests'}
+              </Text>
+            </AnimatedPressable>
+          </View>
         </FadeInUp>
 
         {/* No Visit Fee Banner */}
@@ -1110,7 +1178,7 @@ export default function InPersonTestsScreen({ navigation, route }) {
         <FadeInUp delay={380}>
           <View style={styles.summaryCard}>
             <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Tests subtotal</Text>
+              <Text style={styles.summaryLabel}>{appliedOffer ? 'Offer total' : 'Tests subtotal'}</Text>
               <Text style={styles.summaryValue}>${testsTotal.toFixed(0)}</Text>
             </View>
             <View style={styles.summaryRow}>
@@ -1200,66 +1268,114 @@ const styles = StyleSheet.create({
     color: COLORS.bodyText,
     marginBottom: 12,
   },
-
-  emptyTestsCard: {
+  sectionLabelRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    backgroundColor: COLORS.offWhite,
-    borderRadius: 16,
-    padding: 18,
-    borderWidth: 1.5,
-    borderColor: COLORS.border,
-    borderStyle: 'dashed',
-    marginBottom: 12,
+    justifyContent: 'space-between',
+    marginBottom: 10,
   },
-  emptyIconRing: {
-    width: 40, height: 40, borderRadius: 12,
-    backgroundColor: COLORS.white, alignItems: 'center', justifyContent: 'center',
-    borderWidth: 1, borderColor: COLORS.border,
-  },
-  emptyTestsText: { color: COLORS.gray, fontSize: 13, fontWeight: '600' },
 
-  testCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  // ── Lab tests card (mirrors BookMobileVisitScreen) ──
+  labCard: {
     backgroundColor: COLORS.white,
     borderRadius: 16,
-    padding: 14,
-    marginBottom: 10,
     borderWidth: 1.5,
     borderColor: COLORS.border,
-    gap: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
-    elevation: 1,
+    overflow: 'hidden',
+    marginBottom: 20,
   },
-  testIconRing: {
-    width: 38, height: 38, borderRadius: 12,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  testInfo: { flex: 1 },
-  testName: { fontSize: 14, fontWeight: '700', color: COLORS.navyDark, marginBottom: 2 },
-  testDesc: { fontSize: 12, color: COLORS.gray },
-  testPrice: { fontSize: 14, fontWeight: '800', color: COLORS.navyDark },
-  testPriceCol: { alignItems: 'flex-end' },
-  testPriceStrike: { fontSize: 12, color: COLORS.gray, textDecorationLine: 'line-through' },
-  testPriceDiscount: { fontSize: 14, fontWeight: '800', color: COLORS.green },
-
-  selectTestsBtn: {
+  labCardHeader: {
     flexDirection: 'row',
-    borderWidth: 1.5,
-    borderColor: COLORS.navy,
-    borderRadius: 14,
-    paddingVertical: 13,
+    alignItems: 'center',
+    padding: 14,
+    gap: 12,
+  },
+  labIconRing: {
+    width: 54,
+    height: 54,
+    borderRadius: 16,
+    backgroundColor: COLORS.purpleLight,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 20,
-    backgroundColor: '#F5F8FF',
   },
-  selectTestsBtnText: { color: COLORS.navy, fontWeight: '800', fontSize: 14 },
+  labIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: COLORS.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  labHeaderText: { flex: 1 },
+  labTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: COLORS.navyDark,
+    marginBottom: 2,
+  },
+  labSub: { fontSize: 12, color: COLORS.gray },
+  testCountBadge: {
+    backgroundColor: COLORS.greenLight,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  testCountText: { fontSize: 12, fontWeight: '700', color: '#15803D' },
+  labDivider: { height: 1, backgroundColor: COLORS.lightGray },
+  labBody: { padding: 14, gap: 8 },
+  testPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: COLORS.offWhite,
+    borderRadius: 10,
+    padding: 10,
+  },
+  testPillLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
+  },
+  testDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: COLORS.navy,
+  },
+  testPillName: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: COLORS.navyDark,
+    flex: 1,
+  },
+  testPillPrice: { fontSize: 13, fontWeight: '700', color: COLORS.navy },
+  testPillPriceRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  testPillStrikePrice: {
+    fontSize: 12,
+    color: COLORS.gray,
+    textDecorationLine: 'line-through',
+  },
+  testPillDiscountPrice: { color: COLORS.green },
+  testsTotalRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderTopWidth: 1,
+    borderTopColor: COLORS.lightGray,
+    paddingTop: 10,
+    marginTop: 4,
+  },
+  testsTotalLabel: { fontSize: 13, fontWeight: '700', color: COLORS.bodyText },
+  testsTotalValue: { fontSize: 16, fontWeight: '900', color: COLORS.navy },
+  selectTestsBtnFull: {
+    backgroundColor: COLORS.navy,
+    margin: 12,
+    borderRadius: 12,
+    paddingVertical: 13,
+    alignItems: 'center',
+  },
+  selectTestsBtnFullText: { color: COLORS.white, fontSize: 14, fontWeight: '800' },
 
   noFeeBanner: {
     flexDirection: 'row',

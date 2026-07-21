@@ -87,9 +87,17 @@ function FadeInUp({ delay = 0, distance = 16, children, style }) {
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // Accepts numbers with optional +, spaces, dashes, parens — requires at least 10 digits.
+function formatUsPhoneNumber(value) {
+  const digits = value.replace(/\D/g, '').slice(0, 10);
+  if (digits.length === 0) return '';
+  if (digits.length < 4) return `(${digits}`;
+  if (digits.length < 7) return `(${digits.slice(0, 3)}) ${digits.slice(3)}`;
+  return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+}
+
 function isValidPhone(value) {
   const digits = value.replace(/\D/g, '');
-  return digits.length >= 10;
+  return digits.length === 10;
 }
 
 function FormField({ icon, label, value, onChangeText, placeholder, keyboardType, error, autoCapitalize, delay }) {
@@ -152,7 +160,6 @@ export default function GuestInfoScreen() {
   const validate = () => {
     const next = {};
     if (!firstName.trim()) next.firstName = 'Please enter your first name';
-    if (!middleName.trim()) next.middleName = 'Please enter your middle name';
     if (!lastName.trim()) next.lastName = 'Please enter your last name';
     if (!phone.trim()) next.phone = 'Please enter a phone number';
     else if (!isValidPhone(phone)) next.phone = 'Enter a valid phone number';
@@ -239,7 +246,7 @@ export default function GuestInfoScreen() {
           />
           <FormField
             icon="person-outline"
-            label="Middle name"
+            label="Middle name (optional)"
             value={middleName}
             onChangeText={setMiddleName}
             placeholder="Marie"
@@ -261,7 +268,7 @@ export default function GuestInfoScreen() {
             icon="call-outline"
             label="Phone number"
             value={phone}
-            onChangeText={setPhone}
+            onChangeText= {(v) => setPhone(formatUsPhoneNumber(v))}
             placeholder="(555) 123-4567"
             keyboardType="phone-pad"
             error={errors.phone}

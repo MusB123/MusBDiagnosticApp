@@ -7,7 +7,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useStripe } from '@stripe/stripe-react-native';
 import { Ionicons, Feather } from '@expo/vector-icons';
-import { getStoredPatientUser, bookAppointment, uploadDocument,markAppointmentPaid } from '../utils/auth';
+import { getStoredPatientUser, bookAppointment, uploadDocument, markAppointmentPaid } from '../utils/auth';
 import * as FileSystem from 'expo-file-system/legacy';
 
 const BACKEND_URL = 'https://musb-diagnostic-website.onrender.com';
@@ -190,9 +190,11 @@ function SuccessOverlay({ visible, amount, onContinue }) {
           <Text style={styles.successAmount}>${amount}</Text>
           <Text style={styles.successSub}>Your appointment is confirmed</Text>
 
-          <AnimatedPressable style={styles.successBtn} onPress={onContinue} scaleTo={0.97}>
-            <Text style={styles.successBtnText}>View appointment</Text>
-          </AnimatedPressable>
+          <View style={{ width: '100%' }}>
+            <AnimatedPressable style={styles.successBtn} onPress={onContinue} scaleTo={0.97}>
+              <Text style={styles.successBtnText}>View appointment</Text>
+            </AnimatedPressable>
+          </View>
         </Animated.View>
       </Animated.View>
     </Modal>
@@ -215,28 +217,37 @@ export default function CheckoutScreen({ navigation, route }) {
   const preferredDate = route?.params?.preferredDate  || new Date().toISOString().split('T')[0];
   const [patientUser, setPatientUser] = useState(null);
   const doctorOrder = route?.params?.doctorOrder || 'self';
+  const appliedOffer = route?.params?.appliedOffer || null;
+  const extraTestsData = route?.params?.extraTestsData || [];
   const prescriptionFile = route?.params?.prescriptionFile || null;
   const insurance = route?.params?.insurance || 'none';
   const insuranceFrontFile = route?.params?.insuranceFront || null;
   const insuranceBackFile = route?.params?.insuranceBack || null;
   const appointmentId = route?.params?.appointmentId || null;
 
-  // ── Pricing (already calculated once on the previous screen — no re-fetch) ─
-  const baseVisitPrice = visitType === 'mobile' ? Number(route?.params?.baseFee) || 0 : 0;
-  const perMileRate     = visitType === 'mobile' ? Number(route?.params?.mileageRate) || 0 : 0;
-  const distanceMilesResolved = visitType === 'mobile' ? Number(route?.params?.distanceMiles) || 0 : 0;
-  const dynamicFeesTotal = visitType === 'mobile' ? Number(route?.params?.dynamicFeesTotal) || 0 : 0;
+  // ── Pricing (flat-fee model — computed on BookMobileVisitScreen via
+  // calculate_area_fee / calculate_marketplace_patient_fee) ──────────────
+  const baseFee            = visitType === 'mobile' ? Number(route?.params?.baseFee) || 0 : 0;
+  const distanceFee        = visitType === 'mobile' ? Number(route?.params?.distanceFee) || 0 : 0;
+  const driversReserveFee  = visitType === 'mobile' ? Number(route?.params?.driversReserveFee) || 0 : 0;
+  const surchargesTotal    = visitType === 'mobile' ? Number(route?.params?.surchargesTotal) || 0 : 0;
+  const serviceFee         = visitType === 'mobile' ? Number(route?.params?.serviceFee) || 0 : 0;
+  const slotType           = route?.params?.slotType || 'flexible';
+  const timeSlotLabel      = route?.params?.timeSlotLabel || '';
 
-// Trust the backend's own computed total (base + mileage + all surcharges)
-// instead of re-deriving it — avoids drift if settings change between screens.
+  // Trust the backend's own computed total — avoids drift if settings change
+  // between screens. Only fall back to summing parts if it's missing.
   const backendTotal = Number(route?.params?.totalPatientFee);
-  const distanceCharge   = +(distanceMilesResolved * perMileRate).toFixed(2);
   const mobileVisitTotal = visitType === 'mobile'
     ? (Number.isFinite(backendTotal) && backendTotal > 0
         ? backendTotal
-        : +(baseVisitPrice + distanceCharge + dynamicFeesTotal).toFixed(2))
+        : +(baseFee + distanceFee + driversReserveFee + surchargesTotal).toFixed(2))
     : 0;
   const grandTotal = +(mobileVisitTotal + labTestsTotal).toFixed(2);
+
+  // Sent back to book_appointment so its ±$0.50 quote-drift check passes
+  // instead of bouncing with a 409 at the worst possible moment (post-payment).
+  const quotedTotalFee = mobileVisitTotal;
 
   const patientEmail = patientUser?.email || route?.params?.email || '';
   // NOTE: patientUser loads asynchronously (SecureStore read). If "Pay" is
@@ -247,6 +258,13 @@ export default function CheckoutScreen({ navigation, route }) {
   // real name and phone number.
   const patientFullName = patientUser?.name || route?.params?.fullName || route?.params?.full_name || '';
   const patientPhone = patientUser?.phone || route?.params?.phone || '';
+
+  useEffect(() => {
+    (async () => {
+      const user = await getStoredPatientUser();
+      if (user) setPatientUser(user);
+    })();
+  }, []);
 
   const uploadPrescriptionDoc = async () => {
     if (doctorOrder !== 'order' || !prescriptionFile?.uri) return null;
@@ -340,55 +358,72 @@ export default function CheckoutScreen({ navigation, route }) {
           Alert.alert('Payment Failed', paymentError.message);
         }
       } else {
-  try {
-    if (appointmentId) {
-      // Existing appointment (e.g. in-person visit paying in-app afterward) —
-      // update it instead of creating a duplicate booking.
-      await markAppointmentPaid(appointmentId);
-      setSuccessData({
-        amount: grandTotal.toFixed(2),
-        appointmentId,
-      });
-      setShowSuccess(true);
-    } else {
-      // New booking flow (mobile visit / fresh in-person booking via checkout)
-          const doctorOrderDoc = await uploadPrescriptionDoc();
-          const { front: insuranceFrontDoc, back: insuranceBackDoc } = await uploadInsuranceDocs();
+        try {
+          if (appointmentId) {
+            // Existing appointment (e.g. in-person visit paying in-app afterward) —
+            // update it instead of creating a duplicate booking.
+            await markAppointmentPaid(appointmentId);
+            setSuccessData({
+              amount: grandTotal.toFixed(2),
+              appointmentId,
+            });
+            setShowSuccess(true);
+          } else {
+            // New booking flow (mobile visit / fresh in-person booking via checkout)
+            const doctorOrderDoc = await uploadPrescriptionDoc();
+            const { front: insuranceFrontDoc, back: insuranceBackDoc } = await uploadInsuranceDocs();
 
-          const bookingResult = await bookAppointment({
-            test_name: labTestsTotal > 0 ? labTestsNames : 'Mobile Phlebotomy Visit',
-            test_price: labTestsTotal > 0 ? labTestsTotal : mobileVisitTotal,
-            full_name: patientFullName,
-            email: patientEmail,
-            phone: patientPhone,
-            address,
-            zipCode,
-            visit_type: visitType,
-            preferred_date: preferredDate,
-            preferred_time: preferredTime,
-            payment_method: 'Card',
-            doctor_order_base64: doctorOrderDoc?.key || null,
-            doctor_order_name: doctorOrderDoc?.name || null,
-            insurance_front_base64: insuranceFrontDoc?.key || null,
-            insurance_front_name: insuranceFrontDoc?.name || null,
-            insurance_back_base64: insuranceBackDoc?.key || null,
-            insurance_back_name: insuranceBackDoc?.name || null,
-          });
+            let bookingResult;
+            try {
+              bookingResult = await bookAppointment({
+                test_name: labTestsTotal > 0 ? labTestsNames : 'Mobile Phlebotomy Visit',
+                test_price: labTestsTotal > 0 ? labTestsTotal : mobileVisitTotal,
+                full_name: patientFullName,
+                email: patientEmail,
+                phone: patientPhone,
+                address,
+                zipCode,
+                visit_type: visitType,
+                preferred_date: preferredDate,
+                preferred_time: preferredTime,
+                payment_method: 'Card',
+                doctor_order_base64: doctorOrderDoc?.key || null,
+                doctor_order_name: doctorOrderDoc?.name || null,
+                insurance_front_base64: insuranceFrontDoc?.key || null,
+                insurance_front_name: insuranceFrontDoc?.name || null,
+                insurance_back_base64: insuranceBackDoc?.key || null,
+                insurance_back_name: insuranceBackDoc?.name || null,
+                slot_type: slotType,
+                quoted_total_fee: quotedTotalFee,
+              });
+            } catch (bookErr) {
+              // Payment already succeeded via Stripe. A price-drift 409 here
+              // means the backend recomputed a different fee than what was
+              // quoted — this needs manual reconciliation, not a silent retry.
+              Alert.alert(
+                'Payment received, price changed',
+                'Your payment was successful, but pricing for this area updated before we could confirm your booking. ' +
+                'Please contact support with your payment confirmation and we will resolve this right away.',
+                [{ text: 'OK', onPress: () => navigation.navigate('PatientHome') }]
+              );
+              setLoading(false);
+              return;
+            }
 
-          setSuccessData({
-            amount: grandTotal.toFixed(2),
-            appointmentId: bookingResult.appointment_id,
-         });
-         setShowSuccess(true);
-       }
-     } catch (bookingErr) {
-       Alert.alert(
-        'Payment received, booking issue',
-        `Your payment was successful, but we couldn't save your appointment details (${bookingErr.message}). Please contact support.`,
-        [{ text: 'OK', onPress: () => navigation.navigate('PatientHome') }]
-       );
+            setSuccessData({
+              amount: grandTotal.toFixed(2),
+              appointmentId: bookingResult.appointment_id,
+            });
+            setShowSuccess(true);
+          }
+        } catch (bookingErr) {
+          Alert.alert(
+            'Payment received, booking issue',
+            `Your payment was successful, but we couldn't save your appointment details (${bookingErr.message}). Please contact support.`,
+            [{ text: 'OK', onPress: () => navigation.navigate('PatientHome') }]
+          );
+        }
       }
-     }
     } catch (err) {
       Alert.alert('Error', 'Something went wrong. Please check your connection and try again.');
     }
@@ -400,7 +435,7 @@ export default function CheckoutScreen({ navigation, route }) {
     if (route?.params?.isGuest) {
       navigation.navigate('CreateAccountPrompt', { appointmentId: successData.appointmentId });
     } else {
-    navigation.navigate('PatientHome', { appointmentId: successData.appointmentId });
+      navigation.navigate('PatientHome', { appointmentId: successData.appointmentId });
     }
   };
 
@@ -436,41 +471,75 @@ export default function CheckoutScreen({ navigation, route }) {
               <Text style={styles.summaryTitle}>Order summary</Text>
             </View>
 
-            {/* Mobile Phlebotomy fee */}
+            {/* Mobile Phlebotomy fee — single combined line (base + distance + reserve + surcharges) */}
             {visitType === 'mobile' && (
-              <SummaryRow
-                icon="home"
-                iconColor={COLORS.blue}
-                iconBg={COLORS.blueLight}
-                label="Mobile Phlebotomy fee"
-                value={`$${mobileVisitTotal != null ? mobileVisitTotal.toFixed(0) : '—'}`}
-                delay={40}
-              />
+              <>
+                {timeSlotLabel ? (
+                  <FadeInUp delay={20} distance={6}>
+                    <View style={styles.slotTypeBanner}>
+                      <Ionicons name="time-outline" size={12} color={COLORS.navy} />
+                      <Text style={styles.slotTypeBannerText}>
+                        {slotType === 'urgent' ? 'Urgent' : slotType === 'fixed' ? 'Fixed time' : 'Flexible'} · {timeSlotLabel}
+                      </Text>
+                    </View>
+                  </FadeInUp>
+                ) : null}
+
+                <SummaryRow
+                  icon="home"
+                  iconColor={COLORS.blue}
+                  iconBg={COLORS.blueLight}
+                  label="Mobile Phlebotomy fee"
+                  value={`$${mobileVisitTotal.toFixed(0)}`}
+                  delay={40}
+                />
+              </>
             )}
 
             {/* Lab Tests — itemized, one row per test */}
             {labTestsTotal > 0 && (
               <>
-                <FadeInUp delay={80} distance={6}>
+                <FadeInUp delay={110} distance={6}>
                   <Text style={styles.summarySectionLabel}>Lab Tests</Text>
                 </FadeInUp>
-                {route?.params?.selectedTests?.length > 0 ? (
-                  route.params.selectedTests.map((test, i) => {
-                   const hasDiscount = test.discountPrice != null && test.discountPrice < test.price;
-                   const displayPrice = hasDiscount ? test.discountPrice : test.price;
-                   return (
-
+                {appliedOffer ? (
+                  <>
                     <SummaryRow
-                      key={test.id ?? i}
-                      icon="flask"
-                      iconColor={COLORS.purple}
-                      iconBg={COLORS.purpleLight}
-                      label={test.name}
-                      value={`$${displayPrice.toFixed(0)}`}
-                      delay={100 + i * 40}
+                      icon="pricetag"
+                      iconColor={COLORS.navy}
+                      iconBg={COLORS.blueLight}
+                      label={`${appliedOffer.title} (${appliedOffer.testIds?.length ?? appliedOffer.matchedCount} tests)`}
+                      value={`$${appliedOffer.price.toFixed(0)}`}
+                      delay={130}
                     />
-                  );
-                })
+                    {extraTestsData.map((test, i) => (
+                      <SummaryRow
+                        key={test.id ?? i}
+                        icon="flask"
+                        iconColor={COLORS.purple}
+                        iconBg={COLORS.purpleLight}
+                        label={test.name}
+                        value={`$${(test.discountPrice ?? test.price).toFixed(0)}`}
+                        delay={150 + i * 40}
+                      />
+                    ))}
+                  </>
+                ) : route?.params?.selectedTests?.length > 0 ? (
+                  route.params.selectedTests.map((test, i) => {
+                    const hasDiscount = test.discountPrice != null && test.discountPrice < test.price;
+                    const displayPrice = hasDiscount ? test.discountPrice : test.price;
+                    return (
+                      <SummaryRow
+                        key={test.id ?? i}
+                        icon="flask"
+                        iconColor={COLORS.purple}
+                        iconBg={COLORS.purpleLight}
+                        label={test.name}
+                        value={`$${displayPrice.toFixed(0)}`}
+                        delay={130 + i * 40}
+                      />
+                    );
+                  })
                 ) : (
                   <SummaryRow
                     icon="flask"
@@ -478,7 +547,7 @@ export default function CheckoutScreen({ navigation, route }) {
                     iconBg={COLORS.purpleLight}
                     label={labTestsNames}
                     value={`$${labTestsTotal.toFixed(0)}`}
-                    delay={100}
+                    delay={130}
                   />
                 )}
               </>
@@ -597,6 +666,12 @@ const styles = StyleSheet.create({
     backgroundColor: '#EAF0FB', alignItems: 'center', justifyContent: 'center',
   },
   summaryTitle: { fontSize: 15, fontWeight: '800', color: COLORS.navyDark },
+  slotTypeBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: '#EAF0FB', borderRadius: 8,
+    paddingHorizontal: 10, paddingVertical: 6, marginBottom: 12, alignSelf: 'flex-start',
+  },
+  slotTypeBannerText: { fontSize: 11, fontWeight: '700', color: COLORS.navy },
   summaryRow: {
     flexDirection: 'row', justifyContent: 'space-between',
     alignItems: 'center', marginBottom: 12,
@@ -613,6 +688,31 @@ const styles = StyleSheet.create({
     fontSize: 13, fontWeight: '800', color: COLORS.navyDark,
     marginTop: 4, marginBottom: 10,
   },
+  feeGroupHeaderRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8,
+  },
+  summaryIconRing2: {
+    width: 32, height: 32, borderRadius: 10,
+    backgroundColor: COLORS.blueLight, alignItems: 'center', justifyContent: 'center',
+  },
+  feeGroupTitle: { flex: 1, fontSize: 14, fontWeight: '800', color: COLORS.navyDark },
+  feeGroupTotal: { fontSize: 15, fontWeight: '900', color: COLORS.navy },
+  feeBreakdownBox: {
+    backgroundColor: COLORS.white,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    marginLeft: 42,
+    marginBottom: 16,
+  },
+  feeBreakdownRow: {
+    flexDirection: 'row', justifyContent: 'space-between',
+    paddingVertical: 7,
+  },
+  feeBreakdownLabel: { fontSize: 12, color: COLORS.gray },
+  feeBreakdownValue: { fontSize: 12, fontWeight: '700', color: COLORS.bodyText },
   totalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   totalLabel: { fontSize: 15, fontWeight: '800', color: COLORS.navyDark },
   totalSub: { fontSize: 12, color: COLORS.gray, marginTop: 2 },

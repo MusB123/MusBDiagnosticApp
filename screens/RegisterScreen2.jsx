@@ -95,12 +95,17 @@ export default function RegisterStep2({ navigation, route }) {
   // Resize + compress before we ever touch base64 — keeps documents well
 // under MongoDB's 16MB BSON limit even with 4 files combined.
   const compressImage = async (uri) => {
-   const result = await ImageManipulator.manipulateAsync(
-    uri,
-    [{ resize: { width: 1280 } }], // cap width, height auto-scales
-    { compress: 0.5, format: ImageManipulator.SaveFormat.JPEG, base64: true }
-   );
-   return result; // { uri, base64, width, height }
+    const resized = await ImageManipulator.manipulateAsync(
+      uri,
+      [{ resize: { width: 1000 } }],
+      { compress: 0.5, format: ImageManipulator.SaveFormat.JPEG }
+    );
+
+    const base64 = await FileSystem.readAsStringAsync(resized.uri, {
+      encoding: 'base64',
+    });
+
+    return { uri: resized.uri, base64 };
   };
 
 
@@ -118,9 +123,10 @@ export default function RegisterStep2({ navigation, route }) {
       return;
     }
     const result = await ImagePicker.launchCameraAsync({
-      quality: 0.8,
+      quality: 0.5,
       allowsEditing: true,
       base64: false,
+      exif: false,
     });
     if (!result.canceled && result.assets?.length) {
       const asset = result.assets[0];

@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -13,6 +13,7 @@ import {
   ActivityIndicator,
   Modal,
   Image,
+  Animated,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
@@ -35,6 +36,86 @@ const COLORS = {
   yellowBorder: '#F59E0B',
   yellowText: '#92400E',
 };
+
+// Distinct accent per document type so the row reads as three clear choices
+// instead of three identical gray boxes.
+const DOC_META = {
+  insurance: {
+    label: 'Insurance card',
+    icon: 'shield-checkmark-outline',
+    doneIcon: 'checkmark-circle',
+    accent: '#2563EB',
+    accentBg: '#EAF1FE',
+  },
+  photoId: {
+    label: 'Photo ID',
+    icon: 'card-outline',
+    doneIcon: 'checkmark-circle',
+    accent: '#7C3AED',
+    accentBg: '#F3EEFE',
+  },
+  prescription: {
+    label: 'Prescription',
+    icon: 'document-text-outline',
+    doneIcon: 'checkmark-circle',
+    accent: '#059669',
+    accentBg: '#E8F8F1',
+  },
+};
+
+// Small self-contained animated card: scales down on press-in and springs
+// back on press-out/release, so tapping any upload tile feels responsive.
+function UploadCard({ docType, doc, onPress }) {
+  const meta = DOC_META[docType];
+  const scale = useRef(new Animated.Value(1)).current;
+
+  const pressIn = () => {
+    Animated.spring(scale, { toValue: 0.95, useNativeDriver: true, speed: 40, bounciness: 6 }).start();
+  };
+  const pressOut = () => {
+    Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 30, bounciness: 8 }).start();
+  };
+
+  const subLabel = doc.busy ? 'Uploading…' : doc.key ? 'Uploaded' : 'Tap to upload';
+
+  return (
+    <Animated.View style={{ flex: 1, transform: [{ scale }] }}>
+      <TouchableOpacity
+        activeOpacity={0.9}
+        disabled={doc.busy}
+        onPressIn={pressIn}
+        onPressOut={pressOut}
+        onPress={onPress}
+        style={[
+          styles.uploadCard,
+          { borderColor: doc.key ? meta.accent : COLORS.border },
+          doc.key && { backgroundColor: meta.accentBg, borderStyle: 'solid' },
+        ]}
+      >
+        <View
+          style={[
+            styles.uploadIconWrap,
+            { backgroundColor: doc.key ? meta.accent : meta.accentBg },
+          ]}
+        >
+          {doc.busy ? (
+            <ActivityIndicator color={doc.key ? COLORS.white : meta.accent} size="small" />
+          ) : (
+            <Ionicons
+              name={doc.key ? meta.doneIcon : meta.icon}
+              size={22}
+              color={doc.key ? COLORS.white : meta.accent}
+            />
+          )}
+        </View>
+        <Text style={styles.uploadLabel}>{meta.label}</Text>
+        <Text style={[styles.uploadSub, doc.key && { color: meta.accent, fontWeight: '700' }]} numberOfLines={1}>
+          {subLabel}
+        </Text>
+      </TouchableOpacity>
+    </Animated.View>
+  );
+}
 
 export default function HealthProfileScreen({ navigation, route }) {
   const [insuranceProvider, setInsuranceProvider] = useState('');
@@ -230,9 +311,9 @@ export default function HealthProfileScreen({ navigation, route }) {
       await updatePatientProfile({
         insurance_provider: insuranceProvider,
         insurance_member_id: memberId,
-        insurance_doc: insurance.key,   
+        insurance_doc: insurance.key,
         photo_id: photoId.key,
-        prescription_doc: prescription.key,          
+        prescription_doc: prescription.key,
       });
     } catch (err) {
       if (err.message !== 'NOT_LOGGED_IN') {
@@ -242,14 +323,11 @@ export default function HealthProfileScreen({ navigation, route }) {
       setSaving(false);
       navigation.navigate('PatientHome', { firstName: route.params?.firstName });
     }
-  }, [insuranceProvider, memberId, insurance.key, photoId.key,prescription.key, navigation, route.params?.firstName]);
+  }, [insuranceProvider, memberId, insurance.key, photoId.key, prescription.key, navigation, route.params?.firstName]);
 
   const handleSkip = useCallback(() => {
     navigation.navigate('PatientHome', { firstName: route.params?.firstName });
   }, [navigation, route.params?.firstName]);
-
-  const uploadSubLabel = (doc) =>
-    doc.busy ? 'Uploading…' : doc.key ? '✓ Uploaded' : 'Tap to upload';
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -258,20 +336,23 @@ export default function HealthProfileScreen({ navigation, route }) {
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        {/* Header */}
+        {/* Header — logo anchored to the left corner and sized up so the
+            brand reads clearly, back button now sits after it */}
         <View style={styles.header}>
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => navigation.goBack()}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          >
-            <Ionicons name="arrow-back" size={22} color={COLORS.navyDark} />
-          </TouchableOpacity>
-          <Image
-            source={require('../assets/logo.png')}
-            style={styles.logoImage}
-            resizeMode="contain"
-          />
+          <View style={styles.brandRow}>
+            <Image
+              source={require('../assets/logo.png')}
+              style={styles.logoImage}
+              resizeMode="contain"
+            />
+            <TouchableOpacity
+              style={styles.backButton}
+              onPress={() => navigation.goBack()}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Ionicons name="arrow-back" size={20} color={COLORS.navyDark} />
+            </TouchableOpacity>
+          </View>
           <View style={styles.headerText}>
             <Text style={styles.headerTitle}>Health profile</Text>
             <Text style={styles.headerStep}>Step 2 of 2</Text>
@@ -326,50 +407,27 @@ export default function HealthProfileScreen({ navigation, route }) {
           </Text>
 
           <View style={styles.uploadRow}>
-            <TouchableOpacity
-              style={[styles.uploadCard, insurance.key && styles.uploadCardDone]}
-              activeOpacity={0.8}
-              disabled={insurance.busy}
+            <UploadCard
+              docType="insurance"
+              doc={insurance}
               onPress={() => handleUploadPress('insurance', 'Insurance card')}
-            >
-              {insurance.busy
-                ? <ActivityIndicator color={COLORS.navy} style={styles.uploadSpinner} />
-                : <Text style={styles.uploadIcon}>{insurance.key ? '✓' : '📷'}</Text>}
-              <Text style={styles.uploadLabel}>Insurance card</Text>
-              <Text style={styles.uploadSub} numberOfLines={1}>{uploadSubLabel(insurance)}</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.uploadCard, photoId.key && styles.uploadCardDone]}
-              activeOpacity={0.8}
-              disabled={photoId.busy}
+            />
+            <UploadCard
+              docType="photoId"
+              doc={photoId}
               onPress={() => handleUploadPress('photoId', 'Photo ID')}
-            >
-              {photoId.busy
-                ? <ActivityIndicator color={COLORS.navy} style={styles.uploadSpinner} />
-                : <Text style={styles.uploadIcon}>{photoId.key ? '✓' : '🪪'}</Text>}
-              <Text style={styles.uploadLabel}>Photo ID</Text>
-              <Text style={styles.uploadSub} numberOfLines={1}>{uploadSubLabel(photoId)}</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.uploadCard, prescription.key && styles.uploadCardDone]}
-              activeOpacity={0.8}
-              disabled={prescription.busy}
+            />
+            <UploadCard
+              docType="prescription"
+              doc={prescription}
               onPress={() => handleUploadPress('prescription', 'Prescription')}
-            >
-              {prescription.busy
-                ? <ActivityIndicator color={COLORS.navy} style={styles.uploadSpinner} />
-                : <Text style={styles.uploadIcon}>{prescription.key ? '✓' : '📋'}</Text>}
-              <Text style={styles.uploadLabel}>Prescription</Text>
-              <Text style={styles.uploadSub} numberOfLines={1}>{uploadSubLabel(prescription)}</Text>
-            </TouchableOpacity>
+            />
           </View>
 
           <TouchableOpacity
             style={[styles.saveBtn, (saving || insurance.busy || photoId.busy || prescription.busy) && styles.saveBtnDisabled]}
             activeOpacity={0.85}
-            disabled={saving || insurance.busy || photoId.busy||prescription.busy}
+            disabled={saving || insurance.busy || photoId.busy || prescription.busy}
             onPress={handleSave}
           >
             {saving
@@ -433,23 +491,28 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.lightGray,
-    gap: 12,
+    gap: 10,
+  },
+  brandRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   backButton: {
-    width: 36, height: 36, borderRadius: 18,
+    width: 34, height: 34, borderRadius: 17,
     alignItems: 'center', justifyContent: 'center',
     backgroundColor: COLORS.offWhite, borderWidth: 1, borderColor: COLORS.lightGray,
   },
   logoImage: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
+    width: 48,
+    height: 48,
+    borderRadius: 12,
   },
-  headerText: { flex: 1 },
+  headerText: { flex: 1, marginLeft: 6 },
   headerTitle: { fontSize: 16, fontWeight: '800', color: COLORS.navyDark },
   headerStep: { fontSize: 12, color: COLORS.gray, marginTop: 1 },
   progressDots: { flexDirection: 'row', gap: 6 },
@@ -475,12 +538,29 @@ const styles = StyleSheet.create({
   },
   uploadRow: { flexDirection: 'row', gap: 14, marginBottom: 28 },
   uploadCard: {
-    flex: 1, borderWidth: 1.5, borderColor: COLORS.border, borderStyle: 'dashed',
-    borderRadius: 14, paddingVertical: 22, alignItems: 'center', backgroundColor: COLORS.offWhite, gap: 6,
+    flex: 1,
+    borderWidth: 1.5,
+    borderColor: COLORS.border,
+    borderStyle: 'dashed',
+    borderRadius: 16,
+    paddingVertical: 20,
+    alignItems: 'center',
+    backgroundColor: COLORS.offWhite,
+    gap: 6,
+    shadowColor: COLORS.navyDark,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    elevation: 2,
   },
-  uploadCardDone: { borderColor: COLORS.navy, backgroundColor: '#EBF0FB', borderStyle: 'solid' },
-  uploadIcon: { fontSize: 26, marginBottom: 4 },
-  uploadSpinner: { marginBottom: 4, height: 26 },
+  uploadIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 4,
+  },
   uploadLabel: { fontSize: 13, fontWeight: '700', color: COLORS.navyDark },
   uploadSub: { fontSize: 12, color: COLORS.gray },
   saveBtn: { backgroundColor: COLORS.navy, borderRadius: 14, paddingVertical: 17, alignItems: 'center', marginBottom: 16 },

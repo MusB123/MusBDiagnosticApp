@@ -189,6 +189,164 @@ function PulsingIconBadge({ children, style }) {
   );
 }
 
+/** Colorful animated call-to-action card for "Pick a day & time" — shimmering icon ring + pulse glow + bounce-in. */
+function ScheduleCTA({ onPress, delay }) {
+  const entrance = useRef(new Animated.Value(0)).current;
+  const glow = useRef(new Animated.Value(0)).current;
+  const iconSpin = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.sequence([
+      Animated.delay(delay),
+      Animated.spring(entrance, { toValue: 1, useNativeDriver: true, speed: 14, bounciness: 12 }),
+    ]).start();
+
+    const glowLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(glow, { toValue: 1, duration: 1400, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(glow, { toValue: 0, duration: 1400, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      ])
+    );
+    glowLoop.start();
+
+    const spinLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(iconSpin, { toValue: 1, duration: 900, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(iconSpin, { toValue: 0, duration: 900, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.delay(1800),
+      ])
+    );
+    spinLoop.start();
+
+    return () => { glowLoop.stop(); spinLoop.stop(); };
+  }, []);
+
+  const rotate = iconSpin.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '-12deg'] });
+
+  return (
+    <Animated.View
+      style={{
+        opacity: entrance,
+        transform: [
+          { scale: entrance.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1] }) },
+        ],
+      }}
+    >
+      <AnimatedPressable style={styles.scheduleCTA} scaleTo={0.97} onPress={onPress}>
+        {/* Glow blob behind the icon */}
+        <Animated.View
+          style={[
+            styles.scheduleCTAGlow,
+            {
+              opacity: glow.interpolate({ inputRange: [0, 1], outputRange: [0.35, 0.7] }),
+              transform: [{ scale: glow.interpolate({ inputRange: [0, 1], outputRange: [1, 1.15] }) }],
+            },
+          ]}
+        />
+        <Animated.View style={[styles.scheduleCTAIconRing, { transform: [{ rotate }] }]}>
+          <Ionicons name="calendar" size={24} color={COLORS.white} />
+        </Animated.View>
+
+        <View style={{ flex: 1 }}>
+          <Text style={styles.scheduleCTATitle}>Pick a day & time</Text>
+          <Text style={styles.scheduleCTASub}>Flexible, fixed, or urgent scheduling</Text>
+          <View style={styles.scheduleCTATagsRow}>
+            <View style={[styles.scheduleCTATag, { backgroundColor: COLORS.greenLight }]}>
+              <View style={[styles.scheduleCTADot, { backgroundColor: COLORS.green }]} />
+              <Text style={[styles.scheduleCTATagText, { color: '#15803D' }]}>Flexible</Text>
+            </View>
+            <View style={[styles.scheduleCTATag, { backgroundColor: COLORS.amberLight }]}>
+              <View style={[styles.scheduleCTADot, { backgroundColor: COLORS.amber }]} />
+              <Text style={[styles.scheduleCTATagText, { color: '#92400E' }]}>Fixed</Text>
+            </View>
+            <View style={[styles.scheduleCTATag, { backgroundColor: '#FFE4E6' }]}>
+              <View style={[styles.scheduleCTADot, { backgroundColor: '#E11D48' }]} />
+              <Text style={[styles.scheduleCTATagText, { color: '#9F1239' }]}>Urgent</Text>
+            </View>
+          </View>
+        </View>
+
+        <View style={styles.scheduleCTAArrowWrap}>
+          <Ionicons name="chevron-forward" size={18} color={COLORS.navy} />
+        </View>
+      </AnimatedPressable>
+    </Animated.View>
+  );
+}
+
+const SLOT_TYPE_STYLES = {
+  flexible: { color: COLORS.green, bg: '#DCFCE7', border: '#86EFAC', icon: 'leaf-outline', label: 'Flexible' },
+  fixed:    { color: COLORS.amber, bg: '#FEF3C7', border: '#FCD34D', icon: 'time-outline', label: 'Fixed time' },
+  urgent:   { color: '#E11D48',    bg: '#FFE4E6', border: '#FDA4AF', icon: 'flash-outline', label: 'Urgent' },
+};
+
+/** Colorful animated summary card shown once a schedule has been picked. */
+function ScheduleFilledCard({ schedule, onPress }) {
+  const entrance = useRef(new Animated.Value(0)).current;
+  const check = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.spring(entrance, { toValue: 1, useNativeDriver: true, speed: 16, bounciness: 10 }).start();
+    Animated.sequence([
+      Animated.delay(180),
+      Animated.spring(check, { toValue: 1, useNativeDriver: true, speed: 20, bounciness: 16 }),
+    ]).start();
+  }, [schedule.scheduledDate, schedule.slotType, schedule.slotIndex]);
+
+  const tierKey = schedule.slotType === 'urgent' ? 'urgent' : schedule.slotType === 'fixed' ? 'fixed' : 'flexible';
+  const tier = SLOT_TYPE_STYLES[tierKey];
+
+  return (
+    <Animated.View
+      style={{
+        opacity: entrance,
+        transform: [{ scale: entrance.interpolate({ inputRange: [0, 1], outputRange: [0.94, 1] }) }],
+      }}
+    >
+      <AnimatedPressable style={styles.scheduleFilledCard} scaleTo={0.98} onPress={onPress}>
+        <View style={[styles.scheduleFilledAccentBar, { backgroundColor: tier.color }]} />
+
+        <View style={[styles.scheduleFilledIconRing, { backgroundColor: tier.bg, borderColor: tier.border }]}>
+          <Ionicons name={tier.icon} size={22} color={tier.color} />
+          <Animated.View
+            style={[
+              styles.scheduleFilledCheckBadge,
+              {
+                opacity: check,
+                transform: [{ scale: check }],
+                backgroundColor: tier.color,
+              },
+            ]}
+          >
+            <Ionicons name="checkmark" size={11} color={COLORS.white} />
+          </Animated.View>
+        </View>
+
+        <View style={{ flex: 1 }}>
+          <View style={styles.scheduleFilledTierRow}>
+            <View style={[styles.scheduleFilledTierPill, { backgroundColor: tier.bg, borderColor: tier.border }]}>
+              <Text style={[styles.scheduleFilledTierText, { color: tier.color }]}>{tier.label}</Text>
+            </View>
+          </View>
+          <Text style={styles.scheduleFilledDate}>{schedule.scheduledDateLabel}</Text>
+          <Text style={styles.scheduleFilledTime}>{schedule.scheduledTimeLabel}</Text>
+          {schedule.totalPatientFee != null && (
+            <View style={styles.scheduleFilledPriceRow}>
+              <Ionicons name="pricetag" size={11} color={COLORS.navy} />
+              <Text style={styles.scheduleFilledPrice}>${schedule.totalPatientFee.toFixed(0)} visit fee</Text>
+            </View>
+          )}
+        </View>
+
+        <View style={styles.scheduleChangeBtn}>
+          <Text style={styles.scheduleChangeText}>Change</Text>
+        </View>
+      </AnimatedPressable>
+    </Animated.View>
+  );
+}
+
+
 /** Doctor's-order selectable card — icon ring, accent bar, checkmark badge, press animation. */
 function OrderOptionCard({ icon, accent, accentBg, title, subtitle, selected, onPress, delay, disabled }) {
   const check = useRef(new Animated.Value(selected ? 1 : 0)).current;
@@ -328,12 +486,7 @@ export default function BookMobileVisitScreen() {
   const address = bookingDraft.address;
   const zipCode = bookingDraft.zipCode;
 
-  const dates = generateDates();
-  const [selectedDate, setSelectedDate] = useState(dates[0]);
-  const [selectedHour, setSelectedHour] = useState('09');
-  const [selectedMinute, setSelectedMinute] = useState('00');
-  const [selectedPeriod, setSelectedPeriod] = useState('AM');
-
+ 
   const [doctorOrder, setDoctorOrder] = useState(bookingDraft.doctorOrder || 'self');
   const [prescriptionFile, setPrescriptionFile] = useState(bookingDraft.prescriptionFile || null);
   const [insurance, setInsurance] = useState(bookingDraft.insurance || 'none');
@@ -342,8 +495,9 @@ export default function BookMobileVisitScreen() {
 
   const [selectedTests, setSelectedTests] = useState(bookingDraft.selectedTestsData || []);
   const [testsTotal, setTestsTotal] = useState(bookingDraft.testsTotal || 0);
-
-  const currentSlot = TIME_SLOTS[getSlotFromTime(parseInt(selectedHour, 10), selectedMinute, selectedPeriod)];
+  const [appliedOffer, setAppliedOffer] = useState(bookingDraft.appliedOffer || null);
+  const [extraTestsData, setExtraTestsData] = useState(bookingDraft.extraTestsData || []);
+  const [schedule, setSchedule] = useState(bookingDraft.schedule || null);
 
   useEffect(() => {
     const unsubscribe = navigation.addListener('focus', () => {
@@ -351,17 +505,33 @@ export default function BookMobileVisitScreen() {
       if (params?.selectedTestsData) {
         setSelectedTests(params.selectedTestsData);
         setTestsTotal(params.testsTotal ?? 0);
+        setAppliedOffer(params.appliedOffer ?? null);
+        setExtraTestsData(params.extraTestsData ?? []);
         setBookingDraft({
           selectedTestsData: params.selectedTestsData,
           testsTotal: params.testsTotal ?? 0,
+          appliedOffer: params.appliedOffer ?? null,
+          extraTestsData: params.extraTestsData ?? [],
         });
       }
-    });
-    return unsubscribe;
-  }, [navigation, route]);
+      if (params?.scheduledDate) {
+        const newSchedule = {
+          scheduledDate: params.scheduledDate,
+          scheduledDateLabel: params.scheduledDateLabel,
+          scheduledTimeLabel: params.scheduledTimeLabel,
+          preferredTime: params.preferredTime,
+          slotType: params.slotType,
+          slotIndex: params.slotIndex,
+          timeWindow: params.timeWindow,
+          totalPatientFee: params.totalPatientFee,
+        };
+        setSchedule(newSchedule);
+        setBookingDraft({ schedule: newSchedule });
+      }
+      });
+      return unsubscribe;
+    }, [navigation, route]);
 
-  const formattedTime = `${selectedHour}:${selectedMinute} ${selectedPeriod}`;
-  const formattedDateLabel = `${selectedDate.month} ${selectedDate.day} (${selectedDate.weekday})`;
 
   // ── Generic upload flow: Choose File (Image/PDF) or Take Photo ──
   // Mirrors the flow used on RegisterStep2, adapted for this screen's
@@ -749,36 +919,66 @@ export default function BookMobileVisitScreen() {
               <>
                 <View style={styles.labDivider} />
                 <View style={styles.labBody}>
-                  {selectedTests.map((test, i) => {
-                   const hasDiscount =
-                    test.discountPrice != null && test.discountPrice < test.price;
-                   return (
-                    <FadeInUp key={test.id ?? i} delay={i * 50} distance={8}>
+                  {appliedOffer ? (
+                    <>
                       <View style={styles.testPill}>
                         <View style={styles.testPillLeft}>
-                          <View style={styles.testDot} />
+                          <Ionicons name="pricetag" size={14} color={COLORS.navy} style={{ marginRight: 2 }} />
                           <Text style={styles.testPillName} numberOfLines={1}>
-                            {test.name}
+                            {appliedOffer.title} ({appliedOffer.testIds?.length ?? appliedOffer.matchedCount} tests)
                           </Text>
                         </View>
-                        {hasDiscount ? (
-                          <View style={styles.testPillPriceRow}>
-                            <Text style={styles.testPillStrikePrice}>
-                              ${test.price.toFixed(0)}
-                            </Text>
-                            <Text style={[styles.testPillPrice, styles.testPillDiscountPrice]}>
-                              ${test.discountPrice.toFixed(0)}
+                        <Text style={[styles.testPillPrice, { color: COLORS.green }]}>
+                          ${appliedOffer.price.toFixed(0)}
+                        </Text>
+                      </View>
+                      {extraTestsData.map((test, i) => (
+                        <FadeInUp key={test.id ?? i} delay={i * 50} distance={8}>
+                          <View style={styles.testPill}>
+                            <View style={styles.testPillLeft}>
+                              <View style={styles.testDot} />
+                              <Text style={styles.testPillName} numberOfLines={1}>
+                                {test.name}
+                              </Text>
+                            </View>
+                            <Text style={styles.testPillPrice}>
+                              ${(test.discountPrice ?? test.price).toFixed(0)}
                             </Text>
                           </View>
-                        ) : (       
-                           <Text style={styles.testPillPrice}>${test.price.toFixed(0)}</Text>
-                          )}
-                      </View>
-                    </FadeInUp>
-                    );
-                   })}
+                        </FadeInUp>
+                      ))}
+                    </>
+                  ) : (
+                    selectedTests.map((test, i) => {
+                      const hasDiscount = test.discountPrice != null && test.discountPrice < test.price;
+                      return (
+                        <FadeInUp key={test.id ?? i} delay={i * 50} distance={8}>
+                          <View style={styles.testPill}>
+                            <View style={styles.testPillLeft}>
+                              <View style={styles.testDot} />
+                              <Text style={styles.testPillName} numberOfLines={1}>
+                                {test.name}
+                              </Text>
+                            </View>
+                            {hasDiscount ? (
+                              <View style={styles.testPillPriceRow}>
+                                <Text style={styles.testPillStrikePrice}>${test.price.toFixed(0)}</Text>
+                                <Text style={[styles.testPillPrice, styles.testPillDiscountPrice]}>
+                                  ${test.discountPrice.toFixed(0)}
+                                </Text>
+                              </View>
+                            ) : (
+                              <Text style={styles.testPillPrice}>${test.price.toFixed(0)}</Text>
+                            )}
+                          </View>
+                        </FadeInUp>
+                      );
+                    })
+                  )}
                   <View style={styles.testsTotalRow}>
-                    <Text style={styles.testsTotalLabel}>Tests subtotal</Text>
+                    <Text style={styles.testsTotalLabel}>
+                      {appliedOffer ? 'Offer total' : 'Tests subtotal'}
+                    </Text>
                     <Text style={styles.testsTotalValue}>${testsTotal.toFixed(0)}</Text>
                   </View>
                 </View>
@@ -818,45 +1018,24 @@ export default function BookMobileVisitScreen() {
           </View>
         </FadeInUp>
 
-        {/* Date Picker */}
+        {/* Schedule */}
         <FadeInUp delay={220}>
-          <Text style={styles.sectionLabel}>Select date</Text>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.dateRow}
-          >
-            {dates.map((date) => (
-              <DateCard
-                key={date.id}
-                date={date}
-                isSelected={selectedDate.id === date.id}
-                onPress={() => setSelectedDate(date)}
-              />
-            ))}
-          </ScrollView>
-        </FadeInUp>
-
-        {/* Time Picker */}
-        <FadeInUp delay={260}>
-          <View style={styles.sectionLabelRow}>
-            <Text style={styles.sectionLabel}>Select arrival time</Text>
-            <View style={[styles.slotBadge, { backgroundColor: currentSlot.color + '22', borderColor: currentSlot.color }]}>
-              <Ionicons name={currentSlot.icon} size={12} color={currentSlot.color} />
-              <Text style={[styles.slotBadgeText, { color: currentSlot.color }]}>{currentSlot.label}</Text>
-            </View>
-          </View>
-          <View style={styles.timePickerCard}>
-            <View style={styles.pickerRow}>
-              <ScrollPicker data={HOURS} selected={selectedHour} onSelect={setSelectedHour} />
-              <Text style={styles.colon}>:</Text>
-              <ScrollPicker data={MINUTES} selected={selectedMinute} onSelect={setSelectedMinute} />
-              <ScrollPicker data={PERIODS} selected={selectedPeriod} onSelect={setSelectedPeriod} />
-            </View>
-          </View>
-          <Text style={styles.pricingDeferredNote}>
-            Pricing for this slot (incl. any time-of-day, weekend, or urgent fees) is calculated at checkout.
-          </Text>
+          <Text style={styles.sectionLabel}>Schedule</Text>
+          {schedule ? (
+            <ScheduleFilledCard
+              schedule={schedule}
+              onPress={() => navigation.navigate('ScheduleVisit', {
+                address, zipCode, testTotal: testsTotal, returnTo: 'BookMobileVisit',
+              })}
+            />
+          ) : (
+            <ScheduleCTA
+              delay={0}
+              onPress={() => navigation.navigate('ScheduleVisit', {
+                address, zipCode, testTotal: testsTotal, returnTo: 'BookMobileVisit',
+              })}
+            />
+          )}
         </FadeInUp>
 
         {/* Mobile visit note */}
@@ -876,12 +1055,20 @@ export default function BookMobileVisitScreen() {
               <Ionicons name="calendar" size={22} color={COLORS.white} />
             </PulsingIconBadge>
             <Text style={styles.summaryLabel}>Scheduled for</Text>
-            <Text style={styles.summaryDate}>{formattedDateLabel}</Text>
-            <Text style={styles.summaryTime}>{formattedTime}</Text>
-            <View style={[styles.summarySlotPill, { backgroundColor: currentSlot.color }]}>
-              <Ionicons name={currentSlot.icon} size={12} color={COLORS.white} />
-              <Text style={styles.summarySlotText}>{currentSlot.label} slot</Text>
-            </View>
+            {schedule ? (
+              <>
+                <Text style={styles.summaryDate}>{schedule.scheduledDateLabel}</Text>
+                <Text style={styles.summaryTime}>{schedule.scheduledTimeLabel}</Text>
+                {schedule.totalPatientFee != null && (
+                  <View style={[styles.summarySlotPill, { backgroundColor: COLORS.greenLight, borderWidth: 1, borderColor: '#86EFAC' }]}>
+                    <Ionicons name="pricetag" size={12} color="#15803D" style={{ marginRight: 4 }} />
+                    <Text style={[styles.summarySlotText, { color: '#15803D' }]}>${schedule.totalPatientFee.toFixed(0)} visit fee</Text>
+                  </View>
+                )}
+              </>
+            ) : (
+              <Text style={styles.summaryDate}>Not scheduled yet</Text>
+            )}
           </View>
         </FadeInUp>
       </ScrollView>
@@ -892,63 +1079,69 @@ export default function BookMobileVisitScreen() {
           style={styles.confirmBtn}
           scaleTo={0.97}
           onPress={async () => {
+            if (!schedule) {
+              Alert.alert('Pick a time', 'Please choose your appointment day and time to continue.');
+              return;
+            }
             if (insurance === 'have' && doctorOrder !== 'order') {
-              Alert.alert(
-                "Doctor's order required",
-                "Since you have insurance, please select and upload a doctor's order before continuing."
-              );
+              Alert.alert("Doctor's order required", "Since you have insurance, please select and upload a doctor's order before continuing.");
               return;
             }
             if (insurance === 'have' && doctorOrder === 'order' && !prescriptionFile) {
-              Alert.alert(
-                "Doctor's order document missing",
-                "Please upload your doctor's order document before continuing."
-              );
+              Alert.alert("Doctor's order document missing", "Please upload your doctor's order document before continuing.");
               return;
             }
             try {
               const preview = await fetchPricing({
-                address,
-                zipCode,
-                bookingDate: selectedDate.isoDate,
-                bookingTime: formattedTime,
+                address, zipCode,
+                bookingDate: schedule.scheduledDate,
+                bookingTime: schedule.preferredTime,
+                slotType: schedule.slotType,
+                testTotal: testsTotal,
               });
+
+              if (preview.serviceable === false) {
+                Alert.alert(
+                  'No coverage in your area',
+                  preview.reason === 'address_not_found'
+                    ? "We couldn't locate that address. Please re-check it and try again."
+                    : "We don't have specialists serving your area yet. Please try a different address or contact support."
+                );
+                return;
+              }
+
+              const totalPatientFee = Number(preview.totalPatientFee) || 0;
 
               const checkoutParams = {
                 labTestsTotal: testsTotal,
                 labTestsNames: selectedTests.map((t) => t.name).join(', '),
-                selectedTests,
-                address,
-                zipCode,
+                selectedTests, appliedOffer, extraTestsData,
+                address, zipCode,
                 visitType: 'mobile',
-                preferredDate: selectedDate.isoDate,
-                preferredTime: formattedTime,
+                preferredDate: schedule.scheduledDate,
+                preferredTime: schedule.preferredTime,
                 baseFee: Number(preview.baseFee) || 0,
-                mileageRate: Number(preview.mileageRate) || 0,
-                distanceMiles: Number(preview.distanceMiles) || 0,
-                dynamicFeesTotal: Number(preview.dynamicFees?.total) || 0,
-                totalPatientFee: Number(preview.totalPatientFee) || 0,
-                timeSlotLabel: currentSlot.label,
-                doctorOrder,
-                prescriptionFile,
-                insurance,
-                insuranceFront,
-                insuranceBack,
+                distanceFee: Number(preview.distanceFee) || 0,
+                driversReserveFee: Number(preview.driversReserveFee) || 0,
+                surchargesTotal: Number(preview.surchargesTotal) || 0,
+                serviceFee: Number(preview.serviceFee) || 0,
+                totalPatientFee,
+                quotedTotalFee: totalPatientFee,
+                slotType: schedule.slotType,
+                timeSlotLabel: schedule.scheduledTimeLabel,
+                doctorOrder, prescriptionFile, insurance, insuranceFront, insuranceBack,
               };
               const existingToken = await getStoredPatientToken();
               navigation.navigate(existingToken ? 'Checkout' : 'GuestInfo', checkoutParams);
-             
             } catch (err) {
               console.error(err);
-              Alert.alert(
-                'Pricing unavailable',
-                err.message || 'Could not calculate pricing. Please try again.'
-              );
+              Alert.alert('Pricing unavailable', err.message || 'Could not calculate pricing. Please try again.');
             }
           }}
         >
           <Text style={styles.confirmBtnText}>
-            Continue to checkout{testsTotal > 0 ? ` · $${testsTotal.toFixed(0)} tests` : ''}
+            Continue to checkout
+            {schedule?.totalPatientFee != null ? ` · $${(testsTotal + schedule.totalPatientFee).toFixed(0)}` : testsTotal > 0 ? ` · $${testsTotal.toFixed(0)} tests` : ''}
           </Text>
         </AnimatedPressable>
       </View>
@@ -1428,4 +1621,122 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   confirmBtnText: { color: COLORS.white, fontSize: 16, fontWeight: '800' },
+
+scheduleChangeBtn: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 10, backgroundColor: COLORS.white, borderWidth: 1, borderColor: COLORS.border },
+scheduleChangeText: { fontSize: 12, fontWeight: '800', color: COLORS.navy },
+scheduleCTA: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    backgroundColor: COLORS.white,
+    borderRadius: 20,
+    padding: 16,
+    borderWidth: 1.5,
+    borderColor: '#E4E9F5',
+    overflow: 'hidden',
+    elevation: 3,
+    shadowColor: COLORS.navy,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+  },
+  scheduleCTAGlow: {
+    position: 'absolute',
+    left: 8, top: 8,
+    width: 56, height: 56,
+    borderRadius: 20,
+    backgroundColor: COLORS.purple,
+  },
+  scheduleCTAIconRing: {
+    width: 52,
+    height: 52,
+    borderRadius: 18,
+    backgroundColor: COLORS.navy,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: COLORS.navy,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  scheduleCTATitle: { fontSize: 15, fontWeight: '900', color: COLORS.navyDark },
+  scheduleCTASub: { fontSize: 12, color: COLORS.gray, marginTop: 2, marginBottom: 8 },
+  scheduleCTATagsRow: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
+  scheduleCTATag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  scheduleCTADot: { width: 6, height: 6, borderRadius: 3 },
+  scheduleCTATagText: { fontSize: 10, fontWeight: '800' },
+  scheduleCTAArrowWrap: {
+    width: 30,
+    height: 30,
+    borderRadius: 10,
+    backgroundColor: '#EAF0FB',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  scheduleFilledCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    backgroundColor: COLORS.white,
+    borderRadius: 20,
+    padding: 16,
+    borderWidth: 1.5,
+    borderColor: '#E4E9F5',
+    overflow: 'hidden',
+    elevation: 3,
+    shadowColor: COLORS.navy,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+  },
+  scheduleFilledAccentBar: {
+    position: 'absolute',
+    left: 0, top: 0, bottom: 0,
+    width: 5,
+  },
+  scheduleFilledIconRing: {
+    width: 50,
+    height: 50,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  scheduleFilledCheckBadge: {
+    position: 'absolute',
+    bottom: -3,
+    right: -3,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: COLORS.white,
+  },
+  scheduleFilledTierRow: { flexDirection: 'row', marginBottom: 4 },
+  scheduleFilledTierPill: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  scheduleFilledTierText: { fontSize: 10, fontWeight: '900', letterSpacing: 0.3 },
+  scheduleFilledDate: { fontSize: 14, fontWeight: '800', color: COLORS.navyDark },
+  scheduleFilledTime: { fontSize: 13, color: COLORS.bodyText, marginTop: 1 },
+  scheduleFilledPriceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 5,
+  },
+  scheduleFilledPrice: { fontSize: 12, fontWeight: '800', color: COLORS.navy },
 });

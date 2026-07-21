@@ -33,6 +33,15 @@
         "CAMERA",
         "READ_EXTERNAL_STORAGE",
         "READ_MEDIA_IMAGES"
+      ],
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "data": [
+            { "scheme": "com.googleusercontent.apps.357644965650-a56dcup9k1q040bj1oji7ut8kng1h2k2" }
+          ],
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
       ]
     },
     "web": {
