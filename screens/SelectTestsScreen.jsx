@@ -261,8 +261,11 @@ function TestRow({ test, isSelected, onToggle, delay }) {
             {test.name}
           </Text>
           {!!test.desc && (
-            <Text style={styles.testDesc} numberOfLines={2} ellipsizeMode="tail">
-              {test.desc}
+            <Text
+              style={styles.testDesc}
+              numberOfLines={0}
+            >
+             {test.desc}
             </Text>
           )}
           {(test.sampleType || test.turnaround) && (
@@ -1066,10 +1069,10 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
     marginRight: 12,
   },
-  testInfo: { flex: 1, paddingRight: 8 },
+  testInfo: { flex: 1, paddingRight: 8 , minWidth: 0,},
   testName: { fontSize: 14.5, fontWeight: '700', color: COLORS.navyDark, marginBottom: 2, letterSpacing: 0.1 },
   testNameSelected: { color: COLORS.navy },
-  testDesc: { fontSize: 12, color: COLORS.bodyText, lineHeight: 16, marginBottom: 3 },
+  testDesc: { fontSize: 12, color: COLORS.bodyText, lineHeight: 18, marginBottom: 3,flexWrap: 'wrap', },
   testMeta: { fontSize: 11.5, color: COLORS.gray, fontWeight: '500' },
   fastingBadge: {
     flexDirection: 'row',
