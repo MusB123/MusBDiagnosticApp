@@ -241,28 +241,45 @@ export default function LoginScreen({ navigation }) {
   };
 
   useEffect(() => {
-    console.log('Redirect URI:', AuthSession.makeRedirectUri({
-      scheme: 'com.googleusercontent.apps.357644965650-a56dcup9k1q040bj1oji7ut8kng1h2k2',
-    }));
+    console.log('Redirect URI:', AuthSession.makeRedirectUri(
+      Platform.OS === 'ios'
+        ? { scheme: 'com.googleusercontent.apps.419738471832-ll0vcr4ing5mqja61808thjetfvs14br' }
+        : {}
+    ));
   }, []);
 
   const [request, response, promptAsync] = Google.useAuthRequest({
-    webClientId: '357644965650-00qvkpfitaeh7sikgii00o54fkatq29d.apps.googleusercontent.com',
-    androidClientId: '357644965650-a56dcup9k1q040bj1oji7ut8kng1h2k2.apps.googleusercontent.com',
-    iosClientId: '357644965650-00qvkpfitaeh7sikgii00o54fkatq29d.apps.googleusercontent.com',
-    redirectUri: AuthSession.makeRedirectUri({
-      scheme: 'com.googleusercontent.apps.357644965650-a56dcup9k1q040bj1oji7ut8kng1h2k2',
-    }),
+    webClientId: '419738471832-nsodach0uujc8anp8p76i3nfeei9f8c4.apps.googleusercontent.com',
+    androidClientId: '419738471832-8bmiolhcc8tpbo12gi8vlktvd27mpu9a.apps.googleusercontent.com',
+    iosClientId: '419738471832-ll0vcr4ing5mqja61808thjetfvs14br.apps.googleusercontent.com',
+    redirectUri: `com.googleusercontent.apps.419738471832-8bmiolhcc8tpbo12gi8vlktvd27mpu9a:/oauth2redirect`,
   });
   useEffect(() => {
     const handleGoogleResponse = async () => {
-      if (response?.type !== 'success') return;
+      if (!response) return;
+
+      if (response.type === 'error') {
+        console.log('Google auth error:', response.error);
+        Alert.alert('Google sign-in failed', response.error?.message || 'Please try again.');
+        return;
+      }
+      if (response.type !== 'success') {
+        console.log('Google auth response type:', response.type);
+        return;
+      }
+
       setGoogleLoading(true);
       try {
         const { authentication } = response;
+        if (!authentication?.accessToken) {
+          throw new Error('No access token returned from Google.');
+        }
         const userInfoRes = await fetch('https://www.googleapis.com/userinfo/v2/me', {
           headers: { Authorization: `Bearer ${authentication.accessToken}` },
         });
+        if (!userInfoRes.ok) {
+          throw new Error(`Failed to fetch Google profile (${userInfoRes.status})`);
+        }
         const userInfo = await userInfoRes.json();
 
         const data = await loginWithGoogle({
@@ -274,6 +291,7 @@ export default function LoginScreen({ navigation }) {
         });
         routeAfterLogin(data.role);
       } catch (err) {
+        console.log('Google sign-in error:', err);
         Alert.alert('Google sign-in failed', err.message || 'Please try again.');
       } finally {
         setGoogleLoading(false);

@@ -79,6 +79,17 @@ export default function MapScreen({ route, navigation }) {
     Authorization: `Bearer ${tokenRef.current}`,
   });
 
+  // Formats a raw date string into "Wed, 24 Jul" for the nearby-request cards.
+function formatDayDate(dateStr) {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return '';
+  const weekday = d.toLocaleDateString('en-US', { weekday: 'short' });
+  const day = d.getDate();
+  const month = d.toLocaleDateString('en-US', { month: 'short' });
+  return `${weekday}, ${day} ${month}`;
+}
+
   // Pull jobsToday / earnedToday only — this endpoint also returns a legacy
   // "broadcasts" field from the older system, which we intentionally ignore
   // since all job offers now flow through dispatch/pending/.
@@ -297,21 +308,22 @@ export default function MapScreen({ route, navigation }) {
   // place where accept/decline happens — avoids the "is this tappable or
   // just informational" confusion the card-only design had before.
   const handleViewRequest = (req) => {
-    navigation.navigate('NewRequest', {
-      request: {
-        id: req.id,
-        location: req.address,
-        distanceMiles: `${req.distance_miles} mi`,
-        distanceFromYou: `${req.distance_miles} miles`,
-        estimatedDrive: '—',
-        neighbourhood: req.address,
-        collectionType: req.test_name || 'Clinical Test',
-        preferredTime: req.preferred_time,
-        preferredDate: req.preferred_date,
-      },
-      fullName,
-    });
-  };
+  navigation.navigate('NewRequest', {
+    request: {
+      id: req.id,
+      location: req.address,
+      distanceMiles: `${req.distance_miles} mi`,
+      distanceFromYou: `${req.distance_miles} miles`,
+      estimatedDrive: '—',
+      collectionType: req.test_name || 'Clinical Test',
+      preferredTime: req.preferred_time,
+      preferredDate: req.preferred_date,
+      isSelfPaid: !!req.is_self_paid,
+      estimatedPayout: req.estimated_payout,
+    },
+    fullName,
+  });
+};
 
   return (
     <View style={styles.outer}>
@@ -491,12 +503,14 @@ export default function MapScreen({ route, navigation }) {
                 </View>
                 <View style={{ flex: 1, marginRight: 10 }}>
                   <Text style={styles.nearbyCardTitle}>{req.test_name || 'Clinical Test'}</Text>
-                  <Text style={styles.nearbyCardSub} numberOfLines={1}>
-                    {req.address || 'Address unknown'}
-                  </Text>
                   <Text style={styles.nearbyCardMeta}>
-                     {req.distance_miles} mi from office
-                     {req.preferred_time ? ` · ${req.preferred_time}` : ''}
+                    {[
+                      req.distance_miles != null ? `${req.distance_miles} mi` : null,
+                      formatDayDate(req.preferred_date),
+                      req.preferred_time || null,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
                   </Text>
                 </View>
                 {/* Explicit action button instead of the whole card being

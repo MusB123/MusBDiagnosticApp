@@ -101,7 +101,8 @@ const STATUS_HEADINGS = {
 };
 
 function isInPersonVisit(appt) {
-  return (appt.visit_type || appt.visitType || '').toLowerCase() === 'in_person';
+  const vt = (appt.visit_type || appt.visitType || '').toLowerCase();
+  return vt === 'in_person' || vt === 'walkin' || vt === 'walk_in' || vt === 'onsite';
 }
 function isPaid(appt) {
   return (appt.payment_status || '').toLowerCase() === 'paid' || (appt.payment_method || '').toLowerCase() === 'card';
@@ -274,6 +275,31 @@ function BreathingBadge({ children, style, textStyle }) {
   );
 }
 
+function formatTimeLeft(value) {
+  if (!value) return null;
+
+  const date = new Date(value);
+  if (isNaN(date.getTime())) {
+    // Not a parseable date — show it as-is only if it's a short human string
+    // like "2 days", otherwise hide it entirely.
+    return /^\d+\s*\w+$/.test(value) ? value : null;
+  }
+
+  const diffMs = date.getTime() - Date.now();
+  if (diffMs <= 0) return null;
+
+  const diffHours = diffMs / (1000 * 60 * 60);
+  if (diffHours < 1) {
+    const mins = Math.round(diffMs / (1000 * 60));
+    return `${mins}m left`;
+  }
+  if (diffHours < 24) {
+    return `${Math.round(diffHours)}h left`;
+  }
+  const days = Math.round(diffHours / 24);
+  return `${days}d left`;
+}
+
 /** Colorful, animated offer card shown on the home screen. */
 function OfferCard({ offer, index, onPress }) {
   const anim = useRef(new Animated.Value(0)).current;
@@ -338,8 +364,8 @@ function OfferCard({ offer, index, onPress }) {
             <Ionicons name="flash" size={11} color="#FFFFFF" />
             <Text style={offerStyles.pillText}>{offer.offer_type || 'Offer'}</Text>
           </View>
-          {!!offer.time_left && (
-            <Text style={offerStyles.timeLeft}>⏳ {offer.time_left}</Text>
+          {!!formatTimeLeft(offer.time_left) && (
+            <Text style={offerStyles.timeLeft}>⏳ {formatTimeLeft(offer.time_left)}</Text>
           )}
         </View>
 
@@ -418,7 +444,12 @@ export default function HomeScreen({ navigation, route }) {
         setFirstName(storedUser.name.split(' ')[0]);
       }
       const data = await fetchPatientDashboard();
-      if (isMountedRef.current) setDashboard(data);
+      if (isMountedRef.current) {
+        setDashboard({
+          ...data,
+          upcoming: [...(data.active || []), ...(data.upcoming || [])],
+        });
+      }
     } catch (err) {
       if (isMountedRef.current) {
         if (err.message === 'NOT_LOGGED_IN' && route?.params?.isGuest) {
@@ -495,7 +526,10 @@ export default function HomeScreen({ navigation, route }) {
       setRatingComment('');
       setRatingValue(5);
       const data = await fetchPatientDashboard();
-      setDashboard(data);
+      setDashboard({
+        ...data,
+        upcoming: [...(data.active || []), ...(data.upcoming || [])],
+      });
     } catch (err) {
       Alert.alert('Could not submit rating', err.message || 'Please try again.');
     } finally {
@@ -684,7 +718,7 @@ export default function HomeScreen({ navigation, route }) {
                         </View>
                         <Text style={styles.apptMeta}>
                           {isInPersonVisit(appt)
-                            ? 'Walk-in — pay at center'
+                            ? 'Walk-in'
                             : `${appt.time} · ${appt.phlebotomist || 'Awaiting assignment'}`}
                         </Text>
                       </View>
@@ -851,7 +885,15 @@ export default function HomeScreen({ navigation, route }) {
                 </View>
                 <View style={styles.detailItemTextWrap}>
                   <Text style={styles.detailItemLabel}>Test</Text>
-                  <Text style={styles.detailItemValue}>{appt.test}</Text>
+                  {appt.test
+                    ?.split(',')
+                    .map((t) => t.trim())
+                    .filter(Boolean)
+                    .map((t, i) => (
+                      <Text key={i} style={styles.detailItemValue}>
+                        {t}
+                      </Text>
+                    ))}
                 </View>
               </View>
 
@@ -886,26 +928,44 @@ export default function HomeScreen({ navigation, route }) {
                         const fee = Number(appt.test_price) || Number(appt.total_patient_fee) || 0;
                         return fee > 0 ? `$${fee.toFixed(2)}` : 'Not available';
                       }
-                      const base = Number(appt.baseFee) || 0;
-                      const mileage = Number(appt.mileageFee) || 0;
+
+  // Mobile visit total = visit fee (backend-authoritative) + lab test cost.
+  // These are stored as two separate fields — total_patient_fee never
+  // includes test_price, so it must be added, not treated as the full total.
+                      const visitFee = Number(appt.total_patient_fee ?? appt.totalPatientFee ?? 0);
                       const testCost = Number(appt.test_price) || 0;
-                      const computedTotal = base + mileage + testCost;
-                      const fee = computedTotal > 0
-                        ? computedTotal
-                        : (appt.total_patient_fee ?? appt.totalPatientFee ?? appt.test_price);
+
+                      let fee;
+                      if (visitFee > 0 || testCost > 0) {
+                        fee = visitFee + testCost;
+                      } else {
+    // Legacy fallback for old records with no stored breakdown.
+                        const base = Number(appt.baseFee) || 0;
+                        const distance = Number(appt.distanceFee) || 0;
+                        const driversReserve = Number(appt.driversReserveFee) || 0;
+                        const surcharges = Number(appt.surchargesTotal) || 0;
+                        fee = base + distance + driversReserve + surcharges + testCost;
+                      }
+
                       if (!fee) return 'Not available';
-                      return `$${Number(fee).toFixed(2)}`;
+                      return `$${fee.toFixed(2)}`;
                     })()}
                   </Text>
                 </View>
               </View>
-
+              
               <View style={styles.detailDivider} />
 
-              <View style={styles.detailPrepRow}>
-                <Ionicons name="time-outline" size={18} color={COLORS.purple} />
-                <Text style={styles.detailPrepText}>
-                  {appt.prep_note || 'No special preparation required'}
+              <View style={[styles.detailPrepRow, appt.fasting_required && styles.detailPrepRowFasting]}>
+                <Ionicons
+                  name={appt.fasting_required ? 'alert-circle' : 'time-outline'}
+                  size={18}
+                  color={appt.fasting_required ? '#B45309' : COLORS.purple}
+                />
+                <Text style={[styles.detailPrepText, appt.fasting_required && styles.detailPrepTextFasting]}>
+                  {appt.fasting_required
+                    ? 'Fasting required before this test'
+                    : (appt.prep_note || 'No special preparation required')}
                 </Text>
               </View>
             </Animated.View>
@@ -1200,6 +1260,13 @@ const styles = StyleSheet.create({
 
   detailPrepRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   detailPrepText: { fontSize: 13, color: COLORS.purple, fontWeight: '600', flex: 1 },
+  detailPrepRowFasting: {
+    backgroundColor: '#FEF3C7',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  detailPrepTextFasting: { color: '#B45309', fontWeight: '700' },
   payInAppBtn: {
     flexDirection: 'row',
     alignItems: 'center',

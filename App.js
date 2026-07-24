@@ -37,6 +37,9 @@ import JobHistoryScreen from './screens/JobHistoryScreen';
 import MapScreen from './screens/MapScreen';
 import NewRequestScreen from './screens/NewRequestScreen';
 import JobAcceptedScreen from './screens/JobAcceptedScreen';
+import TripInProgressScreen from './screens/TripInProgressScreen';
+import DropOffVerificationScreen from './screens/DropOffVerificationScreen';
+import JobCompletedScreen from './screens/JobCompletedScreen';
 import PhlebProfileScreen from './screens/PhlebProfileScreen';
 import VerifyArrivalScreen from './screens/VerifyArrivalScreen';
 import CollectCompleteScreen from './screens/CollectCompleteScreen';
@@ -87,10 +90,13 @@ export default function App() {
           <Stack.Screen name="PatientMap" component={MapScreen} />
           <Stack.Screen name="NewRequest" component={NewRequestScreen} />
           <Stack.Screen name="JobAccepted" component={JobAcceptedScreen} />
+          <Stack.Screen name="TripInProgress" component={TripInProgressScreen} />
           <Stack.Screen name="VerifyArrival" component={VerifyArrivalScreen} />
           <Stack.Screen name="CollectComplete" component={CollectCompleteScreen} />
           <Stack.Screen name="PhlebHistory" component={JobHistoryScreen} />
           <Stack.Screen name="PhlebProfile" component={PhlebProfileScreen} />
+          <Stack.Screen name="DropOffVerification" component={DropOffVerificationScreen} />
+          <Stack.Screen name="JobCompleted" component={JobCompletedScreen} />
         </Stack.Navigator>
       </NavigationContainer>
     </StripeProvider>

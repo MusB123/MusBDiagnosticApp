@@ -233,19 +233,20 @@ function ScheduleCTA({ onPress, delay }) {
       }}
     >
       <AnimatedPressable style={styles.scheduleCTA} scaleTo={0.97} onPress={onPress}>
-        {/* Glow blob behind the icon */}
-        <Animated.View
-          style={[
-            styles.scheduleCTAGlow,
-            {
-              opacity: glow.interpolate({ inputRange: [0, 1], outputRange: [0.35, 0.7] }),
-              transform: [{ scale: glow.interpolate({ inputRange: [0, 1], outputRange: [1, 1.15] }) }],
-            },
-          ]}
-        />
-        <Animated.View style={[styles.scheduleCTAIconRing, { transform: [{ rotate }] }]}>
-          <Ionicons name="calendar" size={24} color={COLORS.white} />
-        </Animated.View>
+        <View style={styles.scheduleCTAIconWrap}>
+          <Animated.View
+            style={[
+              styles.scheduleCTAGlow,
+              {
+                opacity: glow.interpolate({ inputRange: [0, 1], outputRange: [0.35, 0.7] }),
+                transform: [{ scale: glow.interpolate({ inputRange: [0, 1], outputRange: [1, 1.15] }) }],
+              },
+            ]}
+          />
+          <Animated.View style={[styles.scheduleCTAIconRing, { transform: [{ rotate }] }]}>
+            <Ionicons name="calendar" size={24} color={COLORS.white} />
+          </Animated.View>
+        </View>
 
         <View style={{ flex: 1 }}>
           <Text style={styles.scheduleCTATitle}>Pick a day & time</Text>
@@ -520,6 +521,7 @@ export default function BookMobileVisitScreen() {
           scheduledDateLabel: params.scheduledDateLabel,
           scheduledTimeLabel: params.scheduledTimeLabel,
           preferredTime: params.preferredTime,
+          quotedBookingTime: params.quotedBookingTime,
           slotType: params.slotType,
           slotIndex: params.slotIndex,
           timeWindow: params.timeWindow,
@@ -640,7 +642,15 @@ export default function BookMobileVisitScreen() {
     }
     if (value === 'self') {
       setPrescriptionFile(null);
-      setBookingDraft({ prescriptionFile: null });
+      setInsurance('none');
+      setInsuranceFront(null);
+      setInsuranceBack(null);
+      setBookingDraft({
+        prescriptionFile: null,
+        insurance: 'none',
+        insuranceFront: null,
+        insuranceBack: null,
+      });
     }
   };
 
@@ -697,110 +707,11 @@ export default function BookMobileVisitScreen() {
           </Text>
         </FadeInUp>
 
-        {/* Insurance */}
-        <FadeInUp delay={60}>
-          <Text style={styles.sectionLabel}>Insurance</Text>
-          <Text style={styles.sectionSubtitle}>
-            Add your insurance card so we can verify coverage before your visit.
-          </Text>
-        </FadeInUp>
-        <View style={styles.orderRow}>
-          <OrderOptionCard
-            icon="close-circle-outline"
-            accent={COLORS.gray}
-            accentBg={COLORS.lightGray}
-            title="No insurance"
-            subtitle="Self-pay"
-            selected={insurance === 'none'}
-            onPress={() => handleSelectInsurance('none')}
-            delay={90}
-          />
-          <OrderOptionCard
-            icon="card-outline"
-            accent={COLORS.pathA}
-            accentBg={COLORS.pathABg}
-            title="I have insurance"
-            subtitle="Add my card"
-            selected={insurance === 'have'}
-            onPress={() => handleSelectInsurance('have')}
-            delay={130}
-          />
-        </View>
-
-        {insurance === 'have' && (
-          <FadeInUp delay={0}>
-            <View style={{ gap: 12, marginTop: 14 }}>
-              <AnimatedPressable
-                style={[styles.uploadBox, insuranceFront && styles.uploadBoxDone]}
-                onPress={() => showUploadOptions('Insurance card — front', setInsuranceFront, 'insuranceFront')}
-                scaleTo={0.98}
-              >
-                {insuranceFront ? (
-                  <>
-                    <View style={styles.uploadDoneIconWrap}>
-                      <Ionicons name="checkmark" size={24} color={COLORS.white} />
-                    </View>
-                    <Text style={styles.uploadDoneTitle}>Front uploaded</Text>
-                    <Text style={styles.uploadDoneText} numberOfLines={1}>
-                      {insuranceFront.name}
-                    </Text>
-                    <Text style={styles.uploadChangeText}>Tap to change</Text>
-                  </>
-                ) : (
-                  <>
-                    <View style={styles.uploadIconWrap}>
-                      <Ionicons name="card-outline" size={22} color={COLORS.gray} />
-                    </View>
-                    <Text style={styles.uploadTitle}>Upload insurance card — front</Text>
-                    <Text style={styles.uploadSub}>PDF, PNG, JPG up to 10MB</Text>
-                  </>
-                )}
-              </AnimatedPressable>
-
-              <AnimatedPressable
-                style={[styles.uploadBox, insuranceBack && styles.uploadBoxDone]}
-                onPress={() => showUploadOptions('Insurance card — back', setInsuranceBack, 'insuranceBack')}
-                scaleTo={0.98}
-              >
-                {insuranceBack ? (
-                  <>
-                    <View style={styles.uploadDoneIconWrap}>
-                      <Ionicons name="checkmark" size={24} color={COLORS.white} />
-                    </View>
-                    <Text style={styles.uploadDoneTitle}>Back uploaded</Text>
-                    <Text style={styles.uploadDoneText} numberOfLines={1}>
-                      {insuranceBack.name}
-                    </Text>
-                    <Text style={styles.uploadChangeText}>Tap to change</Text>
-                  </>
-                ) : (
-                  <>
-                    <View style={styles.uploadIconWrap}>
-                      <Ionicons name="card-outline" size={22} color={COLORS.gray} />
-                    </View>
-                    <Text style={styles.uploadTitle}>Upload insurance card — back</Text>
-                    <Text style={styles.uploadSub}>PDF, PNG, JPG up to 10MB</Text>
-                  </>
-                )}
-              </AnimatedPressable>
-            </View>
-          </FadeInUp>
-        )}
-
         {/* Doctor's Order */}
-        <FadeInUp delay={160}>
-          <View style={styles.sectionLabelRow}>
-            <Text style={styles.sectionLabel}>Doctor's order</Text>
-            {insurance === 'have' && (
-              <View style={styles.requiredBadge}>
-                <Text style={styles.requiredBadgeText}>Required</Text>
-              </View>
-            )}
-          </View>
+        <FadeInUp delay={60}>
+          <Text style={styles.sectionLabel}>Doctor's order</Text>
           <Text style={styles.sectionSubtitle}>
-            {insurance === 'have'
-              ? "Since you're using insurance, a doctor's order is required to book this visit."
-              : "Having a doctor's request order helps us route your tests automatically."}
+            Having a doctor's request order helps us route your tests automatically.
           </Text>
         </FadeInUp>
         <View style={styles.orderRow}>
@@ -811,18 +722,8 @@ export default function BookMobileVisitScreen() {
             title="Self-referred"
             subtitle="No doctor's order"
             selected={doctorOrder === 'self'}
-            onPress={() => {
-              if (insurance === 'have') {
-                Alert.alert(
-                  "Doctor's order required",
-                  "Since you selected insurance, a doctor's order is required — please choose that option and upload it."
-                );
-                return;
-              }
-              handleSelectDoctorOrder('self');
-            }}
-            delay={190}
-            disabled={insurance === 'have'}
+            onPress={() => handleSelectDoctorOrder('self')}
+            delay={90}
           />
           <OrderOptionCard
             icon="document-text-outline"
@@ -832,7 +733,7 @@ export default function BookMobileVisitScreen() {
             subtitle="I have a request"
             selected={doctorOrder === 'order'}
             onPress={() => handleSelectDoctorOrder('order')}
-            delay={230}
+            delay={130}
           />
         </View>
 
@@ -866,6 +767,100 @@ export default function BookMobileVisitScreen() {
               )}
             </AnimatedPressable>
           </FadeInUp>
+        )}
+
+        {/* Insurance — only shown once a doctor's order is selected (self-referred patients skip insurance) */}
+        {doctorOrder === 'order' && (
+          <>
+            <FadeInUp delay={160}>
+              <Text style={styles.sectionLabel}>Insurance</Text>
+              <Text style={styles.sectionSubtitle}>
+                Add your insurance card so we can verify coverage before your visit.
+              </Text>
+            </FadeInUp>
+            <View style={styles.orderRow}>
+              <OrderOptionCard
+                icon="close-circle-outline"
+                accent={COLORS.gray}
+                accentBg={COLORS.lightGray}
+                title="No insurance"
+                subtitle="Self-pay"
+                selected={insurance === 'none'}
+                onPress={() => handleSelectInsurance('none')}
+                delay={190}
+              />
+              <OrderOptionCard
+                icon="card-outline"
+                accent={COLORS.pathA}
+                accentBg={COLORS.pathABg}
+                title="I have insurance"
+                subtitle="Add my card"
+                selected={insurance === 'have'}
+                onPress={() => handleSelectInsurance('have')}
+                delay={230}
+              />
+            </View>
+
+            {insurance === 'have' && (
+              <FadeInUp delay={0}>
+                <View style={{ gap: 12, marginTop: 14 }}>
+                  <AnimatedPressable
+                    style={[styles.uploadBox, insuranceFront && styles.uploadBoxDone]}
+                    onPress={() => showUploadOptions('Insurance card — front', setInsuranceFront, 'insuranceFront')}
+                    scaleTo={0.98}
+                  >
+                    {insuranceFront ? (
+                      <>
+                        <View style={styles.uploadDoneIconWrap}>
+                          <Ionicons name="checkmark" size={24} color={COLORS.white} />
+                        </View>
+                        <Text style={styles.uploadDoneTitle}>Front uploaded</Text>
+                        <Text style={styles.uploadDoneText} numberOfLines={1}>
+                          {insuranceFront.name}
+                        </Text>
+                        <Text style={styles.uploadChangeText}>Tap to change</Text>
+                      </>
+                    ) : (
+                      <>
+                        <View style={styles.uploadIconWrap}>
+                          <Ionicons name="card-outline" size={22} color={COLORS.gray} />
+                        </View>
+                        <Text style={styles.uploadTitle}>Upload insurance card — front</Text>
+                        <Text style={styles.uploadSub}>PDF, PNG, JPG up to 10MB</Text>
+                      </>
+                    )}
+                  </AnimatedPressable>
+
+                  <AnimatedPressable
+                    style={[styles.uploadBox, insuranceBack && styles.uploadBoxDone]}
+                    onPress={() => showUploadOptions('Insurance card — back', setInsuranceBack, 'insuranceBack')}
+                    scaleTo={0.98}
+                  >
+                    {insuranceBack ? (
+                      <>
+                        <View style={styles.uploadDoneIconWrap}>
+                          <Ionicons name="checkmark" size={24} color={COLORS.white} />
+                        </View>
+                        <Text style={styles.uploadDoneTitle}>Back uploaded</Text>
+                        <Text style={styles.uploadDoneText} numberOfLines={1}>
+                          {insuranceBack.name}
+                        </Text>
+                        <Text style={styles.uploadChangeText}>Tap to change</Text>
+                      </>
+                    ) : (
+                      <>
+                        <View style={styles.uploadIconWrap}>
+                          <Ionicons name="card-outline" size={22} color={COLORS.gray} />
+                        </View>
+                        <Text style={styles.uploadTitle}>Upload insurance card — back</Text>
+                        <Text style={styles.uploadSub}>PDF, PNG, JPG up to 10MB</Text>
+                      </>
+                    )}
+                  </AnimatedPressable>
+                </View>
+              </FadeInUp>
+            )}
+          </>
         )}
 
         {/* Lab Tests Section */}
@@ -941,9 +936,11 @@ export default function BookMobileVisitScreen() {
                                 {test.name}
                               </Text>
                             </View>
-                            <Text style={styles.testPillPrice}>
-                              ${(test.discountPrice ?? test.price).toFixed(0)}
-                            </Text>
+                            {!test.hidePrice && (
+                              <Text style={styles.testPillPrice}>
+                                ${(test.discountPrice ?? test.price ?? 0).toFixed(0)}
+                              </Text>
+                            )}
                           </View>
                         </FadeInUp>
                       ))}
@@ -960,7 +957,7 @@ export default function BookMobileVisitScreen() {
                                 {test.name}
                               </Text>
                             </View>
-                            {hasDiscount ? (
+                            {test.hidePrice ? null : hasDiscount ? (
                               <View style={styles.testPillPriceRow}>
                                 <Text style={styles.testPillStrikePrice}>${test.price.toFixed(0)}</Text>
                                 <Text style={[styles.testPillPrice, styles.testPillDiscountPrice]}>
@@ -995,6 +992,7 @@ export default function BookMobileVisitScreen() {
                 navigation.push('SelectTests', {
                   returnTo: 'BookMobileVisit',
                   initialSelectedIds: selectedTests.map((t) => t.id),
+                  hasInsurance: insurance === 'have',
                 })
               }
             >
@@ -1083,60 +1081,52 @@ export default function BookMobileVisitScreen() {
               Alert.alert('Pick a time', 'Please choose your appointment day and time to continue.');
               return;
             }
-            if (insurance === 'have' && doctorOrder !== 'order') {
-              Alert.alert("Doctor's order required", "Since you have insurance, please select and upload a doctor's order before continuing.");
-              return;
-            }
             if (insurance === 'have' && doctorOrder === 'order' && !prescriptionFile) {
               Alert.alert("Doctor's order document missing", "Please upload your doctor's order document before continuing.");
               return;
             }
-            try {
-              const preview = await fetchPricing({
-                address, zipCode,
-                bookingDate: schedule.scheduledDate,
-                bookingTime: schedule.preferredTime,
-                slotType: schedule.slotType,
-                testTotal: testsTotal,
-              });
 
-              if (preview.serviceable === false) {
-                Alert.alert(
-                  'No coverage in your area',
-                  preview.reason === 'address_not_found'
-                    ? "We couldn't locate that address. Please re-check it and try again."
-                    : "We don't have specialists serving your area yet. Please try a different address or contact support."
-                );
-                return;
-              }
+  // Reuse the fee already quoted when the schedule slot was picked instead of
+  // re-fetching pricing here. Re-fetching a second time was producing a
+  // different number than what's shown on this very button whenever slot-type
+  // pricing (time-of-day, surge, etc.) shifted in the seconds/minutes between
+  // picking a slot and tapping Confirm. One quote, reused everywhere, until
+  // Checkout re-validates it at booking time.
+            const totalPatientFee = Number(schedule.totalPatientFee) || 0;
 
-              const totalPatientFee = Number(preview.totalPatientFee) || 0;
-
-              const checkoutParams = {
-                labTestsTotal: testsTotal,
-                labTestsNames: selectedTests.map((t) => t.name).join(', '),
-                selectedTests, appliedOffer, extraTestsData,
-                address, zipCode,
-                visitType: 'mobile',
-                preferredDate: schedule.scheduledDate,
-                preferredTime: schedule.preferredTime,
-                baseFee: Number(preview.baseFee) || 0,
-                distanceFee: Number(preview.distanceFee) || 0,
-                driversReserveFee: Number(preview.driversReserveFee) || 0,
-                surchargesTotal: Number(preview.surchargesTotal) || 0,
-                serviceFee: Number(preview.serviceFee) || 0,
-                totalPatientFee,
-                quotedTotalFee: totalPatientFee,
-                slotType: schedule.slotType,
-                timeSlotLabel: schedule.scheduledTimeLabel,
-                doctorOrder, prescriptionFile, insurance, insuranceFront, insuranceBack,
-              };
-              const existingToken = await getStoredPatientToken();
-              navigation.navigate(existingToken ? 'Checkout' : 'GuestInfo', checkoutParams);
-            } catch (err) {
-              console.error(err);
-              Alert.alert('Pricing unavailable', err.message || 'Could not calculate pricing. Please try again.');
-            }
+            const checkoutParams = {
+              labTestsTotal: testsTotal,
+              labTestsNames: selectedTests.map((t) => t.name).join(', '),
+              selectedTests, appliedOffer, extraTestsData,
+              address, zipCode,
+              visitType: 'mobile',
+              preferredDate: schedule.scheduledDate,
+              preferredTime: schedule.preferredTime,
+              quotedBookingTime: schedule.quotedBookingTime,
+              baseFee: Number(schedule.baseFee) || 0,
+              distanceFee: Number(schedule.distanceFee) || 0,
+              driversReserveFee: Number(schedule.driversReserveFee) || 0,
+              surchargesTotal: Number(schedule.surchargesTotal) || 0,
+              serviceFee: Number(schedule.serviceFee) || 0,
+              totalPatientFee,
+              quotedTotalFee: totalPatientFee,
+              slotType: schedule.slotType,
+              slotIndex: schedule.slotIndex,
+              timeSlotLabel: schedule.scheduledTimeLabel,
+              doctorOrder, prescriptionFile, insurance, insuranceFront, insuranceBack,
+            };
+            console.log("===== PRICE DEBUG =====");
+            console.log("baseFee:", checkoutParams.baseFee);
+            console.log("distanceFee:", checkoutParams.distanceFee);
+            console.log("driversReserveFee:", checkoutParams.driversReserveFee);
+            console.log("surchargesTotal:", checkoutParams.surchargesTotal);
+            console.log("serviceFee:", checkoutParams.serviceFee);
+            console.log("mobileVisitTotal:", checkoutParams.totalPatientFee);
+            console.log("labTestsTotal:", checkoutParams.labTestsTotal);
+            console.log("grandTotal:", checkoutParams.labTestsTotal + checkoutParams.totalPatientFee);
+            console.log("quotedTotalFee:", checkoutParams.quotedTotalFee);
+            const existingToken = await getStoredPatientToken();
+            navigation.navigate(existingToken ? 'Checkout' : 'GuestInfo', checkoutParams);
           }}
         >
           <Text style={styles.confirmBtnText}>
@@ -1622,9 +1612,9 @@ const styles = StyleSheet.create({
   },
   confirmBtnText: { color: COLORS.white, fontSize: 16, fontWeight: '800' },
 
-scheduleChangeBtn: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 10, backgroundColor: COLORS.white, borderWidth: 1, borderColor: COLORS.border },
-scheduleChangeText: { fontSize: 12, fontWeight: '800', color: COLORS.navy },
-scheduleCTA: {
+  scheduleChangeBtn: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 10, backgroundColor: COLORS.white, borderWidth: 1, borderColor: COLORS.border },
+  scheduleChangeText: { fontSize: 12, fontWeight: '800', color: COLORS.navy },
+  scheduleCTA: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
@@ -1640,12 +1630,19 @@ scheduleCTA: {
     shadowOpacity: 0.1,
     shadowRadius: 12,
   },
+  scheduleCTAIconWrap: {
+    width: 52,
+    height: 52,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   scheduleCTAGlow: {
     position: 'absolute',
-    left: 8, top: 8,
-    width: 56, height: 56,
-    borderRadius: 20,
+    width: 62,
+    height: 62,
+    borderRadius: 22,
     backgroundColor: COLORS.purple,
+    alignSelf: 'center',
   },
   scheduleCTAIconRing: {
     width: 52,
@@ -1659,6 +1656,7 @@ scheduleCTA: {
     shadowOpacity: 0.3,
     shadowRadius: 6,
     elevation: 4,
+    zIndex: 1,
   },
   scheduleCTATitle: { fontSize: 15, fontWeight: '900', color: COLORS.navyDark },
   scheduleCTASub: { fontSize: 12, color: COLORS.gray, marginTop: 2, marginBottom: 8 },

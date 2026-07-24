@@ -15,8 +15,10 @@ import {
   Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import * as DocumentPicker from 'expo-document-picker';
+import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
-import { getStoredPatientUser, bookAppointment } from '../utils/auth';
+import { getStoredPatientUser, bookAppointment, uploadDocument } from '../utils/auth';
 import { CATALOG_ENDPOINTS } from '../config/api';
 
 const { height: SCREEN_H } = Dimensions.get('window');
@@ -159,60 +161,6 @@ const CENTER_ACCENTS = [
   { color: COLORS.green, bg: COLORS.greenLight },
 ];
 
-// ── Date / time helpers ──────────────────────────────────────────────────
-const generateDates = () => {
-  const dates = [];
-  const today = new Date();
-  const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  const monthNames = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-  ];
-  for (let i = 0; i <= 13; i++) {
-    const date = new Date(today);
-    date.setDate(today.getDate() + i);
-    dates.push({
-      id: i.toString(),
-      day: date.getDate(),
-      month: monthNames[date.getMonth()],
-      weekday: dayNames[date.getDay()],
-      isoDate: date.toISOString().split('T')[0],
-    });
-  }
-  return dates;
-};
-
-const HOURS = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, '0'));
-const MINUTES = ['00', '15', '30', '45'];
-const PERIODS = ['AM', 'PM'];
-
-function to24Hour(hour12, period) {
-  let h = parseInt(hour12, 10) % 12;
-  if (period === 'PM') h += 12;
-  return h;
-}
-
-// Rounds "now" up to the next valid 15-min slot
-function nextValidSlot(date = new Date()) {
-  let h24 = date.getHours();
-  let m = date.getMinutes();
-  const roundedMinute = Math.ceil(m / 15) * 15;
-  if (roundedMinute === 60) {
-    m = 0;
-    h24 = (h24 + 1) % 24;
-  } else {
-    m = roundedMinute;
-  }
-  const period = h24 >= 12 ? 'PM' : 'AM';
-  let hour12 = h24 % 12;
-  if (hour12 === 0) hour12 = 12;
-  return {
-    hour: String(hour12).padStart(2, '0'),
-    minute: String(m).padStart(2, '0'),
-    period,
-  };
-}
-
 // Normalize a lab record coming back from the backend (transform_doc output).
 function normalizeLab(raw) {
   return {
@@ -297,124 +245,47 @@ function IconPop({ delay = 0, children }) {
   return <Animated.View style={{ transform: [{ scale: anim }] }}>{children}</Animated.View>;
 }
 
-/** A single date pill that lifts slightly when selected. */
-function DateCard({ date, isSelected, onPress }) {
-  const lift = useRef(new Animated.Value(isSelected ? 1 : 0)).current;
+/** Doctor's-order selectable card — icon ring, accent bar, checkmark badge, press animation. */
+function OrderOptionCard({ icon, accent, accentBg, title, subtitle, selected, onPress, delay, disabled }) {
+  const check = useRef(new Animated.Value(selected ? 1 : 0)).current;
+
   useEffect(() => {
-    Animated.spring(lift, { toValue: isSelected ? 1 : 0, useNativeDriver: true, speed: 20, bounciness: 10 }).start();
-  }, [isSelected]);
+    Animated.spring(check, {
+      toValue: selected ? 1 : 0,
+      useNativeDriver: true,
+      speed: 24,
+      bounciness: 10,
+    }).start();
+  }, [selected]);
 
   return (
-    <AnimatedPressable onPress={onPress} scaleTo={0.94}>
-      <Animated.View
-        style={[
-          pickerStyles.dateCard,
-          isSelected && pickerStyles.dateCardSelected,
-          { transform: [{ translateY: lift.interpolate({ inputRange: [0, 1], outputRange: [0, -4] }) }] },
-        ]}
+    <FadeInUp delay={delay} style={{ flex: 1 }}>
+      <AnimatedPressable
+        style={[orderStyles.orderCard, selected && orderStyles.orderCardSelected, disabled && orderStyles.orderCardDisabled]}
+        onPress={onPress}
+        scaleTo={0.96}
+        disabled={disabled}
       >
-        <Text style={[pickerStyles.dateWeekday, isSelected && pickerStyles.dateTextSelected]}>{date.weekday}</Text>
-        <Text style={[pickerStyles.dateDay, isSelected && pickerStyles.dateTextSelected]}>{date.day}</Text>
-        <Text style={[pickerStyles.dateMonth, isSelected && pickerStyles.dateTextSelected]}>{date.month}</Text>
-      </Animated.View>
-    </AnimatedPressable>
-  );
-}
+        <View style={[orderStyles.orderAccentBar, { backgroundColor: accent }]} />
+        <View style={[orderStyles.orderIconRing, { backgroundColor: accentBg }]}>
+          <Ionicons name={icon} size={22} color={accent} />
+        </View>
+        <Text style={[orderStyles.orderCardTitle, selected && { color: COLORS.navyDark }]}>{title}</Text>
+        <Text style={orderStyles.orderCardSubtitle}>{subtitle}</Text>
 
-/**
- * A single tappable chip — used for hour/minute options.
- *
- * NOTE: this used to drive its background color through an Animated.Value
- * interpolation keyed off `isSelected`. Under fast re-renders (e.g. tapping
- * a different minute right after another) that animated value could get out
- * of sync, which is what caused two chips (e.g. "00" and "30") to both show
- * as selected/blue at once. Switching to a plain, directly-derived style
- * removes that whole class of bug — the highlighted chip is always exactly
- * the one matching `selected`, every render, no animation lag involved.
- */
-function TimeChip({ label, isSelected, isDisabled, onPress }) {
-  return (
-    <TouchableOpacity onPress={() => !isDisabled && onPress()} activeOpacity={isDisabled ? 1 : 0.8} disabled={isDisabled}>
-      <View
-        style={[
-          pickerStyles.chip,
-          isDisabled
-            ? pickerStyles.chipDisabled
-            : isSelected
-            ? pickerStyles.chipSelected
-            : pickerStyles.chipUnselected,
-        ]}
-      >
-        <Text
+        <Animated.View
           style={[
-            pickerStyles.chipText,
-            isSelected && !isDisabled && pickerStyles.chipTextSelected,
-            isDisabled && pickerStyles.chipTextDisabled,
+            orderStyles.orderCheckBadge,
+            {
+              opacity: check,
+              transform: [{ scale: check }],
+            },
           ]}
         >
-          {label}
-        </Text>
-      </View>
-    </TouchableOpacity>
-  );
-}
-
-/** Horizontal row of tappable chips — replaces the old vertical wheel picker,
- *  which suffered gesture conflicts when nested inside the screen's own
- *  vertical ScrollView (selected values could scroll out of view and taps
- *  could get swallowed by the parent scroll). */
-function ChipRow({ data, selected, onSelect, isDisabled }) {
-  return (
-    <ScrollView
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      contentContainerStyle={pickerStyles.chipRow}
-    >
-      {data.map((item) => (
-        <TimeChip
-          key={item}
-          label={item}
-          isSelected={item === selected}
-          isDisabled={isDisabled ? isDisabled(item) : false}
-          onPress={() => onSelect(item)}
-        />
-      ))}
-    </ScrollView>
-  );
-}
-
-/** Two-button AM/PM toggle — plain, always fully visible, no scroll involved. */
-function PeriodToggle({ selected, onSelect, isDisabled }) {
-  return (
-    <View style={pickerStyles.periodRow}>
-      {PERIODS.map((p) => {
-        const isSelected = p === selected;
-        const disabled = isDisabled ? isDisabled(p) : false;
-        return (
-          <TouchableOpacity
-            key={p}
-            onPress={() => !disabled && onSelect(p)}
-            activeOpacity={disabled ? 1 : 0.8}
-            disabled={disabled}
-            style={[
-              pickerStyles.periodBtn,
-              isSelected && pickerStyles.periodBtnSelected,
-              disabled && pickerStyles.periodBtnDisabled,
-            ]}
-          >
-            <Text
-              style={[
-                pickerStyles.periodText,
-                isSelected && pickerStyles.periodTextSelected,
-                disabled && pickerStyles.chipTextDisabled,
-              ]}
-            >
-              {p}
-            </Text>
-          </TouchableOpacity>
-        );
-      })}
-    </View>
+          <Ionicons name="checkmark-circle" size={20} color={COLORS.navy} />
+        </Animated.View>
+      </AnimatedPressable>
+    </FadeInUp>
   );
 }
 
@@ -588,6 +459,97 @@ function CenterSelectModal({ visible, centers, selectedId, onSelect, onClose, on
   );
 }
 
+
+/** Animated, colorful payment-option modal — replaces the plain Alert.
+ *  Two selectable cards (Pay in app / Pay at center), each showing its
+ *  own total, with a press-scale + staggered entrance. */
+function PaymentOptionModal({ visible, payInAppTotal, payAtCenterTotal, onSelectPayInApp, onSelectPayAtCenter, onClose }) {
+  const backdropAnim = useRef(new Animated.Value(0)).current;
+  const cardAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (visible) {
+      backdropAnim.setValue(0);
+      cardAnim.setValue(0);
+      Animated.timing(backdropAnim, { toValue: 1, duration: 200, useNativeDriver: true }).start();
+      Animated.spring(cardAnim, { toValue: 1, useNativeDriver: true, speed: 16, bounciness: 8, delay: 60 }).start();
+    }
+  }, [visible]);
+
+  if (!visible) return null;
+
+  return (
+    <Modal visible={visible} transparent animationType="none" onRequestClose={onClose}>
+      <Animated.View style={[paymentModalStyles.backdrop, { opacity: backdropAnim }]}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+        <Animated.View
+          style={[
+            paymentModalStyles.card,
+            {
+              opacity: cardAnim,
+              transform: [
+                { scale: cardAnim.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1] }) },
+                { translateY: cardAnim.interpolate({ inputRange: [0, 1], outputRange: [20, 0] }) },
+              ],
+            },
+          ]}
+        >
+          <View style={paymentModalStyles.headerIconRing}>
+            <Ionicons name="wallet" size={22} color={COLORS.navy} />
+          </View>
+          <Text style={paymentModalStyles.title}>Choose payment option</Text>
+          <Text style={paymentModalStyles.subtitle}>How would you like to pay for your visit?</Text>
+
+          <FadeInUp delay={80} distance={10}>
+            <AnimatedPressable
+              style={[paymentModalStyles.optionCard, paymentModalStyles.optionCardApp]}
+              onPress={onSelectPayInApp}
+              scaleTo={0.97}
+            >
+              <View style={paymentModalStyles.optionAccentBar} />
+              <View style={[paymentModalStyles.optionIconRing, { backgroundColor: COLORS.skyLight }]}>
+                <Ionicons name="card" size={20} color={COLORS.sky} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={paymentModalStyles.optionTitle}>Pay in app</Text>
+                <Text style={paymentModalStyles.optionSub}>Secure card payment · Confirmed instantly</Text>
+              </View>
+              <View style={{ alignItems: 'flex-end' }}>
+                <Text style={paymentModalStyles.optionPrice}>${payInAppTotal.toFixed(0)}</Text>
+                <Ionicons name="chevron-forward" size={16} color={COLORS.gray} />
+              </View>
+            </AnimatedPressable>
+          </FadeInUp>
+
+          <FadeInUp delay={140} distance={10}>
+            <AnimatedPressable
+              style={[paymentModalStyles.optionCard, paymentModalStyles.optionCardCenter]}
+              onPress={onSelectPayAtCenter}
+              scaleTo={0.97}
+            >
+              <View style={[paymentModalStyles.optionAccentBar, { backgroundColor: COLORS.amber }]} />
+              <View style={[paymentModalStyles.optionIconRing, { backgroundColor: COLORS.amberLight }]}>
+                <Ionicons name="business" size={20} color={COLORS.amber} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={paymentModalStyles.optionTitle}>Pay at center</Text>
+                <Text style={paymentModalStyles.optionSub}>Pay when you arrive for your visit</Text>
+              </View>
+              <View style={{ alignItems: 'flex-end' }}>
+                <Text style={paymentModalStyles.optionPrice}>${payAtCenterTotal.toFixed(0)}</Text>
+                <Ionicons name="chevron-forward" size={16} color={COLORS.gray} />
+              </View>
+            </AnimatedPressable>
+          </FadeInUp>
+
+          <Pressable onPress={onClose} style={paymentModalStyles.cancelBtn}>
+            <Text style={paymentModalStyles.cancelBtnText}>Cancel</Text>
+          </Pressable>
+        </Animated.View>
+      </Animated.View>
+    </Modal>
+  );
+}
 /** Beautiful animated "booking confirmed" overlay — replaces the plain
  *  text-only Alert. A ring draws itself in, the checkmark pops with a
  *  spring, and a few soft confetti dots drift and fade. */
@@ -687,7 +649,7 @@ function SuccessModal({ visible, centerName, dateLabel, timeLabel, amount, onDon
           ) : null}
 
           <AnimatedPressable style={successStyles.doneBtn} onPress={onDone} scaleTo={0.97}>
-            <Text style={successStyles.doneBtnText}>Great, thanks!</Text>
+            <Text style={successStyles.doneBtnText}>Thanks!</Text>
           </AnimatedPressable>
         </Animated.View>
       </View>
@@ -703,6 +665,17 @@ export default function InPersonTestsScreen({ navigation, route }) {
   const [submitting, setSubmitting] = useState(false);
   const [patientUser, setPatientUser] = useState(null);
 
+  // ── Doctor's order & insurance (mirrors BookMobileVisitScreen) ──
+  const [doctorOrder, setDoctorOrder] = useState('self');
+  const [prescriptionFile, setPrescriptionFile] = useState(null);
+  const [insurance, setInsurance] = useState('none');
+  const [insuranceFront, setInsuranceFront] = useState(null);
+  const [insuranceBack, setInsuranceBack] = useState(null);
+
+  const [paymentModalVisible, setPaymentModalVisible] = useState(false);
+  const [paymentTotals, setPaymentTotals] = useState({ payInApp: 0, payAtCenter: 0 });
+  const [pendingGuestInfo, setPendingGuestInfo] = useState(null);
+
   // ── Guest info (captured after a trip through GuestInfoScreen) ──
   // Booking with no account should work end-to-end: this screen no longer
   // gates on the `isGuest` route param (which isn't always set correctly by
@@ -717,6 +690,11 @@ export default function InPersonTestsScreen({ navigation, route }) {
   const [centersLoading, setCentersLoading] = useState(true);
   const [centersError, setCentersError] = useState(false);
   const [centerModalVisible, setCenterModalVisible] = useState(false);
+
+  // ── Date / time — picked on a separate screen (ScheduleVisitScreen),
+  // same pattern as BookMobileVisitScreen. Only Fixed / Urgent tiers show
+  // for in-person visits (no visit-fee/flexible tier — see visitType param).
+  const [schedule, setSchedule] = useState(null);
 
   // ── Success overlay state ──
   const [successVisible, setSuccessVisible] = useState(false);
@@ -748,13 +726,6 @@ export default function InPersonTestsScreen({ navigation, route }) {
     fetchCenters();
   }, []);
 
-  // ── Date / time state ──
-  const dates = generateDates();
-  const [selectedDate, setSelectedDate] = useState(dates[0]);
-  const [selectedHour, setSelectedHour] = useState('09');
-  const [selectedMinute, setSelectedMinute] = useState('00');
-  const [selectedPeriod, setSelectedPeriod] = useState('AM');
-
   // Pick up tests (and any applied offer / extra tests) returned from
   // SelectTestsScreen — mirrors BookMobileVisitScreen's handling so an
   // offer bundle plus extra a-la-carte tests both show correctly here.
@@ -766,6 +737,30 @@ export default function InPersonTestsScreen({ navigation, route }) {
       setExtraTestsData(params.extraTestsData ?? []);
     }
   }, [route?.params?.selectedTestsData, route?.params?.appliedOffer, route?.params?.extraTestsData]);
+
+  // Pick up the date/time returned from ScheduleVisitScreen.
+  useEffect(() => {
+    const {
+      scheduledDate, scheduledDateLabel, scheduledTimeLabel,
+      preferredTime, slotType, slotIndex, totalPatientFee,
+    } = route?.params || {};
+    if (scheduledDate) {
+      setSchedule({
+        isoDate: scheduledDate,
+        dateLabel: scheduledDateLabel,
+        timeLabel: scheduledTimeLabel,
+        preferredTime,
+        slotType,
+        slotIndex,
+        totalPatientFee: totalPatientFee ?? 0,
+      });
+    }
+  }, [
+    route?.params?.scheduledDate,
+    route?.params?.scheduledTimeLabel,
+    route?.params?.slotType,
+    route?.params?.slotIndex,
+  ]);
 
   // Pick up guest details returned from GuestInfoScreen (fullName/phone/email)
   // and immediately open the payment-option prompt — the user just finished
@@ -793,84 +788,236 @@ export default function InPersonTestsScreen({ navigation, route }) {
   const testsTotal = appliedOffer
     ? appliedOffer.price
     : selectedTestsData.reduce(
-        (sum, t) => sum + (t.discountPrice != null ? t.discountPrice : t.price),
+        (sum, t) => sum + (t.discountPrice != null ? t.discountPrice : (t.price ?? 0)),
         0
       );
   const selectedTestIds = selectedTestsData.map((t) => t.id);
   const center = centers.find((c) => c.id === selectedCenter);
   const centerIndex = centers.findIndex((c) => c.id === selectedCenter);
 
-  const formattedTime = `${selectedHour}:${selectedMinute} ${selectedPeriod}`;
-  const formattedDateLabel = `${selectedDate.month} ${selectedDate.day} (${selectedDate.weekday})`;
-
-  // ── Past-time validation (today only) ──
-  const now = new Date();
-  const todayIso = now.toISOString().split('T')[0];
-  const isToday = selectedDate.isoDate === todayIso;
-  const nowHour24 = now.getHours();
-  const nowMinute = now.getMinutes();
-
-  const isPeriodDisabled = (period) => isToday && period === 'AM' && nowHour24 >= 12;
-
-  const isHourDisabled = (hour12) => {
-    if (!isToday) return false;
-    const h24 = to24Hour(hour12, selectedPeriod);
-    return h24 < nowHour24;
-  };
-
-  const isMinuteDisabled = (minute) => {
-    if (!isToday) return false;
-    const h24 = to24Hour(selectedHour, selectedPeriod);
-    if (h24 !== nowHour24) return false;
-    return parseInt(minute, 10) < nowMinute;
-  };
-
-  // Auto-bump forward to the next valid slot whenever the selection would
-  // otherwise land in the past (date changed to today, or period/hour
-  // flipped underneath an already-past selection).
-  useEffect(() => {
-    if (!isToday) return;
-    const h24 = to24Hour(selectedHour, selectedPeriod);
-    const selectedTotalMinutes = h24 * 60 + parseInt(selectedMinute, 10);
-    const nowTotalMinutes = nowHour24 * 60 + nowMinute;
-    if (selectedTotalMinutes < nowTotalMinutes) {
-      const next = nextValidSlot(now);
-      setSelectedHour(next.hour);
-      setSelectedMinute(next.minute);
-      setSelectedPeriod(next.period);
-    }
-  }, [selectedDate.isoDate, selectedPeriod, selectedHour, selectedMinute]);
+  // Date/time + scheduling fee, sourced from ScheduleVisitScreen.
+  const formattedTime = schedule?.timeLabel || null;
+  const formattedDateLabel = schedule?.dateLabel || null;
+  const schedulingFee = schedule?.totalPatientFee || 0;
+  const grandTotal = testsTotal + schedulingFee;
 
   const goToSelectTests = () => {
     navigation.navigate('SelectTests', {
       returnTo: 'InPersonTests',
       initialSelectedIds: selectedTestIds,
+      hasInsurance: insurance === 'have',
+      passthroughSchedule: schedule,
     });
+  };
+
+  const goToScheduleVisit = () => {
+    navigation.navigate('ScheduleVisit', {
+      address: center?.address || '',
+      zipCode: '',
+      testTotal: testsTotal,
+      returnTo: 'InPersonTests',
+      visitType: 'in_person', // hides the Flexible tier — no visit-fee concept for in-person
+      passthroughSelectedTestsData: selectedTestsData,
+      passthroughAppliedOffer: appliedOffer,
+      passthroughExtraTestsData: extraTestsData,
+    });
+  };
+
+  // ── Generic upload flow: Choose File (Image/PDF) or Take Photo ──
+  // Mirrors the flow used on BookMobileVisitScreen, adapted for this
+  // screen's three upload slots (prescription, insurance front, insurance back).
+
+  const requestCameraPermission = async () => {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    return status === 'granted';
+  };
+
+  const handleCameraFor = async (setter) => {
+    const granted = await requestCameraPermission();
+    if (!granted) {
+      Alert.alert(
+        'Camera access needed',
+        'Please enable camera permissions in your device settings to take a photo.'
+      );
+      return;
+    }
+    try {
+      const result = await ImagePicker.launchCameraAsync({
+        quality: 0.8,
+        allowsEditing: true,
+        base64: false,
+      });
+      if (!result.canceled && result.assets?.length > 0) {
+        const asset = result.assets[0];
+        setter({
+          name: asset.fileName || `photo_${Date.now()}.jpg`,
+          uri: asset.uri,
+          mimeType: 'image/jpeg',
+        });
+      }
+    } catch (err) {
+      console.warn('Camera error:', err);
+    }
+  };
+
+  const handleGalleryImageFor = async (setter) => {
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        quality: 0.8,
+        base64: false,
+      });
+      if (result.canceled) return;
+      const asset = result.assets[0];
+      setter({
+        name: asset.fileName || `image_${Date.now()}.jpg`,
+        uri: asset.uri,
+        mimeType: 'image/jpeg',
+      });
+    } catch (err) {
+      console.warn('Image pick error:', err);
+    }
+  };
+
+  const handlePdfFor = async (setter) => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: 'application/pdf',
+        copyToCacheDirectory: true,
+      });
+      if (result.canceled) return;
+      if (result.assets?.length > 0) {
+        setter(result.assets[0]);
+      } else if (result.type === 'success') {
+        setter(result);
+      }
+    } catch (err) {
+      console.warn('PDF pick error:', err);
+    }
+  };
+
+  const showFileTypeChoice = (setter) => {
+    Alert.alert('Select Document', 'Choose the type of file', [
+      { text: 'Image', onPress: () => handleGalleryImageFor(setter) },
+      { text: 'PDF', onPress: () => handlePdfFor(setter) },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  };
+
+  const showUploadOptions = (title, setter) => {
+    Alert.alert(title, 'Choose how you would like to add this document', [
+      { text: 'Choose File', onPress: () => showFileTypeChoice(setter) },
+      { text: 'Take Photo', onPress: () => handleCameraFor(setter) },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  };
+
+  const handleSelectDoctorOrder = (value) => {
+    setDoctorOrder(value);
+    if (value === 'order') {
+      // no-op — tests remain independently selectable for in-person visits
+    }
+    if (value === 'self') {
+      setPrescriptionFile(null);
+      setInsurance('none');
+      setInsuranceFront(null);
+      setInsuranceBack(null);
+    }
+  };
+
+  const handleSelectInsurance = (value) => {
+    setInsurance(value);
+    if (value === 'none') {
+      setInsuranceFront(null);
+      setInsuranceBack(null);
+    }
+  };
+
+  // ── Document upload to S3 (mirrors CheckoutScreen's pattern exactly) ──
+  // The "Pay at Center" path calls bookAppointment() directly instead of
+  // routing through CheckoutScreen, so it must do this same key-upload +
+  // field-naming itself or the doctor's order / insurance card would never
+  // reach the backend. build_appointment_docs() (utils/s3_upload.py) accepts
+  // an S3 key under the *_base64 field names (it detects the "patient-docs/"
+  // prefix and passes it through instead of trying to decode it).
+  const uploadPrescriptionDoc = async () => {
+    if (doctorOrder !== 'order' || !prescriptionFile?.uri) return null;
+    try {
+      const { key } = await uploadDocument({
+        uri: prescriptionFile.uri,
+        filename: prescriptionFile.name || 'doctor-order',
+        kind: 'patient-docs',
+      });
+      return { key, name: prescriptionFile.name || 'Doctor Order' };
+    } catch (err) {
+      console.warn('Could not upload prescription file:', err);
+      return null;
+    }
+  };
+
+  const uploadInsuranceDocs = async () => {
+    if (insurance !== 'have') return { front: null, back: null };
+    let front = null;
+    let back = null;
+
+    try {
+      if (insuranceFront?.uri) {
+        const { key } = await uploadDocument({
+          uri: insuranceFront.uri,
+          filename: insuranceFront.name || 'insurance-front',
+          kind: 'patient-docs',
+        });
+        front = { key, name: insuranceFront.name || 'Insurance Front' };
+      }
+    } catch (err) {
+      console.warn('Could not upload insurance front:', err);
+    }
+
+    try {
+      if (insuranceBack?.uri) {
+        const { key } = await uploadDocument({
+          uri: insuranceBack.uri,
+          filename: insuranceBack.name || 'insurance-back',
+          kind: 'patient-docs',
+        });
+        back = { key, name: insuranceBack.name || 'Insurance Back' };
+      }
+    } catch (err) {
+      console.warn('Could not upload insurance back:', err);
+    }
+
+    return { front, back };
   };
 
   // Accepts an optional guest object so it can be called right after
   // GuestInfoScreen returns — reading `guestInfo` state at that exact
   // moment would still show the old (empty) value since setState is async.
-  const promptPaymentOptions = (guestOverride) => {
+  const promptPaymentOptions = async (guestOverride) => {
     if (selectedTestsData.length === 0) {
       Alert.alert('No tests selected', 'Please select at least one test before booking.');
       return;
     }
-
     if (!selectedCenter) {
       setCenterModalVisible(true);
       return;
     }
+    if (!schedule) {
+      goToScheduleVisit();
+      return;
+    }
 
-    Alert.alert(
-      'Choose payment option',
-      `Total: $${testsTotal.toFixed(0)}`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Pay at center', onPress: () => confirmBooking('pay_at_center', guestOverride) },
-        { text: 'Pay in app', onPress: () => payInApp(guestOverride) },
-      ]
-    );
+    let payAtCenterTotal = grandTotal;
+    try {
+      const preview = await fetchWalkinFeePreview({ testTotal: grandTotal, payAtCenter: true });
+      payAtCenterTotal = preview.totalPatientFee;
+    } catch (e) {
+    // fall back silently — booking itself still computes the real total
+    }
+
+    setPaymentTotals({ payInApp: grandTotal, payAtCenter: payAtCenterTotal });
+    setPendingGuestInfo(guestOverride || null);
+    setPaymentModalVisible(true);
   };
 
   const handleBookAppointment = () => {
@@ -881,6 +1028,16 @@ export default function InPersonTestsScreen({ navigation, route }) {
 
     if (!selectedCenter) {
       setCenterModalVisible(true);
+      return;
+    }
+
+    if (!schedule) {
+      goToScheduleVisit();
+      return;
+    }
+
+    if (doctorOrder === 'order' && !prescriptionFile) {
+      Alert.alert("Doctor's order document missing", "Please upload your doctor's order document before continuing.");
       return;
     }
 
@@ -904,18 +1061,23 @@ export default function InPersonTestsScreen({ navigation, route }) {
     const info = guestOverride || guestInfo;
     navigation.navigate('Checkout', {
       mobileVisitTotal: 0, // no visit fee for in-person
-      labTestsTotal: testsTotal,
+      labTestsTotal: grandTotal,
       labTestsNames: selectedTestsData.map((t) => t.name).join(', '),
       address: center?.address || '',
-      visitType: 'in_person',
-      preferredDate: selectedDate.isoDate,
+      visitType: 'walkin',
+      preferredDate: schedule.isoDate,
       preferredTime: formattedTime,
-      labId: center?.id || '',
-      labName: center?.name || '',
+      selectedLabId: center?.id || '',
+      selectedLabName: center?.name || '',
       fullName: info?.fullName || patientUser?.name || '',
       email: info?.email || patientUser?.email || '',
       phone: info?.phone || patientUser?.phone || '',
       isGuest: !patientUser,
+      doctorOrder,
+      prescriptionFile,
+      insurance,
+      insuranceFront,
+      insuranceBack,
     });
   };
 
@@ -923,27 +1085,38 @@ export default function InPersonTestsScreen({ navigation, route }) {
     const info = guestOverride || guestInfo;
     setSubmitting(true);
     try {
-      await bookAppointment({
+      const doctorOrderDoc = await uploadPrescriptionDoc();
+      const { front: insuranceFrontDoc, back: insuranceBackDoc } = await uploadInsuranceDocs();
+
+      const result = await bookAppointment({
         test_name: selectedTestsData.map((t) => t.name).join(', '),
-        test_price: testsTotal,
+        test_price: grandTotal,
         full_name: info?.fullName || patientUser?.name || '',
         email: info?.email || patientUser?.email || '',
         phone: info?.phone || patientUser?.phone || '',
         address: center?.address || '',
-        visit_type: 'in_person',
-        preferred_date: selectedDate.isoDate,
+        visit_type: 'walkin',
+        preferred_date: schedule.isoDate,
         preferred_time: formattedTime,
         payment_method: paymentMethod === 'pay_at_center' ? 'Pay at Center' : 'Card',
-        labId: center?.id || '',
-        labName: center?.name || '',
+        selected_lab_id: center?.id || '',
+        selected_lab_name: center?.name || '',
         labAddress: center?.address || '',
+        doctor_order_base64: doctorOrderDoc?.key || null,
+        doctor_order_name: doctorOrderDoc?.name || null,
+        insurance_front_base64: insuranceFrontDoc?.key || null,
+        insurance_front_name: insuranceFrontDoc?.name || null,
+        insurance_back_base64: insuranceBackDoc?.key || null,
+        insurance_back_name: insuranceBackDoc?.name || null,
       });
+
+      const authoritativeTotal = result?.totalPatientFee ?? grandTotal;
 
       setSuccessPayload({
         centerName: center?.name || 'the center',
         dateLabel: formattedDateLabel,
         timeLabel: formattedTime,
-        amount: paymentMethod === 'pay_at_center' ? testsTotal.toFixed(0) : null,
+        amount: paymentMethod === 'pay_at_center' ? authoritativeTotal.toFixed(0) : null,
       });
       setSuccessVisible(true);
     } catch (err) {
@@ -960,6 +1133,15 @@ export default function InPersonTestsScreen({ navigation, route }) {
     } else {
       navigation.navigate('PatientHome');
     }
+  };
+  const handleSelectPayInApp = () => {
+    setPaymentModalVisible(false);
+    payInApp(pendingGuestInfo);
+  };
+
+  const handleSelectPayAtCenter = () => {
+    setPaymentModalVisible(false);
+    confirmBooking('pay_at_center', pendingGuestInfo);
   };
 
   return (
@@ -980,11 +1162,169 @@ export default function InPersonTestsScreen({ navigation, route }) {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
+        {/* Doctor's Order */}
+        <FadeInUp delay={0}>
+          <Text style={styles.sectionLabel}>Doctor's order</Text>
+          <Text style={styles.sectionSubtitle}>
+            Having a doctor's request order helps us route your tests automatically.
+          </Text>
+        </FadeInUp>
+        <View style={styles.orderRow}>
+          <OrderOptionCard
+            icon="person-outline"
+            accent={COLORS.teal}
+            accentBg={COLORS.tealLight}
+            title="Self-referred"
+            subtitle="No doctor's order"
+            selected={doctorOrder === 'self'}
+            onPress={() => handleSelectDoctorOrder('self')}
+            delay={30}
+          />
+          <OrderOptionCard
+            icon="document-text-outline"
+            accent={COLORS.purple}
+            accentBg={COLORS.purpleLight}
+            title="Doctor's order"
+            subtitle="I have a request"
+            selected={doctorOrder === 'order'}
+            onPress={() => handleSelectDoctorOrder('order')}
+            delay={70}
+          />
+        </View>
+
+        {/* Upload box — only when doctor's order selected */}
+        {doctorOrder === 'order' && (
+          <FadeInUp delay={0}>
+            <AnimatedPressable
+              style={[styles.uploadBox, prescriptionFile && styles.uploadBoxDone]}
+              onPress={() => showUploadOptions("Doctor's order", setPrescriptionFile)}
+              scaleTo={0.98}
+            >
+              {prescriptionFile ? (
+                <>
+                  <View style={styles.uploadDoneIconWrap}>
+                    <Ionicons name="checkmark" size={24} color={COLORS.white} />
+                  </View>
+                  <Text style={styles.uploadDoneTitle}>File uploaded</Text>
+                  <Text style={styles.uploadDoneText} numberOfLines={1}>
+                    {prescriptionFile.name}
+                  </Text>
+                  <Text style={styles.uploadChangeText}>Tap to change</Text>
+                </>
+              ) : (
+                <>
+                  <View style={styles.uploadIconWrap}>
+                    <Ionicons name="cloud-upload-outline" size={22} color={COLORS.gray} />
+                  </View>
+                  <Text style={styles.uploadTitle}>Click to Upload or Take Photo</Text>
+                  <Text style={styles.uploadSub}>PDF, PNG, JPG up to 10MB</Text>
+                </>
+              )}
+            </AnimatedPressable>
+          </FadeInUp>
+        )}
+
+        {/* Insurance — only shown once a doctor's order is selected */}
+        {doctorOrder === 'order' && (
+          <>
+            <FadeInUp delay={100}>
+              <Text style={styles.sectionLabel}>Insurance</Text>
+              <Text style={styles.sectionSubtitle}>
+                Add your insurance card so we can verify coverage before your visit.
+              </Text>
+            </FadeInUp>
+            <View style={styles.orderRow}>
+              <OrderOptionCard
+                icon="close-circle-outline"
+                accent={COLORS.gray}
+                accentBg={COLORS.lightGray}
+                title="No insurance"
+                subtitle="Self-pay"
+                selected={insurance === 'none'}
+                onPress={() => handleSelectInsurance('none')}
+                delay={110}
+              />
+              <OrderOptionCard
+                icon="card-outline"
+                accent={COLORS.sky}
+                accentBg={COLORS.skyLight}
+                title="I have insurance"
+                subtitle="Add my card"
+                selected={insurance === 'have'}
+                onPress={() => handleSelectInsurance('have')}
+                delay={150}
+              />
+            </View>
+
+            {insurance === 'have' && (
+              <FadeInUp delay={0}>
+                <View style={{ gap: 12, marginTop: 14, marginBottom: 8 }}>
+                  <AnimatedPressable
+                    style={[styles.uploadBox, insuranceFront && styles.uploadBoxDone]}
+                    onPress={() => showUploadOptions('Insurance card — front', setInsuranceFront)}
+                    scaleTo={0.98}
+                  >
+                    {insuranceFront ? (
+                      <>
+                        <View style={styles.uploadDoneIconWrap}>
+                          <Ionicons name="checkmark" size={24} color={COLORS.white} />
+                        </View>
+                        <Text style={styles.uploadDoneTitle}>Front uploaded</Text>
+                        <Text style={styles.uploadDoneText} numberOfLines={1}>
+                          {insuranceFront.name}
+                        </Text>
+                        <Text style={styles.uploadChangeText}>Tap to change</Text>
+                      </>
+                    ) : (
+                      <>
+                        <View style={styles.uploadIconWrap}>
+                          <Ionicons name="card-outline" size={22} color={COLORS.gray} />
+                        </View>
+                        <Text style={styles.uploadTitle}>Upload insurance card — front</Text>
+                        <Text style={styles.uploadSub}>PDF, PNG, JPG up to 10MB</Text>
+                      </>
+                    )}
+                  </AnimatedPressable>
+
+                  <AnimatedPressable
+                    style={[styles.uploadBox, insuranceBack && styles.uploadBoxDone]}
+                    onPress={() => showUploadOptions('Insurance card — back', setInsuranceBack)}
+                    scaleTo={0.98}
+                  >
+                    {insuranceBack ? (
+                      <>
+                        <View style={styles.uploadDoneIconWrap}>
+                          <Ionicons name="checkmark" size={24} color={COLORS.white} />
+                        </View>
+                        <Text style={styles.uploadDoneTitle}>Back uploaded</Text>
+                        <Text style={styles.uploadDoneText} numberOfLines={1}>
+                          {insuranceBack.name}
+                        </Text>
+                        <Text style={styles.uploadChangeText}>Tap to change</Text>
+                      </>
+                    ) : (
+                      <>
+                        <View style={styles.uploadIconWrap}>
+                          <Ionicons name="card-outline" size={22} color={COLORS.gray} />
+                        </View>
+                        <Text style={styles.uploadTitle}>Upload insurance card — back</Text>
+                        <Text style={styles.uploadSub}>PDF, PNG, JPG up to 10MB</Text>
+                      </>
+                    )}
+                  </AnimatedPressable>
+                </View>
+              </FadeInUp>
+            )}
+          </>
+        )}
+
         {/* Tests Section — offer-aware lab tests card, same pattern as
             BookMobileVisitScreen (icon header, count badge, offer pill +
-            extra tests, discount strikethrough, running total). */}
+            extra tests, discount strikethrough, running total). Prices are
+            hidden per-test when the backend marks them hidePrice (insurance
+            flow) — same behavior as BookMobileVisitScreen. */}
         <FadeInUp delay={0}>
-          <View style={styles.sectionLabelRow}>
+          <View style={[styles.sectionLabelRow, { marginTop: 20 }]}>
             <Text style={styles.sectionLabel}>Lab tests</Text>
           </View>
         </FadeInUp>
@@ -1027,9 +1367,11 @@ export default function InPersonTestsScreen({ navigation, route }) {
                             {appliedOffer.title} ({appliedOffer.testIds?.length ?? appliedOffer.matchedCount} tests)
                           </Text>
                         </View>
-                        <Text style={[styles.testPillPrice, { color: COLORS.green }]}>
-                          ${appliedOffer.price.toFixed(0)}
-                        </Text>
+                        {!appliedOffer.hidePrice && (
+                          <Text style={[styles.testPillPrice, { color: COLORS.green }]}>
+                            ${appliedOffer.price.toFixed(0)}
+                          </Text>
+                        )}
                       </View>
                       {extraTestsData.map((test, i) => (
                         <FadeInUp key={test.id ?? i} delay={i * 50} distance={8}>
@@ -1040,9 +1382,11 @@ export default function InPersonTestsScreen({ navigation, route }) {
                                 {test.name}
                               </Text>
                             </View>
-                            <Text style={styles.testPillPrice}>
-                              ${(test.discountPrice ?? test.price).toFixed(0)}
-                            </Text>
+                            {!test.hidePrice && (
+                              <Text style={styles.testPillPrice}>
+                                ${(test.discountPrice ?? test.price ?? 0).toFixed(0)}
+                              </Text>
+                            )}
                           </View>
                         </FadeInUp>
                       ))}
@@ -1059,7 +1403,7 @@ export default function InPersonTestsScreen({ navigation, route }) {
                                 {test.name}
                               </Text>
                             </View>
-                            {hasDiscount ? (
+                            {test.hidePrice ? null : hasDiscount ? (
                               <View style={styles.testPillPriceRow}>
                                 <Text style={styles.testPillStrikePrice}>${test.price.toFixed(0)}</Text>
                                 <Text style={[styles.testPillPrice, styles.testPillDiscountPrice]}>
@@ -1112,7 +1456,7 @@ export default function InPersonTestsScreen({ navigation, route }) {
         {/* What to bring — animated, professional checklist */}
         <BringChecklistCard delay={160} />
 
-        {/* Select Center — now a single tappable row that opens a picker
+        {/* Select Center — a single tappable row that opens a picker
             sheet listing every center, instead of a long inline list. */}
         <FadeInUp delay={180}>
           <Text style={styles.sectionLabel}>Select center</Text>
@@ -1127,52 +1471,52 @@ export default function InPersonTestsScreen({ navigation, route }) {
           />
         </FadeInUp>
 
-        {/* Select Date */}
+        {/* Select date & time — picked on ScheduleVisitScreen (Fixed /
+            Urgent tiers only for in-person, via visitType: 'in_person') */}
         <FadeInUp delay={260}>
-          <Text style={[styles.sectionLabel, { marginTop: 24 }]}>Select date</Text>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={pickerStyles.dateRow}
-          >
-            {dates.map((date) => (
-              <DateCard
-                key={date.id}
-                date={date}
-                isSelected={selectedDate.id === date.id}
-                onPress={() => setSelectedDate(date)}
-              />
-            ))}
-          </ScrollView>
+          <Text style={[styles.sectionLabel, { marginTop: 24 }]}>Select date & time</Text>
         </FadeInUp>
-
-        {/* Select Time */}
-        <FadeInUp delay={300}>
-          <Text style={[styles.sectionLabel, { marginTop: 20 }]}>Select arrival time</Text>
-          <View style={pickerStyles.timePickerCard}>
-            <Text style={pickerStyles.chipRowLabel}>Hour</Text>
-            <ChipRow data={HOURS} selected={selectedHour} onSelect={setSelectedHour} isDisabled={isHourDisabled} />
-
-            <Text style={[pickerStyles.chipRowLabel, { marginTop: 14 }]}>Minute</Text>
-            <ChipRow data={MINUTES} selected={selectedMinute} onSelect={setSelectedMinute} isDisabled={isMinuteDisabled} />
-
-            <Text style={[pickerStyles.chipRowLabel, { marginTop: 14 }]}>Period</Text>
-            <PeriodToggle selected={selectedPeriod} onSelect={setSelectedPeriod} isDisabled={isPeriodDisabled} />
-          </View>
+        <FadeInUp delay={280}>
+          <AnimatedPressable style={centerModalStyles.pickerRow} onPress={goToScheduleVisit} scaleTo={0.98}>
+            <View style={[centerModalStyles.pickerIconRing, { backgroundColor: '#E0E7FF' }]}>
+              <Ionicons name="calendar" size={20} color={COLORS.navy} />
+            </View>
+            <View style={{ flex: 1 }}>
+              {schedule ? (
+                <>
+                  <Text style={centerModalStyles.pickerName} numberOfLines={1}>
+                    {schedule.dateLabel} · {schedule.timeLabel}
+                  </Text>
+                  <Text style={centerModalStyles.pickerMeta} numberOfLines={1}>
+                    {schedule.slotType === 'urgent' ? 'Urgent' : 'Fixed time'}
+                    {schedulingFee > 0 ? ` · +$${schedulingFee.toFixed(0)} scheduling fee` : ''}
+                  </Text>
+                </>
+              ) : (
+                <Text style={centerModalStyles.pickerPlaceholder}>Tap to choose date & time</Text>
+              )}
+            </View>
+            <View style={centerModalStyles.pickerChangeBtn}>
+              <Text style={centerModalStyles.pickerChangeText}>{schedule ? 'Change' : 'Select'}</Text>
+              <Ionicons name="chevron-forward" size={14} color={COLORS.navy} />
+            </View>
+          </AnimatedPressable>
         </FadeInUp>
 
         {/* Schedule summary */}
-        <FadeInUp delay={340}>
-          <View style={styles.scheduleSummary}>
-            <View style={styles.scheduleIconRing}>
-              <Ionicons name="calendar" size={18} color={COLORS.white} />
+        {schedule && (
+          <FadeInUp delay={340}>
+            <View style={styles.scheduleSummary}>
+              <View style={styles.scheduleIconRing}>
+                <Ionicons name="calendar" size={18} color={COLORS.white} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.scheduleLabel}>Scheduled for</Text>
+                <Text style={styles.scheduleValue}>{formattedDateLabel} · {formattedTime}</Text>
+              </View>
             </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.scheduleLabel}>Scheduled for</Text>
-              <Text style={styles.scheduleValue}>{formattedDateLabel} · {formattedTime}</Text>
-            </View>
-          </View>
-        </FadeInUp>
+          </FadeInUp>
+        )}
 
         {/* Price Summary */}
         <FadeInUp delay={380}>
@@ -1185,10 +1529,16 @@ export default function InPersonTestsScreen({ navigation, route }) {
               <Text style={styles.summaryLabel}>Visit fee</Text>
               <Text style={styles.summaryFree}>FREE</Text>
             </View>
+            {schedulingFee > 0 && (
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>Scheduling fee ({schedule?.slotType})</Text>
+                <Text style={styles.summaryValue}>${schedulingFee.toFixed(0)}</Text>
+              </View>
+            )}
             <View style={styles.summaryDivider} />
             <View style={styles.summaryRow}>
               <Text style={styles.totalLabel}>Total</Text>
-              <Text style={styles.totalValue}>${testsTotal.toFixed(0)}</Text>
+              <Text style={styles.totalValue}>${grandTotal.toFixed(0)}</Text>
             </View>
           </View>
         </FadeInUp>
@@ -1221,6 +1571,15 @@ export default function InPersonTestsScreen({ navigation, route }) {
           setCenterModalVisible(false);
         }}
         onClose={() => setCenterModalVisible(false)}
+      />
+
+      <PaymentOptionModal
+        visible={paymentModalVisible}
+        payInAppTotal={paymentTotals.payInApp}
+        payAtCenterTotal={paymentTotals.payAtCenter}
+        onSelectPayInApp={handleSelectPayInApp}
+        onSelectPayAtCenter={handleSelectPayAtCenter}
+        onClose={() => setPaymentModalVisible(false)}
       />
 
       <SuccessModal
@@ -1274,6 +1633,65 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 10,
   },
+  sectionSubtitle: {
+    fontSize: 13,
+    color: COLORS.gray,
+    marginBottom: 14,
+    lineHeight: 18,
+    marginTop: -6,
+  },
+
+  // ── Doctor's order / insurance upload box (mirrors BookMobileVisitScreen) ──
+  orderRow: { flexDirection: 'row', gap: 12 },
+  uploadBox: {
+    marginTop: 14,
+    borderWidth: 1.5,
+    borderColor: COLORS.border,
+    borderStyle: 'dashed',
+    borderRadius: 16,
+    paddingVertical: 32,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+    backgroundColor: COLORS.offWhite,
+    gap: 6,
+  },
+  uploadBoxDone: {
+    borderColor: COLORS.green,
+    backgroundColor: COLORS.greenLight,
+    borderStyle: 'solid',
+  },
+  uploadIconWrap: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: COLORS.white,
+    borderWidth: 1.5,
+    borderColor: COLORS.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  uploadTitle: { fontSize: 15, fontWeight: '800', color: COLORS.navyDark },
+  uploadSub: { fontSize: 13, color: COLORS.gray, marginTop: 2 },
+  uploadDoneIconWrap: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: COLORS.green,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  uploadDoneTitle: { fontSize: 15, fontWeight: '800', color: '#15803D' },
+  uploadDoneText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#166534',
+    textAlign: 'center',
+    maxWidth: 220,
+    marginTop: 2,
+  },
+  uploadChangeText: { fontSize: 12, color: '#16A34A', marginTop: 4 },
 
   // ── Lab tests card (mirrors BookMobileVisitScreen) ──
   labCard: {
@@ -1440,78 +1858,47 @@ const styles = StyleSheet.create({
   bookBtnText: { color: COLORS.white, fontSize: 16, fontWeight: '800' },
 });
 
-const pickerStyles = StyleSheet.create({
-  dateRow: { gap: 10, paddingRight: 4, paddingTop: 2, paddingBottom: 4 },
-  dateCard: {
-    width: 70,
-    alignItems: 'center',
+const orderStyles = StyleSheet.create({
+  orderCard: {
     backgroundColor: COLORS.white,
-    borderRadius: 12,
-    paddingVertical: 12,
+    borderRadius: 16,
+    padding: 14,
     borderWidth: 1.5,
     borderColor: COLORS.border,
-  },
-  dateCardSelected: {
-    borderColor: COLORS.navy,
-    backgroundColor: '#F0F4FF',
-    elevation: 4,
-    shadowColor: COLORS.navy,
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.18,
+    overflow: 'hidden',
+    elevation: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
     shadowRadius: 6,
   },
-  dateWeekday: { fontSize: 11, color: COLORS.gray, fontWeight: '600', marginBottom: 4 },
-  dateDay: { fontSize: 18, color: COLORS.navyDark, fontWeight: '900' },
-  dateMonth: { fontSize: 12, color: COLORS.gray, fontWeight: '600', marginTop: 2 },
-  dateTextSelected: { color: COLORS.navy },
-
-  timePickerCard: {
-    backgroundColor: COLORS.offWhite,
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: COLORS.border,
+  orderCardSelected: {
+    borderColor: COLORS.navy,
+    borderWidth: 2,
   },
-  chipRowLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: COLORS.gray,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 8,
+  orderCardDisabled: {
+    opacity: 0.45,
   },
-  chipRow: { gap: 8, paddingRight: 4, paddingVertical: 2 },
-  chip: {
-    minWidth: 52,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 12,
-    borderWidth: 1.5,
+  orderAccentBar: {
+    position: 'absolute',
+    left: 0, top: 0, bottom: 0,
+    width: 4,
+  },
+  orderIconRing: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
+    marginBottom: 10,
   },
-  chipSelected: { backgroundColor: COLORS.navy, borderColor: COLORS.navy },
-  chipUnselected: { backgroundColor: COLORS.white, borderColor: COLORS.border },
-  chipDisabled: { backgroundColor: COLORS.offWhite, borderColor: COLORS.lightGray },
-  chipText: { fontSize: 15, color: COLORS.bodyText, fontWeight: '700' },
-  chipTextSelected: { color: COLORS.white },
-  chipTextDisabled: { color: COLORS.lightGray, textDecorationLine: 'line-through' },
-
-  periodRow: { flexDirection: 'row', gap: 10 },
-  periodBtn: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: COLORS.border,
-    backgroundColor: COLORS.white,
-    alignItems: 'center',
-    justifyContent: 'center',
+  orderCardTitle: { fontSize: 14, fontWeight: '800', color: COLORS.bodyText, marginBottom: 2 },
+  orderCardSubtitle: { fontSize: 12, color: COLORS.gray },
+  orderCheckBadge: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
   },
-  periodBtnSelected: { backgroundColor: COLORS.navy, borderColor: COLORS.navy },
-  periodBtnDisabled: { backgroundColor: COLORS.offWhite, borderColor: COLORS.lightGray },
-  periodText: { fontSize: 15, fontWeight: '800', color: COLORS.bodyText },
-  periodTextSelected: { color: COLORS.white },
 });
 
 const bringStyles = StyleSheet.create({
@@ -1686,6 +2073,81 @@ const centerModalStyles = StyleSheet.create({
   },
   radioBtnSelected: { backgroundColor: COLORS.navy, borderColor: COLORS.navy },
 });
+const paymentModalStyles = StyleSheet.create({
+  backdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(13,31,60,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+  },
+  card: {
+    width: '100%',
+    maxWidth: 400,
+    backgroundColor: COLORS.white,
+    borderRadius: 26,
+    paddingTop: 26,
+    paddingBottom: 18,
+    paddingHorizontal: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.25,
+    shadowRadius: 24,
+    elevation: 16,
+  },
+  headerIconRing: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    backgroundColor: '#EAF0FB',
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'center',
+    marginBottom: 12,
+  },
+  title: { fontSize: 18, fontWeight: '900', color: COLORS.navyDark, textAlign: 'center' },
+  subtitle: { fontSize: 13, color: COLORS.gray, textAlign: 'center', marginTop: 4, marginBottom: 20 },
+
+  optionCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.offWhite,
+    borderRadius: 18,
+    padding: 14,
+    marginBottom: 12,
+    borderWidth: 1.5,
+    borderColor: COLORS.border,
+    overflow: 'hidden',
+    gap: 12,
+  },
+  optionCardApp: {},
+  optionCardCenter: {},
+  optionAccentBar: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 4,
+    backgroundColor: COLORS.sky,
+  },
+  optionIconRing: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  optionTitle: { fontSize: 15, fontWeight: '800', color: COLORS.navyDark, marginBottom: 2 },
+  optionSub: { fontSize: 11.5, color: COLORS.gray },
+  optionPrice: { fontSize: 16, fontWeight: '900', color: COLORS.navy, marginBottom: 2 },
+
+  cancelBtn: {
+    alignItems: 'center',
+    paddingVertical: 12,
+    marginTop: 4,
+  },
+  cancelBtnText: { fontSize: 14, fontWeight: '700', color: COLORS.gray },
+});
 
 const successStyles = StyleSheet.create({
   backdrop: {
@@ -1754,7 +2216,16 @@ const successStyles = StyleSheet.create({
     backgroundColor: COLORS.navy,
     borderRadius: 14,
     paddingVertical: 15,
+    paddingHorizontal: 12,
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  doneBtnText: { color: COLORS.white, fontSize: 15, fontWeight: '800' },
+  doneBtnText: {
+    color: COLORS.white,
+    fontSize: 15,
+    fontWeight: '800',
+    textAlign: 'center',
+    includeFontPadding: false,
+  },
+  
 });

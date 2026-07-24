@@ -7,21 +7,40 @@ import {
   Animated,
   Platform,
   StatusBar,
-  Alert
+  Alert,
+  ScrollView,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons'; 
+import { Ionicons } from '@expo/vector-icons';
 import { PHLEB_ENDPOINTS } from '../config/api';
 import * as SecureStore from 'expo-secure-store';
-import { getStoredPhlebUser } from '../utils/auth';
 
 const PHLEB_TOKEN_KEY = 'musb_phleb_token';
 const PRIMARY = '#18377D';
 const GREEN = '#1B7A4D';
 const RED = '#C0392B';
-const TIMER_SECONDS = 300; // 2 minutes
+const TIMER_SECONDS = 300; // 5 minutes
+
+// The screen name registered in the navigator for the phlebotomist dashboard.
+// Centralized here so the timer-expiry and manual-back paths can never drift
+// apart again (previously one used 'Dashboard', the other 'PhlebDashboard').
+const DASHBOARD_ROUTE = 'PhlebDashboard';
+
+// Splits a raw preferred_date string into FULL weekday + FULL month/date parts.
+// e.g. "Saturday" / "25 July" instead of "Sat" / "25 Jul".
+function splitDayDate(dateStr) {
+  if (!dateStr) return { day: '-', date: '-' };
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return { day: '-', date: dateStr };
+  const day = d.toLocaleDateString('en-US', { weekday: 'long' });
+  const date = `${d.getDate()} ${d.toLocaleDateString('en-US', { month: 'long' })}`;
+  return { day, date };
+}
 
 export default function NewRequestScreen({ route, navigation }) {
-  const { request: job } = route.params || {};
+  // Default to {} so a missing/undefined params object (e.g. this screen
+  // opened without a request being passed) doesn't crash on job.preferredDate
+  // below — it just renders with placeholder dashes instead.
+  const { request: job = {} } = route.params || {};
 
   const [submitting, setSubmitting] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState(TIMER_SECONDS);
@@ -48,7 +67,7 @@ export default function NewRequestScreen({ route, navigation }) {
   useEffect(() => {
     if (secondsLeft === 0) {
       clearInterval(intervalRef.current);
-      navigation.navigate('Dashboard');
+      navigation.navigate(DASHBOARD_ROUTE);
     }
   }, [secondsLeft]);
 
@@ -64,76 +83,76 @@ export default function NewRequestScreen({ route, navigation }) {
   const handleGoBack = () => {
     if (submitting) return;
     clearInterval(intervalRef.current);
-    navigation.navigate('PhlebDashboard');
+    navigation.navigate(DASHBOARD_ROUTE);
   };
 
   const handleDecline = async () => {
-  if (submitting) return;
-  setSubmitting(true);
-  clearInterval(intervalRef.current);
-  try {
-    const token = await SecureStore.getItemAsync(PHLEB_TOKEN_KEY);
-    await fetch(PHLEB_ENDPOINTS.declineBroadcast(job.id), {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({ reason: 'Not available' }),
-    });
-  } catch {
-    // navigate back regardless — decline is best-effort
-  } finally {
-    setSubmitting(false);
-    navigation.goBack();
-   }
+    if (submitting) return;
+    setSubmitting(true);
+    clearInterval(intervalRef.current);
+    try {
+      const token = await SecureStore.getItemAsync(PHLEB_TOKEN_KEY);
+      const res = await fetch(PHLEB_ENDPOINTS.declineBroadcast(job.id), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ reason: 'Not available' }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        console.warn('handleDecline: server rejected decline', res.status, data);
+      }
+    } catch (err) {
+      // navigate back regardless — decline is best-effort
+      console.warn('handleDecline failed:', err);
+    } finally {
+      setSubmitting(false);
+      navigation.goBack();
+    }
   };
 
   const handleAccept = async () => {
-  if (submitting) return;
-  setSubmitting(true);
-  clearInterval(intervalRef.current);
-  try {
-    const token = await SecureStore.getItemAsync(PHLEB_TOKEN_KEY);
-    const res = await fetch(PHLEB_ENDPOINTS.acceptBroadcast(job.id), {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      Alert.alert('Could not accept', data?.error || 'This job may no longer be available.');
-      setSubmitting(false);
-      navigation.goBack();
-      return;
-    } 
-     const phlebUser = await getStoredPhlebUser();
-    let fullJob = null;
-    if (phlebUser?.id) {
-      const jobsRes = await fetch(PHLEB_ENDPOINTS.phlebJobs(phlebUser.id), {
+    if (submitting) return;
+    setSubmitting(true);
+    clearInterval(intervalRef.current);
+    try {
+      const token = await SecureStore.getItemAsync(PHLEB_TOKEN_KEY);
+      const res = await fetch(PHLEB_ENDPOINTS.acceptBroadcast(job.id), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        Alert.alert('Could not accept', data?.error || 'This job may no longer be available.');
+        setSubmitting(false);
+        navigation.goBack();
+        return;
+      }
+
+      // Pull the freshly-assigned job by "who's active right now" instead of
+      // searching a list and matching IDs — avoids ID-mismatch bugs and
+      // returns full patient_phone / patient_lat / patient_lng / address.
+      const activeRes = await fetch(PHLEB_ENDPOINTS.dispatch.activeJob, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      const jobsData = await jobsRes.json();
-      console.log('PHLEB JOBS RESPONSE:', JSON.stringify(jobsData, null, 2));
-      const jobsList = Array.isArray(jobsData) ? jobsData : jobsData?.jobs || [];
-      fullJob = jobsList.find((j) => String(j.id) === String(job.id)) || jobsList[0];
-    }
-    const detailRes = await fetch(PHLEB_ENDPOINTS.testChecklist(job.id), {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    const detailData = await detailRes.json();
-    console.log('TEST CHECKLIST RESPONSE:', JSON.stringify(detailData, null, 2));
+      const activeData = await activeRes.json().catch(() => null);
+      if (!activeRes.ok) {
+        console.warn('handleAccept: activeJob fetch failed', activeRes.status, activeData);
+      }
+      const fullJob = activeRes.ok && activeData?.has_active ? activeData.job : null;
 
-    navigation.navigate('JobAccepted', { job: fullJob || job });
-  } catch (err) {
-    Alert.alert('Error', 'Could not accept the job. Please check your connection.');
-    setSubmitting(false);
-  }
- };
+      navigation.navigate('JobAccepted', { job: fullJob || job });
+    } catch (err) {
+      console.warn('handleAccept failed:', err);
+      Alert.alert('Error', 'Could not accept the job. Please check your connection.');
+      setSubmitting(false);
+    }
+  };
 
   const isUrgent = secondsLeft <= 30;
+  const { day, date } = splitDayDate(job.preferredDate);
 
   return (
     <View style={styles.outer}>
@@ -173,34 +192,60 @@ export default function NewRequestScreen({ route, navigation }) {
         </View>
       </View>
 
-      {/* Details */}
-      <View style={styles.body}>
+      {/* Scrollable body so Accept/Decline never get pushed off-screen */}
+      <ScrollView
+        style={styles.body}
+        contentContainerStyle={styles.bodyContent}
+        showsVerticalScrollIndicator={false}
+      >
         <Text style={styles.sectionTitle}>
           REQUEST DETAILS (BEFORE ACCEPTANCE)
         </Text>
 
+        {/* Estimated payout box */}
+        <View style={styles.payoutCard}>
+          <Text style={styles.payoutLabel}>Estimated payout</Text>
+          <Text style={styles.payoutValue}>
+            {job.estimatedPayout != null
+              ? `$${Number(job.estimatedPayout).toFixed(2)}`
+              : '—'}
+          </Text>
+        </View>
+
         <View style={styles.detailsCard}>
           <View style={styles.locationRow}>
             <Ionicons name="location" size={16} color={PRIMARY} />
-            <Text style={styles.locationText}>{job.location}</Text>
+            <Text style={styles.locationText}>{job.location || 'Location pending'}</Text>
             <View style={styles.distancePill}>
-              <Text style={styles.distancePillText}>{job.distanceMiles}</Text>
+              <Text style={styles.distancePillText}>{job.distanceMiles || '—'}</Text>
             </View>
           </View>
 
           <View style={styles.detailsDivider} />
 
           <DetailRow label="Distance from you" value={job.distanceFromYou} />
-          <DetailRow label="Neighbourhood" value={job.neighbourhood} />
-          <DetailRow label="Collection type" value={job.collectionType} last />
+          <DetailRow label="Collection day" value={day} />
+          <DetailRow label="Collection date" value={date} />
+          <DetailRow label="Collection time" value={job.preferredTime} />
+          <DetailRow
+            label="Collection type"
+            value={job.collectionType}
+          />
+          <DetailRow
+            label="Payment type"
+            value={job.isSelfPaid ? 'Self-paid' : 'Insurance'}
+            last
+          />
         </View>
 
-        {/* Privacy notice */}
-        <View style={styles.noticeCard}>
-          <Text style={styles.noticeText}>
-            Patient contact & full address revealed after you accept.
-          </Text>
-        </View>
+        {job.isSelfPaid && (
+          <View style={styles.selfPaidNotice}>
+            <Ionicons name="cash-outline" size={16} color="#92400E" style={{ marginRight: 8 }} />
+            <Text style={styles.selfPaidNoticeText}>
+              This is a self-paid test. If you drop the samples at the specified location, you may receive additional income. The extra payment is determined by the admin.
+            </Text>
+          </View>
+        )}
 
         {/* Action buttons */}
         <View style={styles.actionRow}>
@@ -226,7 +271,7 @@ export default function NewRequestScreen({ route, navigation }) {
         <Text style={styles.footerNote}>
           If not responded, request passes to next nearest phlebotomist
         </Text>
-      </View>
+      </ScrollView>
     </View>
   );
 }
@@ -314,7 +359,11 @@ const styles = StyleSheet.create({
   body: {
     flex: 1,
     paddingHorizontal: 20,
+  },
+
+  bodyContent: {
     paddingTop: 22,
+    paddingBottom: 36,
   },
 
   sectionTitle: {
@@ -323,6 +372,30 @@ const styles = StyleSheet.create({
     color: '#6B7280',
     letterSpacing: 0.5,
     marginBottom: 12,
+  },
+
+  payoutCard: {
+    backgroundColor: '#F0FDF4',
+    borderRadius: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+    alignItems: 'center',
+  },
+
+  payoutLabel: {
+    fontSize: 12.5,
+    color: '#166534',
+    fontWeight: '600',
+  },
+
+  payoutValue: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: GREEN,
+    marginTop: 2,
   },
 
   detailsCard: {
@@ -334,6 +407,7 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     shadowOffset: { width: 0, height: 2 },
     elevation: 2,
+    marginBottom: 14,
   },
 
   locationRow: {
@@ -375,41 +449,23 @@ const styles = StyleSheet.create({
   },
 
   detailLabel: {
-    width:120,
+    width: 130,
     fontSize: 13.5,
     color: '#6B7280',
   },
 
   detailValue: {
-    flex:1,
+    flex: 1,
     fontSize: 13.5,
     fontWeight: '700',
     color: PRIMARY,
-    textAlign: 'right'
-  },
-
-  noticeCard: {
-    backgroundColor: '#FFF7E6',
-    borderRadius: 14,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    marginTop: 16,
-    borderWidth: 1,
-    borderColor: '#FDE68A',
-  },
-
-  noticeText: {
-    color: '#92400E',
-    fontSize: 13.5,
-    fontWeight: '600',
-    lineHeight: 19,
-    textAlign: 'center',
+    textAlign: 'right',
   },
 
   actionRow: {
     flexDirection: 'row',
     gap: 12,
-    marginTop: 18,
+    marginTop: 4,
   },
 
   declineButton: {
@@ -446,5 +502,24 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 14,
     lineHeight: 17,
+  },
+
+  selfPaidNotice: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: '#FFF7E6',
+    borderRadius: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+  },
+  selfPaidNoticeText: {
+    flex: 1,
+    color: '#92400E',
+    fontSize: 12.5,
+    fontWeight: '600',
+    lineHeight: 18,
   },
 });

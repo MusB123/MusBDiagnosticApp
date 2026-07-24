@@ -7,7 +7,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useStripe } from '@stripe/stripe-react-native';
 import { Ionicons, Feather } from '@expo/vector-icons';
-import { getStoredPatientUser, bookAppointment, uploadDocument, markAppointmentPaid } from '../utils/auth';
+import { getStoredPatientUser, bookAppointment, uploadDocument, fetchWalkinFeePreview, markAppointmentPaid } from '../utils/auth';
 import * as FileSystem from 'expo-file-system/legacy';
 
 const BACKEND_URL = 'https://musb-diagnostic-website.onrender.com';
@@ -214,9 +214,12 @@ export default function CheckoutScreen({ navigation, route }) {
   const zipCode        = route?.params?.zipCode        || '';
   const visitType     = route?.params?.visitType      || 'mobile';
   const preferredTime = route?.params?.preferredTime  || 'Now';
+  const quotedBookingTime = route?.params?.quotedBookingTime || preferredTime;
   const preferredDate = route?.params?.preferredDate  || new Date().toISOString().split('T')[0];
   const [patientUser, setPatientUser] = useState(null);
-  const doctorOrder = route?.params?.doctorOrder || 'self';
+  const selectedLabId = route?.params?.selectedLabId || '';
+  const selectedLabName = route?.params?.selectedLabName || '';
+  const doctorOrder = route?.params?.doctorOrder || 'self'; 
   const appliedOffer = route?.params?.appliedOffer || null;
   const extraTestsData = route?.params?.extraTestsData || [];
   const prescriptionFile = route?.params?.prescriptionFile || null;
@@ -224,6 +227,7 @@ export default function CheckoutScreen({ navigation, route }) {
   const insuranceFrontFile = route?.params?.insuranceFront || null;
   const insuranceBackFile = route?.params?.insuranceBack || null;
   const appointmentId = route?.params?.appointmentId || null;
+  const selectedTests = route?.params?.selectedTests || [];
 
   // ── Pricing (flat-fee model — computed on BookMobileVisitScreen via
   // calculate_area_fee / calculate_marketplace_patient_fee) ──────────────
@@ -233,6 +237,7 @@ export default function CheckoutScreen({ navigation, route }) {
   const surchargesTotal    = visitType === 'mobile' ? Number(route?.params?.surchargesTotal) || 0 : 0;
   const serviceFee         = visitType === 'mobile' ? Number(route?.params?.serviceFee) || 0 : 0;
   const slotType           = route?.params?.slotType || 'flexible';
+  const slotIndex          = route?.params?.slotIndex ?? null;
   const timeSlotLabel      = route?.params?.timeSlotLabel || '';
 
   // Trust the backend's own computed total — avoids drift if settings change
@@ -315,11 +320,81 @@ export default function CheckoutScreen({ navigation, route }) {
     return { front, back };
   };
 
+  const allTestIds = appliedOffer
+  ? [...(appliedOffer.testIds || []), ...extraTestsData.map((t) => t.id)]
+  : selectedTests.map((t) => t.id);
+
   // ── Pay handler ───────────────────────────────────────────────────────────
   const handlePay = async () => {
     if (grandTotal == null) return;
     setLoading(true);
+
     try {
+      let currentAppointmentId = appointmentId;
+
+    // ── Step 1: Create/validate the booking BEFORE charging the card ──
+    // This is the key fix. Previously we charged via Stripe first, then
+    // called bookAppointment(), and if the backend recomputed a different
+    // price by then (slot-type/time-of-day pricing can shift over the
+    // 30-60+ seconds it takes to fill out the Stripe sheet), the user's
+    // card had already been charged with nowhere clean to land. Now we
+    // let the backend validate/lock the price first, while there's still
+    // zero money on the line, and only proceed to Stripe if it accepts
+    // the quoted price.
+      if (!currentAppointmentId) {
+        const doctorOrderDoc = await uploadPrescriptionDoc();
+        const { front: insuranceFrontDoc, back: insuranceBackDoc } = await uploadInsuranceDocs();
+
+        let bookingResult;
+        try {
+          bookingResult = await bookAppointment({
+            test_name: labTestsTotal > 0 ? labTestsNames : 'Mobile Phlebotomy Visit',
+            test_price: labTestsTotal > 0 ? labTestsTotal : 0,
+            test_ids: allTestIds.length > 0 ? allTestIds.join(',') : undefined,
+            full_name: patientFullName,
+            email: patientEmail,
+            phone: patientPhone,
+            address,
+            zipCode,
+            visit_type: visitType,
+            preferred_date: preferredDate,
+            preferred_time: preferredTime,
+            pricing_time: quotedBookingTime,
+            payment_method: 'Card',
+            selected_lab_id: selectedLabId || undefined,     
+            selected_lab_name: selectedLabName || undefined, 
+            doctor_order_base64: doctorOrderDoc?.key || null,
+            doctor_order_name: doctorOrderDoc?.name || null,
+            insurance_front_base64: insuranceFrontDoc?.key || null,
+            insurance_front_name: insuranceFrontDoc?.name || null,
+            insurance_back_base64: insuranceBackDoc?.key || null,
+            insurance_back_name: insuranceBackDoc?.name || null,
+            slot_type: slotType,
+            slot_index: slotIndex,
+            quoted_total_fee: quotedTotalFee,
+            status: 'pending_payment',
+          });
+          console.log("===== BOOKING PAYLOAD =====");
+        } catch (bookErr) {
+          console.log("===== BOOKING ERROR =====");
+          console.log("bookErr:", JSON.stringify(bookErr, null, 2));
+          console.log("message:", bookErr?.message);
+          console.log("status:", bookErr?.status);
+          console.log("data:", bookErr?.data);
+        // Price drifted, area no longer serviceable, slot taken, etc. —
+        // caught here, BEFORE Stripe is ever shown. No money moved.
+          Alert.alert(
+            "Booking Error",
+            JSON.stringify(bookErr?.data || bookErr, null, 2)
+          );
+          setLoading(false);
+          return;
+        }
+
+        currentAppointmentId = bookingResult.appointment_id;
+      }
+
+    // ── Step 2: Create the payment intent for the CONFIRMED price ──
       const response = await fetch(`${BACKEND_URL}/api/payments/create-payment-intent/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -327,6 +402,7 @@ export default function CheckoutScreen({ navigation, route }) {
           amount: grandTotal.toFixed(2),
           currency: 'usd',
           email: patientEmail,
+          appointment_id: currentAppointmentId,
         }),
       });
 
@@ -354,75 +430,32 @@ export default function CheckoutScreen({ navigation, route }) {
       const { error: paymentError } = await presentPaymentSheet();
 
       if (paymentError) {
+      // Booking exists but is still 'pending_payment' — user can retry
+      // paying for the same locked-price appointment without re-booking.
         if (paymentError.code !== 'Canceled') {
           Alert.alert('Payment Failed', paymentError.message);
         }
-      } else {
-        try {
-          if (appointmentId) {
-            // Existing appointment (e.g. in-person visit paying in-app afterward) —
-            // update it instead of creating a duplicate booking.
-            await markAppointmentPaid(appointmentId);
-            setSuccessData({
-              amount: grandTotal.toFixed(2),
-              appointmentId,
-            });
-            setShowSuccess(true);
-          } else {
-            // New booking flow (mobile visit / fresh in-person booking via checkout)
-            const doctorOrderDoc = await uploadPrescriptionDoc();
-            const { front: insuranceFrontDoc, back: insuranceBackDoc } = await uploadInsuranceDocs();
+        setLoading(false);
+        return;
+      }
 
-            let bookingResult;
-            try {
-              bookingResult = await bookAppointment({
-                test_name: labTestsTotal > 0 ? labTestsNames : 'Mobile Phlebotomy Visit',
-                test_price: labTestsTotal > 0 ? labTestsTotal : mobileVisitTotal,
-                full_name: patientFullName,
-                email: patientEmail,
-                phone: patientPhone,
-                address,
-                zipCode,
-                visit_type: visitType,
-                preferred_date: preferredDate,
-                preferred_time: preferredTime,
-                payment_method: 'Card',
-                doctor_order_base64: doctorOrderDoc?.key || null,
-                doctor_order_name: doctorOrderDoc?.name || null,
-                insurance_front_base64: insuranceFrontDoc?.key || null,
-                insurance_front_name: insuranceFrontDoc?.name || null,
-                insurance_back_base64: insuranceBackDoc?.key || null,
-                insurance_back_name: insuranceBackDoc?.name || null,
-                slot_type: slotType,
-                quoted_total_fee: quotedTotalFee,
-              });
-            } catch (bookErr) {
-              // Payment already succeeded via Stripe. A price-drift 409 here
-              // means the backend recomputed a different fee than what was
-              // quoted — this needs manual reconciliation, not a silent retry.
-              Alert.alert(
-                'Payment received, price changed',
-                'Your payment was successful, but pricing for this area updated before we could confirm your booking. ' +
-                'Please contact support with your payment confirmation and we will resolve this right away.',
-                [{ text: 'OK', onPress: () => navigation.navigate('PatientHome') }]
-              );
-              setLoading(false);
-              return;
-            }
-
-            setSuccessData({
-              amount: grandTotal.toFixed(2),
-              appointmentId: bookingResult.appointment_id,
-            });
-            setShowSuccess(true);
-          }
-        } catch (bookingErr) {
-          Alert.alert(
-            'Payment received, booking issue',
-            `Your payment was successful, but we couldn't save your appointment details (${bookingErr.message}). Please contact support.`,
-            [{ text: 'OK', onPress: () => navigation.navigate('PatientHome') }]
-          );
-        }
+    // ── Step 3: Mark the already-confirmed booking as paid ──
+      try {
+        await markAppointmentPaid(currentAppointmentId);
+        setSuccessData({
+          amount: grandTotal.toFixed(2),
+          appointmentId: currentAppointmentId,
+        });
+        setShowSuccess(true);
+      } catch (markErr) {
+      // Payment succeeded and the booking already exists at the right
+      // price — this is just a status-flag update failing, not a pricing
+      // or double-charge risk. Safe to tell the user they're confirmed.
+        Alert.alert(
+          'Payment received',
+          'Your payment was successful and your appointment is booked. If anything looks off in your confirmation, please contact support.',
+          [{ text: 'OK', onPress: () => navigation.navigate('PatientHome', { appointmentId: currentAppointmentId }) }]
+        );
       }
     } catch (err) {
       Alert.alert('Error', 'Something went wrong. Please check your connection and try again.');

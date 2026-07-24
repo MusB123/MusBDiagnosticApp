@@ -261,7 +261,7 @@ function TestRow({ test, isSelected, onToggle, delay }) {
             {test.name}
           </Text>
           {!!test.desc && (
-            <Text style={styles.testDesc}>
+            <Text style={styles.testDesc} numberOfLines={2} ellipsizeMode="tail">
               {test.desc}
             </Text>
           )}
@@ -270,20 +270,29 @@ function TestRow({ test, isSelected, onToggle, delay }) {
               {test.sampleType ? `${test.sampleType} · ` : ''}{test.turnaround}
             </Text>
           )}
+
+          {test.fastingRequired && (
+            <View style={styles.fastingBadge}>
+              <Feather name="clock" size={10} color="#B45309" />
+              <Text style={styles.fastingBadgeText}>Fasting required</Text>
+            </View>
+          )}
         </View>
 
           <View style={styles.testRight}>
-            {hasDiscount ? (
-              <View style={styles.priceRow}>
-                <Text style={styles.strikePrice}>${test.price.toFixed(0)}</Text>
-                <Text style={[styles.testPrice, styles.discountedPrice, isSelected && styles.testPriceSelected]}>
-                  ${test.discountPrice.toFixed(0)}
+            {test.hidePrice ? null : (
+              hasDiscount ? (
+                <View style={styles.priceRow}>
+                  <Text style={styles.strikePrice}>${test.price.toFixed(0)}</Text>
+                  <Text style={[styles.testPrice, styles.discountedPrice, isSelected && styles.testPriceSelected]}>
+                    ${test.discountPrice.toFixed(0)}
+                  </Text>
+                </View>
+              ) : (
+                <Text style={[styles.testPrice, isSelected && styles.testPriceSelected]}>
+                  ${test.price.toFixed(0)}
                 </Text>
-              </View>
-            ) : (
-              <Text style={[styles.testPrice, isSelected && styles.testPriceSelected]}>
-                ${test.price.toFixed(0)}
-              </Text>
+              )
             )}
             <View style={styles.checkCircle}>
               <Animated.View style={{ opacity: check, transform: [{ scale: check }], position: 'absolute' }}>
@@ -300,7 +309,7 @@ function TestRow({ test, isSelected, onToggle, delay }) {
 }
 
 /** Colorful offer bundle card with an explicit Select/Applied action button. */
-function OfferCard({ offer, palette, isApplied, matchWarning, delay, onSelect }) {
+function OfferCard({ offer, palette, isApplied, matchWarning, hasFasting, delay, onSelect, hidePrice }) {
   const scale = useRef(new Animated.Value(1)).current;
   const glow = useRef(new Animated.Value(isApplied ? 1 : 0)).current;
 
@@ -318,10 +327,10 @@ function OfferCard({ offer, palette, isApplied, matchWarning, delay, onSelect })
   });
   const shadowOpacity = glow.interpolate({ inputRange: [0, 1], outputRange: [0.06, 0.18] });
 
-  const savings = (parseFloat(offer.original_price) || 0) - (parseFloat(offer.discounted_price) || 0);
-  const savingsPct = offer.original_price
-    ? Math.round((savings / parseFloat(offer.original_price)) * 100)
-    : 0;
+  const savings = hidePrice ? 0 : (parseFloat(offer.original_price) || 0) - (parseFloat(offer.discounted_price) || 0);
+  const savingsPct = hidePrice || !offer.original_price
+    ? 0
+    : Math.round((savings / parseFloat(offer.original_price)) * 100);
 
   return (
     <FadeInUp delay={delay} distance={10}>
@@ -350,7 +359,7 @@ function OfferCard({ offer, palette, isApplied, matchWarning, delay, onSelect })
                   </View>
                 )}
               </View>
-              {savingsPct > 0 && (
+              {!hidePrice && savingsPct > 0 && (
                 <View style={[styles.savingsBadge, { backgroundColor: palette.accent }]}>
                   <Text style={styles.savingsBadgeText}>SAVE {savingsPct}%</Text>
                 </View>
@@ -364,12 +373,14 @@ function OfferCard({ offer, palette, isApplied, matchWarning, delay, onSelect })
               </View>
             )}
 
-            <View style={styles.offerPriceRow}>
-              <Text style={styles.offerStrike}>${parseFloat(offer.original_price).toFixed(0)}</Text>
-              <Text style={[styles.offerDiscounted, { color: palette.accent }]}>
-                ${parseFloat(offer.discounted_price).toFixed(0)}
-              </Text>
-            </View>
+            {!hidePrice && (
+              <View style={styles.offerPriceRow}>
+                <Text style={styles.offerStrike}>${parseFloat(offer.original_price).toFixed(0)}</Text>
+                <Text style={[styles.offerDiscounted, { color: palette.accent }]}>
+                  ${parseFloat(offer.discounted_price).toFixed(0)}
+                </Text>
+              </View>
+            )}
 
             <Text style={styles.offerIncludes} numberOfLines={2}>
               <Text style={styles.offerIncludesLabel}>Includes  </Text>
@@ -380,6 +391,12 @@ function OfferCard({ offer, palette, isApplied, matchWarning, delay, onSelect })
               <View style={styles.offerWarningRow}>
                 <Feather name="info" size={11} color={COLORS.error} />
                 <Text style={styles.offerWarningText}>Some tests in this bundle aren't available.</Text>
+              </View>
+            )}
+            {hasFasting && (
+              <View style={styles.fastingBadge}>
+                <Feather name="clock" size={10} color="#B45309" />
+                <Text style={styles.fastingBadgeText}>Includes fasting test</Text>
               </View>
             )}
 
@@ -413,6 +430,7 @@ function OfferCard({ offer, palette, isApplied, matchWarning, delay, onSelect })
 export default function SelectTestsScreen({ navigation, route }) {
   const returnTo = route?.params?.returnTo || null;
   const initialSelectedIds = route?.params?.initialSelectedIds || [];
+  const hasInsurance = route?.params?.hasInsurance || false;
 
   const [viewMode, setViewMode] = useState('tests'); // 'tests' | 'offers'
   const [offers, setOffers] = useState([]);
@@ -436,18 +454,27 @@ export default function SelectTestsScreen({ navigation, route }) {
     return () => clearInterval(interval);
   }, []);
 
+  // Insurance-billed patients don't use cash-price bundle offers — force
+// back to the tests tab if insurance gets selected while on Offers.
+  useEffect(() => {
+    if (hasInsurance && viewMode === 'offers') {
+      setViewMode('tests');
+    }
+  }, [hasInsurance, viewMode]);
+
   useEffect(() => {
     let isMounted = true;
     async function load() {
       setLoadError('');   // ← ADD THIS LINE — clears any previous error before retrying
       try {
-        const tests = await fetchAvailableTests();
+        const tests = await fetchAvailableTests(hasInsurance);
         if (!isMounted) return;
         const normalized = tests.map((t) => {
-          const price = typeof t.price === 'number' ? t.price : parseFloat(t.price) || 0;
+          const hidePrice = hasInsurance || !!t.hide_price;
+          const price = hidePrice ? null : (typeof t.price === 'number' ? t.price : parseFloat(t.price) || 0);
           const rawDiscount = t.discount_price;
           const discountPrice =
-            rawDiscount === null || rawDiscount === undefined || rawDiscount === ''
+            hidePrice || rawDiscount === null || rawDiscount === undefined || rawDiscount === ''
               ? null
               : (typeof rawDiscount === 'number' ? rawDiscount : parseFloat(rawDiscount));
           const hasDiscount = discountPrice !== null && !isNaN(discountPrice) && discountPrice < price;
@@ -458,10 +485,12 @@ export default function SelectTestsScreen({ navigation, route }) {
             desc: t.description || '',
             price,
             discountPrice: hasDiscount ? discountPrice : null,
+            hidePrice,
             category: t.category_name || 'General Wellness',
             iconName: t.icon_name || '',
             sampleType: t.sample_type || '',
             turnaround: t.turnaround || '',
+            fastingRequired: !!t.fasting_required,
           };
         });
         const uniqueCategories = [...new Set(normalized.map((t) => t.category))];
@@ -486,10 +515,15 @@ export default function SelectTestsScreen({ navigation, route }) {
   }, []);
 
   useEffect(() => {
+    if (hasInsurance) {
+      setOffers([]);
+      setOffersLoading(false);
+      return;
+    }
     let isMounted = true;
     async function loadOffers() {
-      try {
-        const data = await fetchOffers();
+     try {
+        const data = await fetchOffers(hasInsurance);
         if (isMounted) setOffers(data || []);
       } catch (err) {
         if (isMounted) setOffersError(err.message || 'Could not load offers.');
@@ -499,7 +533,7 @@ export default function SelectTestsScreen({ navigation, route }) {
     }
     loadOffers();
     return () => { isMounted = false; };
-  }, []);
+  }, [hasInsurance]);
 
   function normalizeTitle(str) {
     return (str || '').toLowerCase().trim().replace(/[^a-z0-9]/g, '');
@@ -552,7 +586,8 @@ export default function SelectTestsScreen({ navigation, route }) {
     setAppliedOffer({
       id: offer.id,
       title: offer.title,
-      price: parseFloat(offer.discounted_price) || 0,
+      price: offer.hidePrice ? 0 : (parseFloat(offer.discounted_price) || 0),
+      hidePrice: !!offer.hidePrice,
       matchedCount: matched.length,
       totalCount: includes.length,
       testIds: matched.map((t) => t.id),
@@ -597,21 +632,39 @@ export default function SelectTestsScreen({ navigation, route }) {
   const testsTotal = appliedOffer
     ? appliedOffer.price +
       extraTestsData.reduce(
-        (sum, t) => sum + (t.discountPrice != null ? t.discountPrice : t.price),
+        (sum, t) => sum + (t.discountPrice != null ? t.discountPrice : (t.price ?? 0)),
        0
       )
     : selectedTestsData.reduce(
-        (sum, t) => sum + (t.discountPrice != null ? t.discountPrice : t.price),
+        (sum, t) => sum + (t.discountPrice != null ? t.discountPrice : (t.price ?? 0)),
         0
       );
 
   const handleConfirm = () => {
     if (returnTo) {
-      navigation.navigate(returnTo, { selectedTestsData, testsTotal, appliedOffer, extraTestsData });
+      const s = route?.params?.passthroughSchedule || null;
+      navigation.navigate(returnTo, {
+        selectedTestsData,
+        testsTotal,
+        appliedOffer,
+        extraTestsData,
+        ...(s
+          ? {
+              scheduledDate: s.isoDate,
+              scheduledDateLabel: s.dateLabel,
+              scheduledTimeLabel: s.timeLabel,
+              preferredTime: s.preferredTime,
+              slotType: s.slotType,
+              slotIndex: s.slotIndex,
+              totalPatientFee: s.totalPatientFee,
+            }
+          : {}),
+      });
     } else {
       navigation.navigate('Checkout', {
         labTestsTotal: testsTotal,
         labTestsNames: selectedTestsData.map(t => t.name).join(', '),
+        selectedTests: selectedTestsData,
         appliedOffer,
         extraTestsData,
       });
@@ -625,7 +678,7 @@ export default function SelectTestsScreen({ navigation, route }) {
   // minute above, which forces this to re-run.
   const liveOffers = offers
     .filter((o) => o.is_active)
-    .map((o) => ({ ...o, msLeft: getMsLeft(o.expires_at) }))
+    .map((o) => ({ ...o, msLeft: getMsLeft(o.expires_at), hidePrice: hasInsurance || !!o.hide_price }))
     .filter((o) => o.msLeft === null || o.msLeft > 0)
     .map((o) => (o.msLeft !== null ? { ...o, time_left: formatTimeLeft(o.msLeft) } : o));
 
@@ -657,14 +710,16 @@ export default function SelectTestsScreen({ navigation, route }) {
               Lab Tests
             </Text>
           </Pressable>
-          <Pressable
-            style={[styles.viewToggleBtn, viewMode === 'offers' && styles.viewToggleBtnActive]}
-            onPress={() => setViewMode('offers')}
-          >
-            <Text style={[styles.viewToggleText, viewMode === 'offers' && styles.viewToggleTextActive]}>
-              Offers
-            </Text>
-          </Pressable>
+          {!hasInsurance && (
+            <Pressable
+              style={[styles.viewToggleBtn, viewMode === 'offers' && styles.viewToggleBtnActive]}
+              onPress={() => setViewMode('offers')}
+            >
+              <Text style={[styles.viewToggleText, viewMode === 'offers' && styles.viewToggleTextActive]}>
+                Offers
+              </Text>
+            </Pressable>
+          )}
         </View>
       </FadeInUp>
 
@@ -765,6 +820,7 @@ export default function SelectTestsScreen({ navigation, route }) {
           liveOffers.map((offer, i) => {
             const includes = offer.includes || [];
             const matched = matchTestsToOffer(offer, allTests);
+            const hasFasting = matched.some((t) => t.fastingRequired);
             return (
               <OfferCard
                 key={offer.id}
@@ -772,8 +828,10 @@ export default function SelectTestsScreen({ navigation, route }) {
                 palette={getOfferPalette(i)}
                 isApplied={appliedOffer?.id === offer.id}
                 matchWarning={matched.length < includes.length}
+                hasFasting={hasFasting}
                 delay={Math.min(i, 8) * 45}
                 onSelect={() => handleSelectOffer(offer)}
+                hidePrice={offer.hidePrice}
               />
             );
           })
@@ -1013,6 +1071,18 @@ const styles = StyleSheet.create({
   testNameSelected: { color: COLORS.navy },
   testDesc: { fontSize: 12, color: COLORS.bodyText, lineHeight: 16, marginBottom: 3 },
   testMeta: { fontSize: 11.5, color: COLORS.gray, fontWeight: '500' },
+  fastingBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#FEF3C7',
+    alignSelf: 'flex-start',
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    marginTop: 4,
+  },
+  fastingBadgeText: { fontSize: 10.5, fontWeight: '700', color: '#B45309' },
   testRight: { alignItems: 'flex-end', gap: 8 },
   testPrice: { fontSize: 14, fontWeight: '800', color: COLORS.bodyText },
   testPriceSelected: { color: COLORS.navyDark },

@@ -14,6 +14,12 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
+// The service area (New Port Richey, FL) is in the US Eastern time zone.
+// All "today"/"now" logic below is computed against THIS zone, not the
+// device's local zone, so scheduling always lines up with local time on
+// the ground at the service address.
+const SERVICE_TIME_ZONE = 'America/New_York';
+
 const COLORS = {
   navy: '#1B3A8C', navyDark: '#0D1F3C', white: '#FFFFFF',
   offWhite: '#F4F7FB', lightGray: '#E8EEF5', gray: '#8A9BB0',
@@ -29,20 +35,68 @@ const CARD_WIDTH = 250;
 const CARD_GAP = 12;
 const DATE_ROW_H_PADDING = 20;
 
+// Fixed walk-in window shown to patients for in-center visits — HR-defined
+// hours, not fetched from the backend since in-person scheduling doesn't
+// use the pricing/slot engine at all.
+const IN_PERSON_HOURS_LABEL = '8:00 AM – 5:00 PM';
+
+/**
+ * Returns { year, month (0-11), day, hour, minute, isoDate } for the current
+ * moment as observed in SERVICE_TIME_ZONE, regardless of the device's own
+ * timezone/locale settings.
+ */
+function getNowInServiceZone() {
+  const now = new Date();
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: SERVICE_TIME_ZONE,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    hour12: false,
+  }).formatToParts(now);
+
+  const get = (type) => parts.find((p) => p.type === type)?.value;
+  const year = Number(get('year'));
+  const month = Number(get('month')); // 1-12
+  const day = Number(get('day'));
+  let hour = Number(get('hour'));
+  if (hour === 24) hour = 0; // some ICU impls report midnight as 24
+  const minute = Number(get('minute'));
+  const second = Number(get('second'));
+
+  const isoDate = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+
+  return { year, month, day, hour, minute, second, isoDate };
+}
+
+/** Adds `offsetDays` calendar days to a service-zone y/m/d, using UTC-safe math. */
+function addDaysToServiceDate(base, offsetDays) {
+  // Use Date.UTC with the plain y/m/d fields as if they were UTC — this is
+  // only used for calendar arithmetic (weekday/month/day rollover), never
+  // compared against real UTC instants.
+  const d = new Date(Date.UTC(base.year, base.month - 1, base.day));
+  d.setUTCDate(d.getUTCDate() + offsetDays);
+  return {
+    year: d.getUTCFullYear(),
+    month: d.getUTCMonth() + 1,
+    day: d.getUTCDate(),
+    weekdayIndex: d.getUTCDay(),
+    isoDate: `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`,
+  };
+}
+
 const generateDates = () => {
   const dates = [];
-  const today = new Date();
+  const today = getNowInServiceZone();
   const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   for (let i = 0; i <= 13; i++) {
-    const date = new Date(today);
-    date.setDate(today.getDate() + i);
+    const d = addDaysToServiceDate(today, i);
     dates.push({
       id: i.toString(),
-      day: date.getDate(),
-      month: monthNames[date.getMonth()],
-      weekday: dayNames[date.getDay()],
-      isoDate: date.toISOString().split('T')[0],
+      day: d.day,
+      month: monthNames[d.month - 1],
+      weekday: dayNames[d.weekdayIndex],
+      isoDate: d.isoDate,
       isToday: i === 0,
     });
   }
@@ -94,6 +148,25 @@ function buildFixedSlots(window) {
     slots.push({ index: slots.length, startHour: start, label: `${fmt(start)} – ${fmt(end)}` });
   }
   return slots;
+}
+
+/**
+ * A window/slot counts as "passed" only when we're looking at today (in the
+ * service time zone) and its END hour is at or before the current hour.
+ * lateNight (00:00–06:00) represents *tonight after midnight*, so it's
+ * never treated as already-passed relative to today's earlier hours.
+ */
+function isWindowPast(window, nowHour, isToday) {
+  if (!isToday) return false;
+  if (window.startHour === 0 && window.endHour <= 12) return false; // lateNight-style window, always upcoming
+  return window.endHour <= nowHour;
+}
+
+function isFixedSlotPast(slot, nowHour, nowMinute, isToday) {
+  if (!isToday) return false;
+  // A hovering minute count means the current hour's slot is already
+  // underway/expired too — only allow slots strictly after the current hour.
+  return slot.startHour <= nowHour;
 }
 
 /** Springy press wrapper. */
@@ -170,7 +243,7 @@ function DateScrollTrack({ scrollFraction, trackWidth }) {
   );
 }
 
-function TimeWindowCard({ win, isSelected, onPress, delay }) {
+function TimeWindowCard({ win, isSelected, onPress, delay, disabled }) {
   const fill = useRef(new Animated.Value(isSelected ? 1 : 0)).current;
   useEffect(() => {
     Animated.timing(fill, { toValue: isSelected ? 1 : 0, duration: 200, easing: Easing.out(Easing.cubic), useNativeDriver: false }).start();
@@ -181,20 +254,26 @@ function TimeWindowCard({ win, isSelected, onPress, delay }) {
 
   return (
     <FadeInUp delay={delay} style={{ flex: 1, minWidth: '47%' }}>
-      <AnimatedPressable onPress={onPress} scaleTo={0.97}>
-        <Animated.View style={[styles.windowCard, { backgroundColor: bgColor, borderColor }]}>
+      <AnimatedPressable onPress={onPress} scaleTo={0.97} disabled={disabled}>
+        <Animated.View style={[
+          styles.windowCard,
+          { backgroundColor: bgColor, borderColor },
+          disabled && styles.windowCardDisabled,
+        ]}>
           <View style={styles.windowTopRow}>
-            <View style={[styles.windowIconRing, { backgroundColor: win.bg }]}>
-              <Ionicons name={win.icon} size={16} color={win.color} />
+            <View style={[styles.windowIconRing, { backgroundColor: disabled ? COLORS.lightGray : win.bg }]}>
+              <Ionicons name={win.icon} size={16} color={disabled ? COLORS.gray : win.color} />
             </View>
-            <Text style={styles.windowLabel}>{win.label}</Text>
-            {isSelected && (
+            <Text style={[styles.windowLabel, disabled && styles.windowLabelDisabled]}>{win.label}</Text>
+            {isSelected && !disabled && (
               <View style={styles.windowCheck}>
                 <Ionicons name="checkmark" size={11} color={COLORS.white} />
               </View>
             )}
           </View>
-          <Text style={styles.windowRange}>{win.range}</Text>
+          <Text style={[styles.windowRange, disabled && styles.windowLabelDisabled]}>
+            {disabled ? 'Already passed today' : win.range}
+          </Text>
         </Animated.View>
       </AnimatedPressable>
     </FadeInUp>
@@ -202,7 +281,7 @@ function TimeWindowCard({ win, isSelected, onPress, delay }) {
 }
 
 /** One scheduling-type card (Flexible / Fixed / Urgent) — fetches & shows its own price, expands to reveal slots. */
-function ScheduleTypeCard({ type, isExpanded, isSelected, price, loadingPrice, onToggle, onPickSlot, selectedSlotIndex, fixedSlots, delay }) {
+function ScheduleTypeCard({ type, isExpanded, isSelected, price, loadingPrice, onToggle, onPickSlot, selectedSlotIndex, fixedSlots, delay, isSlotDisabled }) {
   const chevronAnim = useRef(new Animated.Value(isExpanded ? 1 : 0)).current;
   const borderAnim = useRef(new Animated.Value(isSelected ? 1 : 0)).current;
   useEffect(() => {
@@ -250,21 +329,37 @@ function ScheduleTypeCard({ type, isExpanded, isSelected, price, loadingPrice, o
           <FadeInUp delay={0} distance={8}>
             <View style={styles.slotGrid}>
               {type.key === 'fixed' ? (
-                fixedSlots.map((slot) => (
-                  <AnimatedPressable
-                    key={slot.index}
-                    style={[styles.slotChip, selectedSlotIndex === slot.index && isSelected && styles.slotChipSelected]}
-                    onPress={() => onPickSlot(slot.index)}
-                    scaleTo={0.95}
-                  >
-                    <Text style={[styles.slotChipTime, selectedSlotIndex === slot.index && isSelected && styles.slotChipTimeSelected]}>
-                      {slot.label}
-                    </Text>
-                    <Text style={[styles.slotChipPrice, selectedSlotIndex === slot.index && isSelected && styles.slotChipPriceSelected]}>
-                      ${price != null ? price.toFixed(0) : '—'}
-                    </Text>
-                  </AnimatedPressable>
-                ))
+                fixedSlots.map((slot) => {
+                  const past = isSlotDisabled ? isSlotDisabled(slot) : false;
+                  return (
+                    <AnimatedPressable
+                      key={slot.index}
+                      style={[
+                        styles.slotChip,
+                        selectedSlotIndex === slot.index && isSelected && styles.slotChipSelected,
+                        past && styles.slotChipDisabled,
+                      ]}
+                      onPress={() => !past && onPickSlot(slot.index)}
+                      disabled={past}
+                      scaleTo={0.95}
+                    >
+                      <Text style={[
+                        styles.slotChipTime,
+                        selectedSlotIndex === slot.index && isSelected && styles.slotChipTimeSelected,
+                        past && styles.slotChipTimeDisabled,
+                      ]}>
+                        {slot.label}
+                      </Text>
+                      <Text style={[
+                        styles.slotChipPrice,
+                        selectedSlotIndex === slot.index && isSelected && styles.slotChipPriceSelected,
+                        past && styles.slotChipTimeDisabled,
+                      ]}>
+                        {past ? 'Passed' : `$${price != null ? price.toFixed(0) : '—'}`}
+                      </Text>
+                    </AnimatedPressable>
+                  );
+                })
               ) : (
                 <AnimatedPressable
                   style={[styles.slotChip, { flexBasis: '100%' }, isSelected && styles.slotChipSelected]}
@@ -290,17 +385,32 @@ function ScheduleTypeCard({ type, isExpanded, isSelected, price, loadingPrice, o
 export default function ScheduleVisitScreen() {
   const navigation = useNavigation();
   const route = useRoute();
-  const { address, zipCode, testTotal = 0, returnTo = 'BookMobileVisit' } = route?.params || {};
+  const { address, zipCode, testTotal = 0, returnTo = 'BookMobileVisit', visitType = 'mobile' } = route?.params || {};
+
+  // In-center visits use a completely simplified flow — just pick a day,
+  // then show the fixed 8 AM–5 PM walk-in window. No pricing, no
+  // flexible/fixed/urgent tiers, no time-of-day selection at all.
+  const isInPersonSimple = visitType === 'in_person';
 
   const dates = useMemo(() => generateDates(), []);
   const [selectedDate, setSelectedDate] = useState(dates[0]);
-  const [selectedWindowKey, setSelectedWindowKey] = useState('morning');
+  const [selectedWindowKey, setSelectedWindowKey] = useState(() => {
+    // Default to the first time window that hasn't already passed today.
+    const now = getNowInServiceZone();
+    const firstUpcoming = Object.entries(TIME_WINDOWS).find(
+      ([, win]) => !isWindowPast(win, now.hour, true)
+    );
+    return firstUpcoming ? firstUpcoming[0] : 'morning';
+  });
 
   const [expandedType, setExpandedType] = useState(null);
   const [selectedType, setSelectedType] = useState(null);
   const [selectedSlotIndex, setSelectedSlotIndex] = useState(null);
 
+  // Store the full quote (not just totalPatientFee) so the fee breakdown can
+// be passed downstream unchanged instead of being re-fetched later.
   const [prices, setPrices] = useState({ flexible: null, fixed: null, urgent: null });
+  const [priceDetails, setPriceDetails] = useState({ flexible: null, fixed: null, urgent: null });
   const [loadingType, setLoadingType] = useState(null);
   const priceCache = useRef({});
 
@@ -313,6 +423,16 @@ export default function ScheduleVisitScreen() {
     const x = e.nativeEvent.contentOffset.x;
     setDateScrollFraction(Math.min(Math.max(x / maxDateScroll, 0), 1));
   };
+
+  // Live "now" (in the service time zone), refreshed every 30s so slots
+  // silently disable themselves as the clock ticks past them.
+  const [nowInZone, setNowInZone] = useState(() => getNowInServiceZone());
+  useEffect(() => {
+    const timer = setInterval(() => setNowInZone(getNowInServiceZone()), 30000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const isSelectedDateToday = selectedDate.isoDate === nowInZone.isoDate;
 
   const selectedWindow = TIME_WINDOWS[selectedWindowKey];
   const fixedSlots = useMemo(() => buildFixedSlots(selectedWindow), [selectedWindowKey]);
@@ -328,7 +448,9 @@ export default function ScheduleVisitScreen() {
     const slotPart = typeKey === 'fixed' ? (selectedSlotIndex ?? 'any') : 'na';
     const cacheKey = `${selectedDate.isoDate}|${selectedWindowKey}|${typeKey}|${slotPart}`;
     if (priceCache.current[cacheKey] != null) {
-      setPrices((p) => ({ ...p, [typeKey]: priceCache.current[cacheKey] }));
+      const cached = priceCache.current[cacheKey];
+      setPrices((p) => ({ ...p, [typeKey]: cached.totalPatientFee }));
+      setPriceDetails((p) => ({ ...p, [typeKey]: cached }));
       return;
     }
     setLoadingType(typeKey);
@@ -343,27 +465,77 @@ export default function ScheduleVisitScreen() {
         slotIndex: typeKey === 'fixed' ? selectedSlotIndex : null,
       });
       console.log('[pricing]', typeKey, res.totalPatientFee ?? res);
-      const total = res.serviceable === false ? null : Number(res.totalPatientFee) || 0;
-      priceCache.current[cacheKey] = total;
-      setPrices((p) => ({ ...p, [typeKey]: total }));
+
+      if (res.serviceable === false) {
+        priceCache.current[cacheKey] = null;
+        setPrices((p) => ({ ...p, [typeKey]: null }));
+        setPriceDetails((p) => ({ ...p, [typeKey]: null }));
+        return;
+      }
+
+      // Keep the FULL quote — not just the total — so it can be passed
+      // downstream (BookMobileVisitScreen → Checkout) exactly as quoted,
+      // instead of each screen re-fetching pricing and risking a different
+      // number if time-of-day/slot pricing shifts in between.
+      const quote = {
+        totalPatientFee: Number(res.totalPatientFee) || 0,
+        baseFee: Number(res.baseFee) || 0,
+        distanceFee: Number(res.distanceFee) || 0,
+        driversReserveFee: Number(res.driversReserveFee) || 0,
+        surchargesTotal: Number(res.surchargesTotal) || 0,
+        serviceFee: Number(res.serviceFee) || 0,
+        quotedAt: Date.now(),
+        bookingTime,
+      };
+      priceCache.current[cacheKey] = quote;
+      setPrices((p) => ({ ...p, [typeKey]: quote.totalPatientFee }));
+      setPriceDetails((p) => ({ ...p, [typeKey]: quote }));
     } catch (err) {
       console.error(`[ScheduleVisitScreen] pricing fetch failed for ${typeKey}:`, err);
       setPrices((p) => ({ ...p, [typeKey]: null }));
+      setPriceDetails((p) => ({ ...p, [typeKey]: null }));
     } finally {
       setLoadingType(null);
     }
   };
 
+  // In-center visits skip pricing entirely — no fetchPricing calls happen
+  // for the simple date-only flow.
   useEffect(() => {
+    if (isInPersonSimple) return;
     setPrices({ flexible: null, fixed: null, urgent: null });
     priceCache.current = {};
     ['flexible', 'fixed', 'urgent'].forEach(loadPrice);
-  }, [selectedDate.id, selectedWindowKey]);
+  }, [selectedDate.id, selectedWindowKey, isInPersonSimple]);
 
   useEffect(() => {
-    if (selectedSlotIndex == null) return;
+    if (isInPersonSimple || selectedSlotIndex == null) return;
     loadPrice('fixed');
   }, [selectedSlotIndex]);
+
+  // If the chosen date is today and the clock ticks past the currently
+  // selected window or fixed slot, clear that stale selection so the user
+  // can't confirm a booking for a time that has already gone by.
+  useEffect(() => {
+    if (isInPersonSimple || !isSelectedDateToday) return;
+
+    if (isWindowPast(selectedWindow, nowInZone.hour, true)) {
+      const firstUpcoming = Object.entries(TIME_WINDOWS).find(
+        ([, win]) => !isWindowPast(win, nowInZone.hour, true)
+      );
+      if (firstUpcoming) setSelectedWindowKey(firstUpcoming[0]);
+    }
+
+    if (
+      selectedType === 'fixed' &&
+      selectedSlotIndex != null &&
+      fixedSlots[selectedSlotIndex] &&
+      isFixedSlotPast(fixedSlots[selectedSlotIndex], nowInZone.hour, nowInZone.minute, true)
+    ) {
+      setSelectedSlotIndex(null);
+      setSelectedType(null);
+    }
+  }, [nowInZone.hour, isSelectedDateToday]);
 
   const handleToggleType = (typeKey) => {
     setExpandedType((prev) => (prev === typeKey ? null : typeKey));
@@ -374,9 +546,34 @@ export default function ScheduleVisitScreen() {
     setSelectedSlotIndex(slotIndex);
   };
 
-  const canConfirm = selectedType != null && (selectedType !== 'fixed' || selectedSlotIndex != null);
+  const canConfirm = isInPersonSimple
+    ? !!selectedDate
+    : selectedType != null && (selectedType !== 'fixed' || selectedSlotIndex != null);
 
   const handleConfirm = () => {
+    // Echo back whatever test selection was passed through to us, so it
+    // survives the round trip to InPersonTests/BookMobileVisit.
+    const passthroughTests = {
+      selectedTestsData: route?.params?.passthroughSelectedTestsData,
+      appliedOffer: route?.params?.passthroughAppliedOffer,
+      extraTestsData: route?.params?.passthroughExtraTestsData,
+    };
+
+    if (isInPersonSimple) {
+      navigation.navigate(returnTo, {
+        scheduledDate: selectedDate.isoDate,
+        scheduledDateLabel: `${selectedDate.month} ${selectedDate.day} (${selectedDate.weekday})`,
+        scheduledTimeLabel: `Walk-in, ${IN_PERSON_HOURS_LABEL}`,
+        preferredTime: `Walk-in, ${IN_PERSON_HOURS_LABEL}`,
+        slotType: 'walk_in',
+        slotIndex: null,
+        timeWindow: null,
+        totalPatientFee: 0,
+        ...passthroughTests,
+      });
+      return;
+    }
+
     let preferredTime;
     if (selectedType === 'fixed') {
       const slot = fixedSlots[selectedSlotIndex];
@@ -387,15 +584,25 @@ export default function ScheduleVisitScreen() {
       preferredTime = `${selectedWindow.label} (${selectedWindow.range})`;
     }
 
+    const quote = priceDetails[selectedType] || {};
+
     navigation.navigate(returnTo, {
       scheduledDate: selectedDate.isoDate,
       scheduledDateLabel: `${selectedDate.month} ${selectedDate.day} (${selectedDate.weekday})`,
       scheduledTimeLabel: preferredTime,
       preferredTime,
+      quotedBookingTime: quote.bookingTime,
       slotType: selectedType,
       slotIndex: selectedType === 'fixed' ? selectedSlotIndex : null,
       timeWindow: selectedWindowKey,
       totalPatientFee: prices[selectedType],
+      baseFee: quote.baseFee,
+      distanceFee: quote.distanceFee,
+      driversReserveFee: quote.driversReserveFee,
+      surchargesTotal: quote.surchargesTotal,
+      serviceFee: quote.serviceFee,
+      quotedAt: quote.quotedAt,
+      ...passthroughTests,
     });
   };
 
@@ -408,13 +615,15 @@ export default function ScheduleVisitScreen() {
         </AnimatedPressable>
         <View>
           <Text style={styles.headerTitle}>Book an appointment</Text>
-          <Text style={styles.headerSub}>Choose when — and how — you want your slot.</Text>
+          <Text style={styles.headerSub}>
+            {isInPersonSimple ? 'Choose the day you\'d like to visit.' : 'Choose when — and how — you want your slot.'}
+          </Text>
         </View>
         <View style={{ width: 38 }} />
       </View>
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {/* Step 1: Day & date */}
+        {/* Step 1: Day & date — shown for both flows */}
         <FadeInUp delay={0}>
           <View style={[styles.stepHeaderRow, { justifyContent: 'space-between' }]}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
@@ -437,72 +646,105 @@ export default function ScheduleVisitScreen() {
           </ScrollView>
 
           <DateScrollTrack scrollFraction={dateScrollFraction} trackWidth={trackWidth} />
+          <Text style={styles.tzNote}> </Text>
         </FadeInUp>
 
-        {/* Step 2: Time of day */}
-        <FadeInUp delay={60}>
-          <View style={[styles.stepHeaderRow, { justifyContent: 'space-between' }]}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-              <View style={styles.stepBadge}><Text style={styles.stepBadgeText}>2</Text></View>
-              <Text style={styles.stepTitle}>Time of day</Text>
+        {isInPersonSimple ? (
+          /* Simplified in-center flow: just the walk-in hours notice */
+          <FadeInUp delay={80}>
+            <View style={styles.hoursNoticeCard}>
+              <View style={styles.hoursNoticeIconRing}>
+                <Ionicons name="time-outline" size={20} color={COLORS.navy} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.hoursNoticeTitle}>Walk-in hours</Text>
+                <Text style={styles.hoursNoticeText}>
+                  You can visit the center any time between{' '}
+                  <Text style={styles.hoursNoticeTextBold}>{IN_PERSON_HOURS_LABEL}</Text> on your selected day.
+                  No need to book a specific time.
+                </Text>
+              </View>
             </View>
-            <Text style={styles.stepHeaderRight}>{selectedWindow.range}</Text>
-          </View>
-        </FadeInUp>
-        <View style={styles.windowGrid}>
-          {Object.entries(TIME_WINDOWS).map(([key, win], i) => (
-            <TimeWindowCard key={key} win={win} isSelected={selectedWindowKey === key} onPress={() => setSelectedWindowKey(key)} delay={90 + i * 30} />
-          ))}
-        </View>
+          </FadeInUp>
+        ) : (
+          <>
+            {/* Step 2: Time of day */}
+            <FadeInUp delay={60}>
+              <View style={[styles.stepHeaderRow, { justifyContent: 'space-between' }]}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                  <View style={styles.stepBadge}><Text style={styles.stepBadgeText}>2</Text></View>
+                  <Text style={styles.stepTitle}>Time of day</Text>
+                </View>
+                <Text style={styles.stepHeaderRight}>{selectedWindow.range}</Text>
+              </View>
+            </FadeInUp>
+            <View style={styles.windowGrid}>
+              {Object.entries(TIME_WINDOWS).map(([key, win], i) => {
+                const disabled = isWindowPast(win, nowInZone.hour, isSelectedDateToday);
+                return (
+                  <TimeWindowCard
+                    key={key}
+                    win={win}
+                    isSelected={selectedWindowKey === key}
+                    onPress={() => !disabled && setSelectedWindowKey(key)}
+                    delay={90 + i * 30}
+                    disabled={disabled}
+                  />
+                );
+              })}
+            </View>
 
-        {/* Step 3: Scheduling type */}
-        <FadeInUp delay={180}>
-          <View style={styles.stepHeaderRow}>
-            <View style={styles.stepBadge}><Text style={styles.stepBadgeText}>3</Text></View>
-            <Text style={styles.stepTitle}>How do you want to schedule?</Text>
-            <Text style={styles.stepHeaderTag}>Lowest price first</Text>
-          </View>
-        </FadeInUp>
+            {/* Step 3: Scheduling type */}
+            <FadeInUp delay={180}>
+              <View style={styles.stepHeaderRow}>
+                <View style={styles.stepBadge}><Text style={styles.stepBadgeText}>3</Text></View>
+                <Text style={styles.stepTitle}>How do you want to schedule?</Text>
+                <Text style={styles.stepHeaderTag}>Lowest price first</Text>
+              </View>
+            </FadeInUp>
 
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          snapToInterval={CARD_WIDTH + CARD_GAP}
-          decelerationRate="fast"
-          contentContainerStyle={styles.typeScrollContent}
-        >
-          {SCHEDULE_TYPES.map((type, i) => (
-            <ScheduleTypeCard
-              key={type.key}
-              type={type}
-              delay={210 + i * 40}
-              isExpanded={expandedType === type.key}
-              isSelected={selectedType === type.key}
-              price={prices[type.key]}
-              loadingPrice={loadingType === type.key}
-              onToggle={() => handleToggleType(type.key)}
-              onPickSlot={(idx) => handlePickSlot(type.key, idx)}
-              selectedSlotIndex={selectedSlotIndex}
-              fixedSlots={fixedSlots}
-            />
-          ))}
-        </ScrollView>
-        <Text style={styles.swipeHint}>‹ swipe to compare all three ›</Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              snapToInterval={CARD_WIDTH + CARD_GAP}
+              decelerationRate="fast"
+              contentContainerStyle={styles.typeScrollContent}
+            >
+              {SCHEDULE_TYPES.map((type, i) => (
+                <ScheduleTypeCard
+                  key={type.key}
+                  type={type}
+                  delay={210 + i * 40}
+                  isExpanded={expandedType === type.key}
+                  isSelected={selectedType === type.key}
+                  price={prices[type.key]}
+                  loadingPrice={loadingType === type.key}
+                  onToggle={() => handleToggleType(type.key)}
+                  onPickSlot={(idx) => handlePickSlot(type.key, idx)}
+                  selectedSlotIndex={selectedSlotIndex}
+                  fixedSlots={fixedSlots}
+                  isSlotDisabled={(slot) => isFixedSlotPast(slot, nowInZone.hour, nowInZone.minute, isSelectedDateToday)}
+                />
+              ))}
+            </ScrollView>
+            <Text style={styles.swipeHint}>‹ swipe to compare all three ›</Text>
 
-        <FadeInUp delay={360}>
-          <View style={styles.priceRuleBanner}>
-            <View style={[styles.priceRuleDot, { backgroundColor: COLORS.green }]} />
-            <Text style={styles.priceRuleText}>Flexible = lowest</Text>
-            <View style={[styles.priceRuleDot, { backgroundColor: COLORS.amber }]} />
-            <Text style={styles.priceRuleText}>Fixed = mid</Text>
-            <View style={[styles.priceRuleDot, { backgroundColor: COLORS.red }]} />
-            <Text style={styles.priceRuleText}>Urgent = highest</Text>
-          </View>
-        </FadeInUp>
+            <FadeInUp delay={360}>
+              <View style={styles.priceRuleBanner}>
+                <View style={[styles.priceRuleDot, { backgroundColor: COLORS.green }]} />
+                <Text style={styles.priceRuleText}>Flexible = lowest</Text>
+                <View style={[styles.priceRuleDot, { backgroundColor: COLORS.amber }]} />
+                <Text style={styles.priceRuleText}>Fixed = mid</Text>
+                <View style={[styles.priceRuleDot, { backgroundColor: COLORS.red }]} />
+                <Text style={styles.priceRuleText}>Urgent = highest</Text>
+              </View>
+            </FadeInUp>
+          </>
+        )}
       </ScrollView>
 
       <View style={styles.footer}>
-        {!canConfirm && <Text style={styles.footerHint}>Select a time slot to continue</Text>}
+        {!isInPersonSimple && !canConfirm && <Text style={styles.footerHint}>Select a time slot to continue</Text>}
         <AnimatedPressable
           style={[styles.confirmBtn, !canConfirm && styles.confirmBtnDisabled]}
           onPress={handleConfirm}
@@ -510,7 +752,9 @@ export default function ScheduleVisitScreen() {
           scaleTo={0.97}
         >
           <Text style={styles.confirmBtnText}>
-            {canConfirm && prices[selectedType] != null
+            {isInPersonSimple
+              ? 'Confirm date'
+              : canConfirm && prices[selectedType] != null
               ? `Confirm booking · $${prices[selectedType].toFixed(0)}`
               : 'Confirm booking'}
           </Text>
@@ -550,11 +794,15 @@ const styles = StyleSheet.create({
   scrollTrack: { height: 3, backgroundColor: COLORS.lightGray, borderRadius: 2, marginTop: 10, overflow: 'hidden' },
   scrollThumb: { height: 3, backgroundColor: COLORS.navy, borderRadius: 2 },
 
+  tzNote: { fontSize: 10.5, color: COLORS.gray, marginTop: 8, fontStyle: 'italic' },
+
   windowGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   windowCard: { minWidth: '47%', flex: 1, borderRadius: 14, padding: 12, borderWidth: 1.5 },
+  windowCardDisabled: { backgroundColor: COLORS.offWhite, borderColor: COLORS.lightGray, opacity: 0.55 },
   windowTopRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
   windowIconRing: { width: 26, height: 26, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
   windowLabel: { fontSize: 13, fontWeight: '800', color: COLORS.navyDark, flexShrink: 1 },
+  windowLabelDisabled: { color: COLORS.gray },
   windowRange: { fontSize: 11, color: COLORS.gray, marginTop: 2 },
   windowCheck: { marginLeft: 'auto', width: 16, height: 16, borderRadius: 8, backgroundColor: COLORS.green, alignItems: 'center', justifyContent: 'center' },
 
@@ -575,8 +823,10 @@ const styles = StyleSheet.create({
   slotGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
   slotChip: { flexBasis: '47%', flexGrow: 1, borderWidth: 1.5, borderColor: COLORS.border, borderRadius: 12, paddingVertical: 10, paddingHorizontal: 10, backgroundColor: COLORS.offWhite },
   slotChipSelected: { borderColor: COLORS.navy, backgroundColor: '#EAF0FB' },
+  slotChipDisabled: { backgroundColor: COLORS.lightGray, borderColor: COLORS.lightGray, opacity: 0.55 },
   slotChipTime: { fontSize: 12, fontWeight: '700', color: COLORS.bodyText },
   slotChipTimeSelected: { color: COLORS.navyDark },
+  slotChipTimeDisabled: { color: COLORS.gray, textDecorationLine: 'line-through' },
   slotChipPrice: { fontSize: 13, fontWeight: '900', color: COLORS.navy, marginTop: 4 },
   slotChipPriceSelected: { color: COLORS.navy },
 
@@ -585,6 +835,27 @@ const styles = StyleSheet.create({
   priceRuleBanner: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, backgroundColor: COLORS.offWhite, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: COLORS.border, marginTop: 8 },
   priceRuleDot: { width: 8, height: 8, borderRadius: 4 },
   priceRuleText: { fontSize: 11, color: COLORS.bodyText, fontWeight: '600', marginRight: 8 },
+
+  // ── In-center walk-in hours notice ──
+  hoursNoticeCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    backgroundColor: '#EBF0FB',
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#C7D4F5',
+    marginTop: 4,
+  },
+  hoursNoticeIconRing: {
+    width: 40, height: 40, borderRadius: 13,
+    backgroundColor: COLORS.white, alignItems: 'center', justifyContent: 'center',
+    marginTop: 1,
+  },
+  hoursNoticeTitle: { fontSize: 14.5, fontWeight: '800', color: COLORS.navyDark, marginBottom: 4 },
+  hoursNoticeText: { fontSize: 13, color: COLORS.bodyText, lineHeight: 19 },
+  hoursNoticeTextBold: { fontWeight: '800', color: COLORS.navyDark },
 
   footer: { padding: 20, borderTopWidth: 1, borderTopColor: COLORS.lightGray, backgroundColor: COLORS.white },
   footerHint: { textAlign: 'center', fontSize: 12, color: COLORS.gray, marginBottom: 10 },

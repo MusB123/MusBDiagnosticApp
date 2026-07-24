@@ -248,7 +248,7 @@ function normalizeJob(raw) {
     status: raw.status || 'completed',
     // phlebJobs' `date` field is already a sliced 'YYYY-MM-DD' string — still
     // parseable by `new Date(...)`, so it works fine as the filter date too.
-    rawDate: raw.date_iso || raw.created_at || raw.date || null,
+    rawDate: raw.completed_at || raw.date_iso || raw.created_at || raw.date || null,
   };
 }
 

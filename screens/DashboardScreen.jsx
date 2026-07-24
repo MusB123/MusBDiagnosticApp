@@ -38,6 +38,17 @@ const getActiveJobStatusLabel = (status) => {
   return 'Accepted — head to patient';
 };
 
+// Formats a raw date string into "Wed, 24 Jul" for the nearby-request cards.
+function formatDayDate(dateStr) {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return '';
+  const weekday = d.toLocaleDateString('en-US', { weekday: 'short' });
+  const day = d.getDate();
+  const month = d.toLocaleDateString('en-US', { month: 'short' });
+  return `${weekday}, ${day} ${month}`;
+}
+
 // Same date-matching idea as JobHistoryScreen's withinFilter, but scoped to
 // "today" specifically, since that's what this dashboard card shows.
 function isToday(dateStr) {
@@ -252,7 +263,7 @@ export default function DashboardScreen({ route, navigation }) {
 
       const completedToday = list.filter((j) => {
         const status = j.status || 'completed';
-        const dateStr = j.date_iso || j.created_at || j.date;
+        const dateStr = j.completed_at || j.date_iso || j.created_at || j.date; 
         return status === 'completed' && isToday(dateStr);
       });
 
@@ -434,11 +445,15 @@ export default function DashboardScreen({ route, navigation }) {
                 <View style={{ flex: 1 }}>
                   <Text style={styles.requestItemTitle}>{req.test_name || req.testName || 'Clinical Test'}</Text>
                   <Text style={styles.requestItemSub}>
-                    {req.address || 'Address unknown'}
-                    {req.distance_miles != null ? ` · ${req.distance_miles} mi` : ''}
-                    {req.preferred_time ? ` · ${req.preferred_time}` : ''}
+                    {[
+                      req.distance_miles != null ? `${req.distance_miles} mi` : null,
+                      formatDayDate(req.preferred_date),
+                      req.preferred_time || null,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
                   </Text>
-                </View>
+                 </View>
                 <LiveDot color={ORANGE} />
               </AnimatedPressable>
             </FadeInUp>

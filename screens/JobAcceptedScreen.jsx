@@ -22,26 +22,30 @@ const GREEN = '#1B7A4D';
 
 export default function JobAcceptedScreen({ route, navigation }) {
   const { job } = route.params || {};
-   console.log('JOB OBJECT:', JSON.stringify(job, null, 2));
+  const jobId = job?.id || job?.appointment_id || job?.dispatch_booking_id;
 
   const [opening, setOpening] = useState(false);
 
   const patientName = job?.patientName || job?.patient_name || 'Patient';
   const patientPhone = job?.patientPhone || job?.patient_phone || '';
+  const patientEmail = job?.patientEmail || job?.patient_email || job?.email || '';
   const address = job?.address || job?.patient_address || job?.location || 'Address not provided';
   const rawTestName = job?.testName || job?.test_name || job?.tests
     || (Array.isArray(job?.lab_tests) ? job.lab_tests.join(', ') : null)
     || 'Clinical Test';
 
-const testName = Array.isArray(rawTestName)
-  ? rawTestName.filter(Boolean).map(String).join('\n')
-  : String(rawTestName ?? '')
-      .split(',')
-      .map((t) => t.trim())
-      .filter(Boolean)
-      .join('\n') || 'Clinical Test';
+  const testName = Array.isArray(rawTestName)
+    ? rawTestName.filter(Boolean).map(String).join('\n')
+    : String(rawTestName ?? '')
+        .split(',')
+        .map((t) => t.trim())
+        .filter(Boolean)
+        .join('\n') || 'Clinical Test';
   const testPrice = job?.testPrice || job?.test_price;
-  const earning = job?.earning ?? job?.earned ?? job?.amount_earned;
+  const earning = job?.earnings?.total ?? job?.earning ?? job?.earned ?? job?.amount_earned;
+  const fastingRequired = !!(job?.fastingRequired || job?.fasting_required);
+  const collectionNote = job?.collectionInstructions || job?.collection_instructions
+    || job?.prepInstructions || job?.prep_instructions || null;
   const preferredDate = job?.preferredDate || job?.preferred_date || '';
   const preferredTime = job?.time || job?.preferred_time || 'ASAP';
   const visitType = job?.visitType || job?.visit_type || 'home';
@@ -50,14 +54,12 @@ const testName = Array.isArray(rawTestName)
   const formatDateLong = (dateStr) => {
     if (!dateStr) return null;
     const d = new Date(dateStr);
-    if (isNaN(d.getTime())) return dateStr; // fallback if unparsable
+    if (isNaN(d.getTime())) return dateStr;
     const days = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
     const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
     return `${days[d.getDay()]} ${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`;
   };
 
-  // Documents arrive as { url } (signed S3 link) from the backend; legacy
-  // records may still carry { base64 }. Support both, plus flat *_url/*_base64.
   const doctorOrder = job?.documents?.doctorOrder
     || (job?.doctor_order_url
         ? { url: job.doctor_order_url, name: job.doctor_order_name || 'Doctor Order' }
@@ -109,32 +111,37 @@ const testName = Array.isArray(rawTestName)
     Linking.openURL(url);
   };
 
-  const [markingArrived, setMarkingArrived] = useState(false);
+  const [startingTrip, setStartingTrip] = useState(false);
 
-  const handleStartCollection = async () => {
-    if (markingArrived) return;
-    setMarkingArrived(true);
+  // Marks the job 'enroute' (backend emails the patient an ETA), then hands
+  // off to the trip-in-progress screen — arrival/OTP happens from there now.
+  const handleStartTrip = async () => {
+    if (startingTrip) return;
+    setStartingTrip(true);
+    let etaTime = null;
+    let etaMinutes = null;
     try {
       const token = await SecureStore.getItemAsync('musb_phleb_token');
-      await fetch(PHLEB_ENDPOINTS.testStatus(job.id), {
+      const res = await fetch(PHLEB_ENDPOINTS.testStatus(job.id), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ status: 'arrived' }),
+        body: JSON.stringify({ status: 'enroute' }),
       });
+      const data = await res.json().catch(() => null);
+      etaTime = data?.eta_time || null;
+      etaMinutes = data?.eta_minutes || null;
     } catch (err) {
       // Non-fatal — proceed anyway so the phlebotomist isn't blocked
-      console.warn('Could not mark arrived:', err);
+      console.warn('Could not mark en route:', err);
     } finally {
-      setMarkingArrived(false);
-      navigation.navigate('VerifyArrival', { job });
+      setStartingTrip(false);
+      navigation.navigate('TripInProgress', { job : { ...job, id: jobId }, etaTime, etaMinutes });
     }
   };
 
-  // Prefer a signed S3 URL (open directly). Fall back to legacy base64, which
-  // must be written to disk first — Linking.openURL can't render raw base64.
   const openDoc = async (doc, label) => {
     if (!doc?.url && !doc?.base64) {
       Alert.alert(
@@ -156,8 +163,6 @@ const testName = Array.isArray(rawTestName)
       const isPdf = (doc.name || '').toLowerCase().endsWith('.pdf');
       const ext = isPdf ? 'pdf' : 'jpg';
       const fileUri = `${FileSystem.cacheDirectory}${label.replace(/\s/g, '_')}.${ext}`;
-
-      // Strip a data URI prefix if present (e.g. "data:image/jpeg;base64,")
       const raw = doc.base64.includes(',') ? doc.base64.split(',')[1] : doc.base64;
 
       await FileSystem.writeAsStringAsync(fileUri, raw, {
@@ -227,6 +232,7 @@ const testName = Array.isArray(rawTestName)
           <View style={styles.divider} />
 
           <InfoRow label="Phone" value={patientPhone || '—'} />
+          <InfoRow label="Email" value={patientEmail || '—'} />
           <InfoRow label="Date" value={formatDateLong(preferredDate || job?.date) || 'Today'} />
           <InfoRow label="Address" value={address} />
           <InfoRow label="Payment method" value={paymentMethod} last />
@@ -235,7 +241,8 @@ const testName = Array.isArray(rawTestName)
         {/* Order */}
         <Text style={[styles.sectionLabel, { marginTop: 20 }]}>ORDER</Text>
         <View style={styles.card}>
-          <InfoRow label="Test" value={testName} />
+          <InfoRow label="Tests" value={testName} />
+          <InfoRow label="Test fee" value={testPrice != null ? `$${Number(testPrice).toFixed(2)}` : 'N/A'} />
           <InfoRow
             label="Your earning"
             value={earning != null ? `$${Number(earning).toFixed(2)}` : 'N/A'}
@@ -269,6 +276,23 @@ const testName = Array.isArray(rawTestName)
             last
           />
         </View>
+        {/* Collection Instructions */}
+        {(fastingRequired || collectionNote) && (
+          <>
+            <Text style={[styles.sectionLabel, { marginTop: 20 }]}>COLLECTION INSTRUCTIONS</Text>
+            <View style={styles.card}>
+              {fastingRequired && (
+                <View style={styles.fastingBanner}>
+                  <Ionicons name="alert-circle" size={16} color="#B45309" />
+                  <Text style={styles.fastingBannerText}>Patient is fasting — confirm before draw</Text>
+                </View>
+              )}
+              <Text style={styles.collectionText}>
+                {collectionNote || 'No special collection notes provided.'}
+              </Text>
+            </View>
+          </>
+        )}
 
         {/* Actions */}
         <View style={styles.actionRow}>
@@ -283,14 +307,14 @@ const testName = Array.isArray(rawTestName)
         </View>
 
         <TouchableOpacity
-          style={styles.startCollectionButton}
+          style={styles.startTripButton}
           activeOpacity={0.9}
-          onPress={handleStartCollection}
-          disabled={markingArrived}
+          onPress={handleStartTrip}
+          disabled={startingTrip}
         >
-          <Ionicons name="clipboard-outline" size={18} color="#FFFFFF" />
-          <Text style={styles.startCollectionText}>
-             {markingArrived ? 'Notifying patient...' : "I've Arrived — Start Collection"}
+          <Ionicons name="car-outline" size={18} color="#FFFFFF" />
+          <Text style={styles.startTripText}>
+            {startingTrip ? 'Starting trip...' : 'Start Trip'}
           </Text>
         </TouchableOpacity>
       </ScrollView>
@@ -399,19 +423,31 @@ const styles = StyleSheet.create({
   },
   docLabel: { fontSize: 14, fontWeight: '700', color: '#111827' },
   docStatus: { fontSize: 12.5, color: '#6B7280', marginTop: 2 },
+  fastingBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#FEF3C7',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginBottom: 12,
+  },
+  fastingBannerText: { fontSize: 13, fontWeight: '700', color: '#92400E', flex: 1 },
+  collectionText: { fontSize: 13.5, color: '#4A5568', lineHeight: 20 },
   actionRow: { flexDirection: 'row', gap: 12, marginTop: 18 },
   navigateButton: {
     flex: 1, flexDirection: 'row', gap: 8, backgroundColor: GREEN,
     paddingVertical: 14, borderRadius: 14, alignItems: 'center', justifyContent: 'center',
   },
   navigateText: { color: '#FFFFFF', fontWeight: '700', fontSize: 15 },
-  startCollectionButton: {
+  startTripButton: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
     backgroundColor: PRIMARY, paddingVertical: 16, borderRadius: 14, marginTop: 14,
     shadowColor: PRIMARY, shadowOpacity: 0.25, shadowRadius: 10,
     shadowOffset: { width: 0, height: 4 }, elevation: 4,
   },
-  startCollectionText: { color: '#FFFFFF', fontWeight: '700', fontSize: 15 },
+  startTripText: { color: '#FFFFFF', fontWeight: '700', fontSize: 15 },
   backBtn: {
     width: 32,
     height: 32,

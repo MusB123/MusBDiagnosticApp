@@ -414,6 +414,8 @@ export async function bookAppointment(bookingData) {
   }
 
   if (!response.ok) {
+    console.log("BOOK APPOINTMENT STATUS:", response.status);
+    console.log('BOOK APPOINTMENT ERROR RESPONSE:', data);
     throw new Error(data?.message || data?.error || `Request failed (${response.status})`);
   }
   return data;
@@ -532,10 +534,14 @@ export async function fetchPatientHistory() {
 }
 
 // ── Catalog (public, no auth) ────────────────────────────────────────────
-export async function fetchAvailableTests() {
+export async function fetchAvailableTests(hasInsurance = false) {
+  const url = hasInsurance
+    ? `${CATALOG_ENDPOINTS.tests}?insurance=true`
+    : CATALOG_ENDPOINTS.tests;
+
   let response;
   try {
-    response = await fetch(CATALOG_ENDPOINTS.tests, { method: 'GET' });
+    response = await fetch(url, { method: 'GET' });
   } catch (e) {
     console.log('TESTS FETCH NETWORK ERROR:', e.message);
     throw new Error('NETWORK_ERROR');
@@ -595,6 +601,31 @@ export async function fetchPricing({ address, zipCode, bookingDate, bookingTime,
     throw new Error(data?.error || `Request failed (${response.status})`);
   }
   return data;
+}
+
+export async function fetchWalkinFeePreview({ testTotal, payAtCenter }) {
+  let response;
+  try {
+    response = await fetch(PATIENT_ENDPOINTS.walkinFeePreview, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ test_total: testTotal ?? 0, pay_at_center: !!payAtCenter }),
+    });
+  } catch {
+    throw new Error('NETWORK_ERROR');
+  }
+
+  let data;
+  try {
+    data = await response.json();
+  } catch {
+    throw new Error('BAD_RESPONSE');
+  }
+
+  if (!response.ok) {
+    throw new Error(data?.error || `Request failed (${response.status})`);
+  }
+  return data; // { totalPatientFee, payAtCenterFee, testTotal, ... }
 }
 
 export async function changePatientPassword({ currentPassword, newPassword }) {
@@ -682,10 +713,14 @@ export async function setPasswordFromGuest(password) {
   return data;
 }
 
-export async function fetchOffers() {
+export async function fetchOffers(hasInsurance = false) {
+  const url = hasInsurance
+    ? `${CATALOG_ENDPOINTS.offers}?insurance=true`
+    : CATALOG_ENDPOINTS.offers;
+
   let response;
   try {
-    response = await fetch(CATALOG_ENDPOINTS.offers, { method: 'GET' });
+    response = await fetch(url, { method: 'GET' });
   } catch {
     throw new Error('NETWORK_ERROR');
   }

@@ -27,6 +27,7 @@ export const PATIENT_ENDPOINTS = {
   googleLogin: `${PATIENT_PREFIX}/google-login/`,
   dashboard: `${PATIENT_PREFIX}/dashboard/`,
   bookAppointment: `${PATIENT_PREFIX}/book-appointment/`,
+  walkinFeePreview: `${PATIENT_PREFIX}/walkin-fee-preview/`,
   requestOtp: `${PATIENT_PREFIX}/request-otp/`,
   verifyOtp: `${PATIENT_PREFIX}/verify-otp/`,
   addPaymentMethod: `${PATIENT_PREFIX}/add-payment-method/`,
@@ -64,7 +65,9 @@ export const PHLEB_ENDPOINTS = {
   testStatus: (id) => `${PHLEB_BASE}/test/${id}/status/`,
   testReschedule: (id) => `${PHLEB_BASE}/test/${id}/reschedule/`,
   verifyPin: (id) => `${PHLEB_BASE}/test/${id}/verify-pin/`,
+  triggerArrival: (id) => `${PHLEB_BASE}/test/${id}/trigger-arrival/`,
   testChecklist: (id) => `${PHLEB_BASE}/test/${id}/checklist/`,
+  testReportDelay: (id) => `${PHLEB_BASE}/test/${id}/report-delay/`,
 
   // ── Broadcasts (job offers) ─────────────────────────────────────────────
   acceptBroadcast: (id) => `${PHLEB_BASE}/broadcasts/${id}/accept/`,
@@ -96,6 +99,7 @@ export const PHLEB_ENDPOINTS = {
   dispatch: {
     duty: `${DISPATCH_BASE}/duty/`,
     location: `${DISPATCH_BASE}/location/`,
+    route: (appointmentId) => `${DISPATCH_BASE}/route/${appointmentId}/`,
     pending: `${DISPATCH_BASE}/pending/`,
     respond: `${DISPATCH_BASE}/respond/`,
     activeJob: `${DISPATCH_BASE}/active-job/`,
