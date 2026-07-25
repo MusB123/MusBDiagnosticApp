@@ -159,7 +159,18 @@ function TagBadge({ label, icon, colors }) {
 
 export default function DropOffVerificationScreen({ route, navigation }) {
   const { job, patient } = route?.params || {};
-  const isSelfPaid = job?.is_self_paid ?? job?.isSelfPaid ?? false;
+  const isSelfPaid = job?.is_self_paid ?? job?.isSelfPaid ?? false; // "bought tests" - bonus messaging only
+
+  // Drop-off routing is driven by INSURANCE (not by whether tests were bought):
+  //  • uninsured  -> MusB labs only; if sample-collection-only, may hand to patient
+  //  • insured    -> any accredited (custom) lab; never hand to patient
+  const hasInsurance = job?.has_insurance ?? job?.hasInsurance ?? false;
+  const isUninsured = !hasInsurance;
+  const isSampleCollectionOnly =
+    job?.is_sample_collection_only ??
+    (String(job?.test_name || job?.testName || '').trim().toLowerCase() === 'blood draw only');
+  const canUseCustom = hasInsurance;
+  const canDropWithPatient = isUninsured && !!isSampleCollectionOnly;
 
   const [labs, setLabs] = useState([]);
   const [labsLoading, setLabsLoading] = useState(true);
@@ -167,6 +178,7 @@ export default function DropOffVerificationScreen({ route, navigation }) {
 
   const [selectedLabId, setSelectedLabId] = useState('');
   const [otherSelected, setOtherSelected] = useState(false);
+  const [patientSelected, setPatientSelected] = useState(false);
   const [otherForm, setOtherForm] = useState({
     labName: '', address: '', city: '', state: '', zip: '',
   });
@@ -210,9 +222,11 @@ export default function DropOffVerificationScreen({ route, navigation }) {
   };
 
   useEffect(() => {
-  if (isSelfPaid) {
+  if (isUninsured) {
+    // Uninsured -> specimens must go to a MusB lab; load the list.
     fetchLabs();
   } else {
+    // Insured -> any accredited lab; default to the custom-entry form.
     setLabsLoading(false);
     setOtherSelected(true);
   }
@@ -228,16 +242,24 @@ export default function DropOffVerificationScreen({ route, navigation }) {
 
   const canConfirm =
     !!photo &&
-    (selectedLabId || (otherSelected && otherFormValid));
+    (selectedLabId || (otherSelected && otherFormValid) || patientSelected);
 
   const selectLab = (id) => {
     setSelectedLabId(id);
     setOtherSelected(false);
+    setPatientSelected(false);
   };
 
   const selectOther = () => {
     setOtherSelected(true);
     setSelectedLabId('');
+    setPatientSelected(false);
+  };
+
+  const selectPatient = () => {
+    setPatientSelected(true);
+    setSelectedLabId('');
+    setOtherSelected(false);
   };
 
   const handleTakePhoto = async () => {
@@ -324,8 +346,8 @@ export default function DropOffVerificationScreen({ route, navigation }) {
   };
 
   const handleConfirmDropoff = async () => {
-    if (!selectedLabId && !(otherSelected && otherFormValid)) {
-      Alert.alert('Select a lab', 'Please choose a designated lab or fill in the other-lab details.');
+    if (!selectedLabId && !(otherSelected && otherFormValid) && !patientSelected) {
+      Alert.alert('Select a drop option', 'Choose a MusB lab, enter a custom lab, or hand the sample to the patient.');
       return;
     }
     if (!photo) {
@@ -341,29 +363,39 @@ export default function DropOffVerificationScreen({ route, navigation }) {
 
       const dropTimestamp = new Date().toISOString();
 
-      const dropPayload = selectedLabId
-        ? {
-            status: 'dropped',
-            drop_location_type: 'lab',
-            drop_location_lab_id: selectedLabId,
-            drop_location_lab_name: selectedLab?.name || '',
-            drop_location_address: selectedLab?.address || '',
-            drop_photo_key: photoKey,
-            drop_timestamp: dropTimestamp,
-            test_name: job?.test_name || job?.testName || '',
-            test_id: job?.test_id || job?.id,
-          }
-        : {
-            status: 'dropped',
-            drop_location_type: 'other',
-            drop_location_lab_name: otherForm.labName.trim(),
-            drop_location_address:
-              `${otherForm.address.trim()}, ${otherForm.city.trim()}, ${otherForm.state.trim()} ${otherForm.zip.trim()}`,
-            drop_photo_key: photoKey,
-            drop_timestamp: dropTimestamp,
-            test_name: job?.test_name || job?.testName || '',
-            test_id: job?.test_id || job?.id,
-          };
+      const base = {
+        status: 'dropped',
+        drop_photo_key: photoKey,
+        drop_timestamp: dropTimestamp,
+        test_name: job?.test_name || job?.testName || '',
+        test_id: job?.test_id || job?.id,
+      };
+      let dropPayload;
+      if (patientSelected) {
+        dropPayload = {
+          ...base,
+          drop_location_type: 'patient',
+          drop_location_name: 'Handed to patient',
+          drop_location_address: 'Sample handed directly to the patient',
+          drop_received_by: patient?.name || patient?.full_name || job?.full_name || 'Patient',
+        };
+      } else if (selectedLabId) {
+        dropPayload = {
+          ...base,
+          drop_location_type: 'lab',
+          drop_location_lab_id: selectedLabId,
+          drop_location_lab_name: selectedLab?.name || '',
+          drop_location_address: selectedLab?.address || '',
+        };
+      } else {
+        dropPayload = {
+          ...base,
+          drop_location_type: 'other',
+          drop_location_lab_name: otherForm.labName.trim(),
+          drop_location_address:
+            `${otherForm.address.trim()}, ${otherForm.city.trim()}, ${otherForm.state.trim()} ${otherForm.zip.trim()}`,
+        };
+      }
           // ===== ADD THESE LINES =====
       console.log("========== DROP OFF ==========");
       console.log("Selected Lab:", selectedLab);
@@ -408,9 +440,10 @@ export default function DropOffVerificationScreen({ route, navigation }) {
                 job: {
                   ...job,
                   status: 'completed',
-                  drop_location_lab_name: selectedLab?.name || otherForm.labName,
-                  drop_location_address: selectedLab?.address ||
-                    `${otherForm.address}, ${otherForm.city}, ${otherForm.state} ${otherForm.zip}`,
+                  drop_location_lab_name: patientSelected ? 'Handed to patient' : (selectedLab?.name || otherForm.labName),
+                  drop_location_address: patientSelected
+                    ? 'Sample handed directly to the patient'
+                    : (selectedLab?.address || `${otherForm.address}, ${otherForm.city}, ${otherForm.state} ${otherForm.zip}`),
                   drop_timestamp: dropTimestamp,
                },
                 patient,
@@ -521,19 +554,19 @@ export default function DropOffVerificationScreen({ route, navigation }) {
           </FadeInUp>
         )}
 
-        {isSelfPaid && (
+        {isUninsured && (
         <>
         <FadeInUp delay={60}>
           <View style={styles.sectionHeadingRow}>
-            <Text style={styles.sectionLabel}>Select drop-off lab</Text>
+            <Text style={styles.sectionLabel}>Select MusB drop-off lab</Text>
             <TagBadge
-              label="SELF-PAID TESTS REQUIRED"
+              label="MUSB DROP REQUIRED"
               icon="star"
               colors={[AMBER, '#B45309']}
             />
           </View>
           <Text style={styles.sectionSubLabel}>
-            Drop specimens at one of these designated locations to stay eligible for the self-pay bonus.
+            This is an uninsured (self-pay) order — drop specimens at one of our MusB-designated locations.
           </Text>
         </FadeInUp>
 
@@ -582,7 +615,7 @@ export default function DropOffVerificationScreen({ route, navigation }) {
         </>
         )}
 
-        {!isSelfPaid && (
+        {hasInsurance && (
           <FadeInUp delay={60}>
             <Text style={[styles.sectionLabel, { marginBottom: 6 }]}>Drop-off lab</Text>
             <Text style={styles.sectionSubLabel}>
@@ -591,7 +624,33 @@ export default function DropOffVerificationScreen({ route, navigation }) {
           </FadeInUp>
         )}
 
-        {/* Other lab option */}
+        {/* Drop with patient — uninsured, sample-collection-only jobs only */}
+        {canDropWithPatient && (
+          <FadeInUp delay={90 + labs.length * 55 + 30}>
+            <AnimatedPressable
+              style={[styles.labCard, patientSelected && styles.labCardSelected]}
+              scaleTo={0.98}
+              onPress={selectPatient}
+            >
+              <LinearGradient
+                colors={patientSelected ? [GREEN, GREEN_LIGHT] : ['#ECFDF5', '#D1FAE5']}
+                style={styles.labIconWrap}
+              >
+                <Ionicons name="person-outline" size={18} color={patientSelected ? '#FFFFFF' : GREEN} />
+              </LinearGradient>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.labName}>Hand sample to patient</Text>
+                <Text style={styles.labAddress} numberOfLines={2}>
+                  Sample-collection-only — give the specimen to the patient to take to their own lab.
+                </Text>
+              </View>
+              {patientSelected && <Ionicons name="checkmark-circle" size={20} color={GREEN_LIGHT} />}
+            </AnimatedPressable>
+          </FadeInUp>
+        )}
+
+        {/* Other (custom) lab option — insurance-billed orders only */}
+        {canUseCustom && (
         <FadeInUp delay={90 + labs.length * 55 + 40}>
           <AnimatedPressable
             style={[styles.labCard, otherSelected && styles.labCardSelectedBlue]}
@@ -610,14 +669,13 @@ export default function DropOffVerificationScreen({ route, navigation }) {
                 <TagBadge label="INSURANCE" icon="shield-checkmark" colors={[BLUE_SOFT, '#1D4ED8']} />
               </View>
               <Text style={styles.labAddress}>
-                {isSelfPaid
-                  ? 'Not one of our designated labs — the self-pay bonus may not apply'
-                  : 'For insurance-billed tests, drop off at any accredited lab'}
+                For insurance-billed tests, drop off at any accredited lab
               </Text>
             </View>
             {otherSelected && <Ionicons name="checkmark-circle" size={20} color={GREEN_LIGHT} />}
           </AnimatedPressable>
         </FadeInUp>
+        )}
 
         {otherSelected && (
           <FadeInUp delay={20} distance={10}>
@@ -705,7 +763,7 @@ export default function DropOffVerificationScreen({ route, navigation }) {
           <View style={styles.incompleteNotice}>
             <PulseDot color={AMBER} size={7} />
             <Text style={styles.incompleteNoticeText}>
-              {!photo ? 'Photo required to confirm' : 'Select a lab to continue'}
+              {!photo ? 'Photo required to confirm' : 'Select a drop-off option to continue'}
             </Text>
           </View>
         )}
