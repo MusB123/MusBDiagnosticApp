@@ -16,7 +16,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import AddressBar from '../components/AddressBar';
-import { setBookingDraft } from '../utils/bookingDraft';
+import { setBookingDraft, getBookingDraft } from '../utils/bookingDraft';
 import { fetchPatientDashboard, getStoredPatientUser, rateAppointment, fetchOffers } from '../utils/auth';
 
 const COLORS = {
@@ -39,6 +39,8 @@ const COLORS = {
   pinkLight: '#FCE7F3',
   star: '#FBBF24',
   unreadDot: '#EF4444',
+  gold: '#D4AF37',
+  goldLight: '#F5E7B8',
 };
 
 const SERVICES = [
@@ -64,10 +66,12 @@ const SERVICES = [
   },
 ];
 
-const OFFER_GRADIENTS = [
-  ['#7C3AED', '#EC4899'], // purple → pink
-  ['#F59E0B', '#EF4444'], // orange → red
-  ['#0EA5E9', '#22C55E'], // blue → green
+// Classy, on-brand offer card themes — alternates between a solid navy card
+// (gold accents) and a crisp white card (navy accents) instead of loud
+// mismatched gradients, so offers feel premium and match the app's palette.
+const OFFER_THEMES = [
+  { dark: true },
+  { dark: false },
 ];
 
 const getGreeting = () => {
@@ -99,6 +103,24 @@ const STATUS_HEADINGS = {
   collected: 'Sample collected',
   completed: 'Visit completed',
 };
+
+// Friendlier, self-explanatory labels + icons for the per-category star rows
+// in the rating modal, so patients understand what each row is asking.
+const CATEGORY_LABELS = {
+  comfort: 'Comfort during the draw',
+  friendliness: 'Friendliness',
+  communication: 'Communication',
+  punctuality: 'Punctuality',
+  cleanliness: 'Cleanliness & safety',
+};
+const CATEGORY_ICONS = {
+  comfort: 'heart-outline',
+  friendliness: 'happy-outline',
+  communication: 'chatbubbles-outline',
+  punctuality: 'time-outline',
+  cleanliness: 'sparkles-outline',
+};
+const OVERALL_RATING_LABELS = ['', 'Poor', 'Fair', 'Good', 'Very good', 'Excellent'];
 
 function isInPersonVisit(appt) {
   const vt = (appt.visit_type || appt.visitType || '').toLowerCase();
@@ -145,10 +167,11 @@ const bellStyles = StyleSheet.create({
   },
 });
 
-function AnimatedPressable({ style, onPress, children, scaleTo = 0.96, ...rest }) {
+function AnimatedPressable({ style, onPress, children, scaleTo = 0.96, disabled, ...rest }) {
   const scale = useRef(new Animated.Value(1)).current;
 
   const pressIn = () => {
+    if (disabled) return;
     Animated.spring(scale, { toValue: scaleTo, useNativeDriver: true, speed: 40, bounciness: 6 }).start();
   };
   const pressOut = () => {
@@ -163,6 +186,7 @@ function AnimatedPressable({ style, onPress, children, scaleTo = 0.96, ...rest }
         onPressIn={pressIn}
         onPressOut={pressOut}
         style={style}
+        disabled={disabled}
         {...rest}
       >
         {children}
@@ -300,12 +324,19 @@ function formatTimeLeft(value) {
   return `${days}d left`;
 }
 
-/** Colorful, animated offer card shown on the home screen. */
+/**
+ * Classy, on-brand offer card.
+ * Alternates between a solid navy card (gold accents) and a crisp white
+ * card (navy accents) — matches the app's palette instead of loud,
+ * mismatched gradients. Subtle shine sweep + spring entrance/press for
+ * a premium, animated feel without being garish.
+ */
 function OfferCard({ offer, index, onPress }) {
   const anim = useRef(new Animated.Value(0)).current;
   const shine = useRef(new Animated.Value(0)).current;
   const scale = useRef(new Animated.Value(1)).current;
-  const [gradA, gradB] = OFFER_GRADIENTS[index % OFFER_GRADIENTS.length];
+  const theme = OFFER_THEMES[index % OFFER_THEMES.length];
+  const isDark = theme.dark;
 
   useEffect(() => {
     Animated.sequence([
@@ -315,8 +346,10 @@ function OfferCard({ offer, index, onPress }) {
 
     const shineLoop = Animated.loop(
       Animated.sequence([
-        Animated.timing(shine, { toValue: 1, duration: 2200, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-        Animated.timing(shine, { toValue: 0, duration: 2200, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.delay(1400),
+        Animated.timing(shine, { toValue: 1, duration: 1600, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(shine, { toValue: 0, duration: 0, useNativeDriver: true }),
+        Animated.delay(2200),
       ])
     );
     shineLoop.start();
@@ -326,6 +359,11 @@ function OfferCard({ offer, index, onPress }) {
   const pressIn = () => Animated.spring(scale, { toValue: 0.96, useNativeDriver: true, speed: 40, bounciness: 6 }).start();
   const pressOut = () => Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 30, bounciness: 8 }).start();
 
+  const bg = isDark ? COLORS.navy : COLORS.white;
+  const textPrimary = isDark ? COLORS.white : COLORS.navyDark;
+  const textMuted = isDark ? 'rgba(255,255,255,0.65)' : COLORS.gray;
+  const accent = COLORS.gold;
+
   return (
     <Animated.View
       style={{
@@ -334,7 +372,7 @@ function OfferCard({ offer, index, onPress }) {
           { translateY: anim.interpolate({ inputRange: [0, 1], outputRange: [18, 0] }) },
           { scale },
         ],
-        width: 210,
+        width: 220,
         marginRight: 12,
       }}
     >
@@ -343,46 +381,47 @@ function OfferCard({ offer, index, onPress }) {
         onPress={onPress}
         onPressIn={pressIn}
         onPressOut={pressOut}
-        style={[offerStyles.card, { backgroundColor: gradA }]}
+        style={[
+          offerStyles.card,
+          { backgroundColor: bg },
+          isDark ? offerStyles.cardDarkBorder : offerStyles.cardLightBorder,
+        ]}
       >
-        {/* Diagonal accent shape gives a layered "gradient" feel without a gradient lib */}
-        <View style={[offerStyles.diagAccent, { backgroundColor: gradB }]} />
+        {/* Subtle corner accent — quiet, not a loud color blob */}
+        <View style={[offerStyles.cornerAccent, { backgroundColor: isDark ? 'rgba(212,175,55,0.10)' : COLORS.offWhite }]} />
+        <View style={[offerStyles.accentLine, { backgroundColor: accent }]} />
 
         <Animated.View
           pointerEvents="none"
           style={[
             offerStyles.shine,
             {
-              opacity: shine.interpolate({ inputRange: [0, 1], outputRange: [0, 0.18] }),
-              transform: [{ translateX: shine.interpolate({ inputRange: [0, 1], outputRange: [-60, 180] }) }],
+              backgroundColor: isDark ? '#FFFFFF' : COLORS.navy,
+              opacity: shine.interpolate({ inputRange: [0, 1], outputRange: [0, isDark ? 0.08 : 0.04] }),
+              transform: [{ translateX: shine.interpolate({ inputRange: [0, 1], outputRange: [-80, 220] }) }],
             },
           ]}
         />
 
         <View style={offerStyles.topRow}>
-          <View style={offerStyles.pill}>
-            <Ionicons name="flash" size={11} color="#FFFFFF" />
-            <Text style={offerStyles.pillText}>{offer.offer_type || 'Offer'}</Text>
+          <View style={[offerStyles.pill, { borderColor: accent }]}>
+            <Ionicons name="flash" size={10} color={accent} />
+            <Text style={[offerStyles.pillText, { color: accent }]}>{(offer.offer_type || 'OFFER').toUpperCase()}</Text>
           </View>
           {!!formatTimeLeft(offer.time_left) && (
-            <Text style={offerStyles.timeLeft}>⏳ {formatTimeLeft(offer.time_left)}</Text>
+            <Text style={[offerStyles.timeLeft, { color: textMuted }]}>{formatTimeLeft(offer.time_left)} left</Text>
           )}
         </View>
 
-        <Text style={offerStyles.title} numberOfLines={2}>{offer.title}</Text>
+        <Text style={[offerStyles.title, { color: textPrimary }]} numberOfLines={2}>{offer.title}</Text>
 
-        <Text style={offerStyles.includes} numberOfLines={1}>
+        <Text style={[offerStyles.includes, { color: textMuted }]} numberOfLines={1}>
           {(offer.includes || []).join(' · ')}
         </Text>
 
         <View style={offerStyles.priceRow}>
-          <Text style={offerStyles.strike}>${parseFloat(offer.original_price).toFixed(0)}</Text>
-          <Text style={offerStyles.price}>${parseFloat(offer.discounted_price).toFixed(0)}</Text>
-        </View>
-
-        <View style={offerStyles.ctaRow}>
-          <Text style={offerStyles.ctaText}>Grab this deal</Text>
-          <Ionicons name="arrow-forward-circle" size={18} color="#FFFFFF" />
+          <Text style={[offerStyles.strike, { color: textMuted }]}>${parseFloat(offer.original_price).toFixed(0)}</Text>
+          <Text style={[offerStyles.price, { color: isDark ? accent : COLORS.navy }]}>${parseFloat(offer.discounted_price).toFixed(0)}</Text>
         </View>
       </TouchableOpacity>
     </Animated.View>
@@ -398,12 +437,18 @@ export default function HomeScreen({ navigation, route }) {
     })();
   }, []);
 
-  const [locationData, setLocationData] = useState({
-    address: '',
-    latitude: null,
-    longitude: null,
-    useGps: false,
-  });
+  const [locationData, setLocationDataState] = useState(() => getBookingDraft());
+
+  // Wrap the setter so every address change is also persisted to the
+  // module-level draft — this is what survives navigation back from
+  // Checkout after payment, without needing a full page refresh.
+  const setLocationData = (data) => {
+    setLocationDataState((prev) => {
+      const next = typeof data === 'function' ? data(prev) : data;
+      setBookingDraft(next);
+      return next;
+    });
+  };
   const [firstName, setFirstName] = useState(route?.params?.firstName || 'there');
   const [dashboard, setDashboard] = useState(null);
   const [loadingDashboard, setLoadingDashboard] = useState(true);
@@ -414,9 +459,41 @@ export default function HomeScreen({ navigation, route }) {
   const [offersLoading, setOffersLoading] = useState(true);
 
   const [ratingAppt, setRatingAppt] = useState(null);
-  const [ratingValue, setRatingValue] = useState(5);
+  const [overallRating, setOverallRating] = useState(5);
+  const [categoryRatings, setCategoryRatings] = useState({
+    comfort: 5,
+    friendliness: 5,
+    communication: 5,
+    punctuality: 5,
+    cleanliness: 5,
+  });
+  const [selectedTags, setSelectedTags] = useState([]);
   const [ratingComment, setRatingComment] = useState('');
   const [submittingRating, setSubmittingRating] = useState(false);
+
+  const autoPromptedRef = useRef(new Set());
+
+  const AVAILABLE_TAGS = [
+    'On time', 'Gentle draw', 'Professional', 'Friendly',
+    'Clean setup', 'Great communication', 'Quick visit',
+  ];
+
+  const setCategoryRating = (key, value) => {
+    setCategoryRatings((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const toggleTag = (tag) => {
+    setSelectedTags((prev) =>
+      prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]
+    );
+  };
+
+  const resetRatingForm = () => {
+    setOverallRating(5);
+    setCategoryRatings({ comfort: 5, friendliness: 5, communication: 5, punctuality: 5, cleanliness: 5 });
+    setSelectedTags([]);
+    setRatingComment('');
+  };
 
   const modalAnim = useRef(new Animated.Value(0)).current;
   useEffect(() => {
@@ -445,10 +522,9 @@ export default function HomeScreen({ navigation, route }) {
       }
       const data = await fetchPatientDashboard();
       if (isMountedRef.current) {
-        setDashboard({
-          ...data,
-          upcoming: [...(data.active || []), ...(data.upcoming || [])],
-        });
+        const combined = [...(data.active || []), ...(data.upcoming || [])];
+        combined.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+        setDashboard({ ...data, upcoming: combined });
       }
     } catch (err) {
       if (isMountedRef.current) {
@@ -469,6 +545,23 @@ export default function HomeScreen({ navigation, route }) {
       if (isMountedRef.current) setLoadingDashboard(false);
     }
   };
+
+  // Auto-prompt for a rating on completed, unrated visits. Completed
+  // appointments live in dashboard.past (not dashboard.upcoming), which is
+  // preserved as-is by loadDashboardData's {...data, upcoming: combined} spread.
+  useEffect(() => {
+    if (!dashboard?.past) return;
+    const toPrompt = dashboard.past.find(
+      (a) =>
+        (a.status || '').toLowerCase() === 'completed' &&
+        !a.patient_rated &&
+        !autoPromptedRef.current.has(a.id)
+    );
+    if (toPrompt && !ratingAppt) {
+      autoPromptedRef.current.add(toPrompt.id);
+      setRatingAppt(toPrompt);
+    }
+  }, [dashboard]);
 
   useEffect(() => {
     const isMountedRef = { current: true };
@@ -520,16 +613,17 @@ export default function HomeScreen({ navigation, route }) {
     if (!ratingAppt) return;
     setSubmittingRating(true);
     try {
-      await rateAppointment(ratingAppt.id, ratingValue, ratingComment);
+      await rateAppointment(ratingAppt.id, overallRating, ratingComment, {
+        categories: { overall: overallRating, ...categoryRatings },
+        tags: selectedTags,
+      });
       Alert.alert('Thank you!', 'Your rating has been submitted.');
       setRatingAppt(null);
-      setRatingComment('');
-      setRatingValue(5);
+      resetRatingForm();
       const data = await fetchPatientDashboard();
-      setDashboard({
-        ...data,
-        upcoming: [...(data.active || []), ...(data.upcoming || [])],
-      });
+      const combined = [...(data.active || []), ...(data.upcoming || [])];
+      combined.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+      setDashboard({ ...data, upcoming: combined });
     } catch (err) {
       Alert.alert('Could not submit rating', err.message || 'Please try again.');
     } finally {
@@ -648,7 +742,10 @@ export default function HomeScreen({ navigation, route }) {
         {!offersLoading && offers.length > 0 && (
           <FadeInUp delay={260}>
             <View style={styles.offersHeaderRow}>
-              <Text style={styles.sectionLabel}>SPECIAL OFFERS FOR YOU</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Ionicons name="ribbon-outline" size={13} color={COLORS.gold} />
+                <Text style={styles.sectionLabel}>EXCLUSIVE OFFERS</Text>
+              </View>
               <TouchableOpacity onPress={openOffersScreen} hitSlop={8}>
                 <Text style={styles.seeAllText}>See all</Text>
               </TouchableOpacity>
@@ -925,7 +1022,7 @@ export default function HomeScreen({ navigation, route }) {
                   <Text style={styles.detailItemValue}>
                     {(() => {
                       if (isInPersonVisit(appt)) {
-                        const fee = Number(appt.test_price) || Number(appt.total_patient_fee) || 0;
+                        const fee = Number(appt.total_patient_fee) || Number(appt.totalPatientFee) || Number(appt.test_price) || 0;
                         return fee > 0 ? `$${fee.toFixed(2)}` : 'Not available';
                       }
 
@@ -986,29 +1083,95 @@ export default function HomeScreen({ navigation, route }) {
               },
             ]}
           >
-            <Text style={styles.ratingTitle}>Rate your visit</Text>
-            <Text style={styles.ratingSub}>{ratingAppt.test} · {ratingAppt.phlebotomist}</Text>
-
-            <View style={styles.starsRow}>
-              {[1, 2, 3, 4, 5].map((n) => (
-                <TouchableOpacity key={n} onPress={() => setRatingValue(n)}>
-                  <Ionicons
-                    name={n <= ratingValue ? 'star' : 'star-outline'}
-                    size={32}
-                    color={COLORS.star}
-                  />
-                </TouchableOpacity>
-              ))}
+            <View style={styles.ratingHeaderIconWrap}>
+              <Ionicons name="star" size={26} color="#FFFFFF" />
             </View>
 
-            <TextInput
-              style={styles.ratingInput}
-              placeholder="Leave a comment (optional)"
-              placeholderTextColor={COLORS.gray}
-              value={ratingComment}
-              onChangeText={setRatingComment}
-              multiline
-            />
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <Text style={styles.ratingTitle}>How was your visit?</Text>
+              <Text style={styles.ratingSub}>
+                {ratingAppt.test ? ratingAppt.test.split(',')[0].trim() : 'Your test'}
+                {ratingAppt.phlebotomist ? `  ·  ${ratingAppt.phlebotomist}` : ''}
+              </Text>
+
+              <View style={styles.overallBlock}>
+                <Text style={styles.ratingCatLabel}>Overall experience</Text>
+                <Text style={styles.ratingHint}>Tap a star to rate</Text>
+                <View style={styles.starsRow}>
+                  {[1, 2, 3, 4, 5].map((n) => (
+                    <AnimatedPressable key={n} scaleTo={0.8} onPress={() => setOverallRating(n)}>
+                      <Ionicons
+                        name={n <= overallRating ? 'star' : 'star-outline'}
+                        size={38}
+                        color={COLORS.star}
+                      />
+                    </AnimatedPressable>
+                  ))}
+                </View>
+                <Text style={styles.overallRatingLabel}>
+                  {OVERALL_RATING_LABELS[overallRating]}
+                </Text>
+              </View>
+
+              <View style={styles.ratingDivider} />
+
+              <Text style={styles.ratingCatLabel}>Rate specific areas</Text>
+              {Object.keys(categoryRatings).map((key) => (
+                <View key={key} style={styles.catRow}>
+                  <View style={styles.catRowLeft}>
+                    <View style={styles.catIconWrap}>
+                      <Ionicons name={CATEGORY_ICONS[key]} size={16} color={COLORS.navy} />
+                    </View>
+                    <Text style={styles.catRowLabel}>{CATEGORY_LABELS[key]}</Text>
+                  </View>
+                  <View style={styles.catStarsRow}>
+                    {[1, 2, 3, 4, 5].map((n) => (
+                      <TouchableOpacity key={n} onPress={() => setCategoryRating(key, n)} hitSlop={8}>
+                        <Ionicons
+                          name={n <= categoryRatings[key] ? 'star' : 'star-outline'}
+                          size={19}
+                          color={COLORS.star}
+                        />
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+              ))}
+
+              <View style={styles.ratingDivider} />
+
+              <Text style={styles.ratingCatLabel}>
+                What stood out? <Text style={styles.optionalText}>(optional)</Text>
+              </Text>
+              <View style={styles.tagsWrap}>
+                {AVAILABLE_TAGS.map((tag) => (
+                  <TouchableOpacity
+                    key={tag}
+                    style={[styles.tagChip, selectedTags.includes(tag) && styles.tagChipSelected]}
+                    onPress={() => toggleTag(tag)}
+                  >
+                    {selectedTags.includes(tag) && (
+                      <Ionicons name="checkmark" size={12} color="#FFFFFF" style={{ marginRight: 4 }} />
+                    )}
+                    <Text style={[styles.tagChipText, selectedTags.includes(tag) && styles.tagChipTextSelected]}>
+                      {tag}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <Text style={[styles.ratingCatLabel, { marginTop: 16 }]}>
+                Anything else? <Text style={styles.optionalText}>(optional)</Text>
+              </Text>
+              <TextInput
+                style={styles.ratingInput}
+                placeholder="Tell us more about your experience..."
+                placeholderTextColor={COLORS.gray}
+                value={ratingComment}
+                onChangeText={setRatingComment}
+                multiline
+              />
+            </ScrollView>
 
             <View style={styles.ratingButtonRow}>
               <TouchableOpacity
@@ -1016,16 +1179,24 @@ export default function HomeScreen({ navigation, route }) {
                 onPress={() => setRatingAppt(null)}
                 disabled={submittingRating}
               >
-                <Text style={styles.ratingCancelText}>Cancel</Text>
+                <Text style={styles.ratingCancelText}>Skip</Text>
               </TouchableOpacity>
               <AnimatedPressable
-                style={styles.ratingSubmitBtn}
+                style={[styles.ratingSubmitBtn, submittingRating && styles.ratingSubmitBtnDisabled]}
                 scaleTo={0.95}
                 onPress={handleSubmitRating}
+                disabled={submittingRating}
               >
-                {submittingRating
-                  ? <ActivityIndicator color="#FFFFFF" size="small" />
-                  : <Text style={styles.ratingSubmitText}>Submit</Text>}
+                {submittingRating ? (
+                  <ActivityIndicator color="#FFFFFF" size="small" />
+                ) : (
+                  <>
+                    <View style={styles.ratingSubmitIconBadge}>
+                      <Ionicons name="checkmark" size={15} color="#FFFFFF" />
+                    </View>
+                    <Text style={styles.ratingSubmitText}>Submit rating</Text>
+                  </>
+                )}
               </AnimatedPressable>
             </View>
           </Animated.View>
@@ -1190,22 +1361,94 @@ const styles = StyleSheet.create({
 
   ratingOverlay: {
     position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
-    backgroundColor: 'rgba(13,31,60,0.55)',
+    backgroundColor: 'rgba(13,31,60,0.6)',
     justifyContent: 'center', alignItems: 'center', padding: 24,
   },
-  ratingCard: { width: '100%', backgroundColor: COLORS.white, borderRadius: 20, padding: 22 },
-  ratingTitle: { fontSize: 17, fontWeight: '900', color: COLORS.navyDark, textAlign: 'center' },
-  ratingSub: { fontSize: 13, color: COLORS.gray, textAlign: 'center', marginTop: 4, marginBottom: 18 },
-  starsRow: { flexDirection: 'row', justifyContent: 'center', gap: 6, marginBottom: 18 },
-  ratingInput: {
-    borderWidth: 1, borderColor: COLORS.border, borderRadius: 12, padding: 12,
-    fontSize: 14, color: COLORS.navyDark, minHeight: 70, textAlignVertical: 'top', marginBottom: 18,
+  ratingCard: {
+    width: '100%', maxHeight: '90%', backgroundColor: COLORS.white,
+    borderRadius: 28, padding: 24, paddingTop: 36,
+    elevation: 12,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.28, shadowRadius: 24,
   },
-  ratingButtonRow: { flexDirection: 'row', gap: 10 },
-  ratingCancelBtn: { flex: 1, borderWidth: 1.5, borderColor: COLORS.border, borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
-  ratingCancelText: { color: COLORS.gray, fontWeight: '700' },
-  ratingSubmitBtn: { flex: 1, backgroundColor: COLORS.navy, borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
-  ratingSubmitText: { color: '#FFFFFF', fontWeight: '700' },
+  ratingHeaderIconWrap: {
+    position: 'absolute', top: -28, alignSelf: 'center',
+    width: 56, height: 56, borderRadius: 28,
+    backgroundColor: COLORS.orange,
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 4, borderColor: COLORS.white,
+    elevation: 6,
+    shadowColor: COLORS.orange, shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.4, shadowRadius: 12,
+  },
+  ratingTitle: { fontSize: 20, fontWeight: '900', color: COLORS.navyDark, textAlign: 'center', marginTop: 8 },
+  ratingSub: { fontSize: 13, color: COLORS.gray, textAlign: 'center', marginTop: 4, marginBottom: 24, fontWeight: '600' },
+
+  overallBlock: { alignItems: 'center', marginBottom: 14, paddingVertical: 8 },
+  ratingHint: { fontSize: 12, color: COLORS.gray, marginTop: 4, marginBottom: 16 },
+  starsRow: { flexDirection: 'row', justifyContent: 'center', gap: 14 },
+  overallRatingLabel: { fontSize: 15, fontWeight: '900', color: COLORS.orange, marginTop: 12, height: 18, letterSpacing: 0.2 },
+
+  ratingDivider: { height: 1, backgroundColor: COLORS.lightGray, marginVertical: 22 },
+
+  ratingCatLabel: { fontSize: 14, fontWeight: '800', color: COLORS.navyDark, marginBottom: 10 },
+  optionalText: { fontSize: 12, fontWeight: '500', color: COLORS.gray },
+
+  catRow: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    backgroundColor: COLORS.offWhite,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 10,
+  },
+  catRowLeft: { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 },
+  catIconWrap: {
+    width: 32, height: 32, borderRadius: 10,
+    backgroundColor: COLORS.white,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  catRowLabel: { fontSize: 13.5, color: COLORS.navyDark, fontWeight: '700', flexShrink: 1 },
+  catStarsRow: { flexDirection: 'row', gap: 5 },
+
+  tagsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 4, marginBottom: 4 },
+  tagChip: {
+    flexDirection: 'row', alignItems: 'center',
+    borderWidth: 1.5, borderColor: COLORS.border, borderRadius: 24,
+    paddingHorizontal: 14, paddingVertical: 9,
+    backgroundColor: COLORS.white,
+  },
+  tagChipSelected: { backgroundColor: COLORS.navy, borderColor: COLORS.navy },
+  tagChipText: { fontSize: 12, color: COLORS.bodyText, fontWeight: '600' },
+  tagChipTextSelected: { color: '#FFFFFF' },
+
+  ratingInput: {
+    borderWidth: 1.5, borderColor: COLORS.border, borderRadius: 16, padding: 14,
+    fontSize: 14, color: COLORS.navyDark, minHeight: 90, textAlignVertical: 'top',
+    marginTop: 8, marginBottom: 4, backgroundColor: COLORS.offWhite,
+  },
+
+  ratingButtonRow: { flexDirection: 'row', gap: 12, marginTop: 24 },
+  ratingCancelBtn: {
+    flex: 1, borderWidth: 1.5, borderColor: COLORS.border, borderRadius: 18,
+    paddingVertical: 16, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: COLORS.offWhite,
+  },
+  ratingCancelText: { color: COLORS.gray, fontWeight: '700', fontSize: 14 },
+  ratingSubmitBtn: {
+    flex: 1.6, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: COLORS.navy, borderRadius: 18, paddingVertical: 16,
+    elevation: 6,
+    shadowColor: COLORS.navy, shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.35, shadowRadius: 12,
+  },
+  ratingSubmitBtnDisabled: { opacity: 0.6 },
+  ratingSubmitText: { color: '#FFFFFF', fontWeight: '800', fontSize: 15, letterSpacing: 0.2 },
+  ratingSubmitIconBadge: {
+    width: 24, height: 24, borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center', justifyContent: 'center',
+  },
 
   detailOverlay: {
     position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
@@ -1288,54 +1531,55 @@ const styles = StyleSheet.create({
 
 const offerStyles = StyleSheet.create({
   card: {
-    borderRadius: 20,
+    borderRadius: 18,
     padding: 16,
-    height: 172,
+    height: 160,
     flexDirection: 'column',
     overflow: 'hidden',
-    elevation: 5,
-    shadowColor: '#000',
+    elevation: 4,
+    shadowColor: '#0D1F3C',
     shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.18,
+    shadowOpacity: 0.12,
     shadowRadius: 10,
   },
-  diagAccent: {
+  cardDarkBorder: { borderWidth: 1, borderColor: 'rgba(212,175,55,0.25)' },
+  cardLightBorder: { borderWidth: 1.5, borderColor: COLORS.border },
+  cornerAccent: {
     position: 'absolute',
-    width: 140,
-    height: 140,
-    borderRadius: 70,
-    top: -60,
-    right: -50,
-    opacity: 0.55,
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    top: -55,
+    right: -45,
+  },
+  accentLine: {
+    position: 'absolute',
+    left: 0, top: 0, bottom: 0,
+    width: 3,
   },
   shine: {
     position: 'absolute',
     top: -20,
     bottom: -20,
-    width: 40,
-    backgroundColor: '#FFFFFF',
+    width: 50,
     transform: [{ rotate: '20deg' }],
   },
   topRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
   pill: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
-    backgroundColor: 'rgba(255,255,255,0.25)',
-    borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3,
+    borderWidth: 1, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3,
   },
-  pillText: { fontSize: 10, fontWeight: '800', color: '#FFFFFF', textTransform: 'uppercase', letterSpacing: 0.4 },
-  timeLeft: { fontSize: 10, fontWeight: '700', color: '#FFFFFF' },
+  pillText: { fontSize: 9.5, fontWeight: '800', letterSpacing: 0.5 },
+  timeLeft: { fontSize: 10, fontWeight: '700' },
   title: {
     fontSize: 15,
-    fontWeight: '900',
-    color: '#FFFFFF',
+    fontWeight: '800',
     marginBottom: 4,
     lineHeight: 19,
     height: 38, // reserves space for 2 lines so 1-line titles don't shrink the card
   },
-  includes: { fontSize: 11, color: 'rgba(255,255,255,0.85)', marginBottom: 10 },
-  priceRow: { flexDirection: 'row', alignItems: 'baseline', gap: 8, marginBottom: 10 },
-  strike: { fontSize: 12, color: 'rgba(255,255,255,0.7)', textDecorationLine: 'line-through' },
-  price: { fontSize: 20, fontWeight: '900', color: '#FFFFFF' },
-  ctaRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 'auto' },
-  ctaText: { fontSize: 12, fontWeight: '800', color: '#FFFFFF' },
+  includes: { fontSize: 11, marginBottom: 10, fontWeight: '500' },
+  priceRow: { flexDirection: 'row', alignItems: 'baseline', gap: 8 },
+  strike: { fontSize: 12, textDecorationLine: 'line-through' },
+  price: { fontSize: 21, fontWeight: '900' },
 });

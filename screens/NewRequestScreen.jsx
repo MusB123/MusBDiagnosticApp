@@ -18,7 +18,7 @@ const PHLEB_TOKEN_KEY = 'musb_phleb_token';
 const PRIMARY = '#18377D';
 const GREEN = '#1B7A4D';
 const RED = '#C0392B';
-const TIMER_SECONDS = 300; // 5 minutes
+const TIMER_SECONDS = 240; 
 
 // The screen name registered in the navigator for the phlebotomist dashboard.
 // Centralized here so the timer-expiry and manual-back paths can never drift

@@ -257,15 +257,12 @@ function TestRow({ test, isSelected, onToggle, delay }) {
           </View>
 
           <View style={styles.testInfo}>
-          <Text style={[styles.testName, isSelected && styles.testNameSelected]} numberOfLines={1}>
+          <Text style={[styles.testName, isSelected && styles.testNameSelected]}>
             {test.name}
           </Text>
           {!!test.desc && (
-            <Text
-              style={styles.testDesc}
-              numberOfLines={0}
-            >
-             {test.desc}
+            <Text style={styles.testDesc} numberOfLines={2} ellipsizeMode="tail">
+              {test.desc}
             </Text>
           )}
           {(test.sampleType || test.turnaround) && (

@@ -34,6 +34,7 @@ import RegisterScreen3 from './screens/RegisterScreen3';
 import AwaitingApproval from './screens/AwaitingApproval';
 import DashboardScreen from './screens/DashboardScreen';
 import JobHistoryScreen from './screens/JobHistoryScreen';
+import PhlebScorecardScreen from './screens/PhlebScorecardScreen';
 import MapScreen from './screens/MapScreen';
 import NewRequestScreen from './screens/NewRequestScreen';
 import JobAcceptedScreen from './screens/JobAcceptedScreen';
@@ -83,6 +84,7 @@ export default function App() {
 
           {/* Phlebotomist */}
           <Stack.Screen name="PhlebDashboard" component={DashboardScreen} />
+          <Stack.Screen name="PhlebScorecard" component={PhlebScorecardScreen} />
           <Stack.Screen name="Register" component={RegisterScreen} />
           <Stack.Screen name="RegisterScreen2" component={RegisterScreen2} />
           <Stack.Screen name="RegisterScreen3" component={RegisterScreen3} />

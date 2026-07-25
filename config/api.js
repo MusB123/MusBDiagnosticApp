@@ -53,6 +53,7 @@ export const PHLEB_ENDPOINTS = {
   // Forgot-password (unauthenticated) — request an OTP by email, then reset with it.
   requestOtp: `${PHLEB_BASE}/request-otp/`,
   verifyOtp: `${PHLEB_BASE}/verify-otp/`,
+  scorecard: `${PHLEB_BASE}/scorecard/`,
 
   // ── Dashboard / Profile ─────────────────────────────────────────────────
   dashboard: `${PHLEB_BASE}/dashboard/`,

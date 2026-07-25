@@ -58,6 +58,12 @@ const FALLBACK_LABS = [
     address: '2040 Trinity Oaks Blvd, Trinity, FL 34655',
   },
 ];
+const US_STATES = new Set([
+  'AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA',
+  'KS','KY','LA','ME','MD','MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ',
+  'NM','NY','NC','ND','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VT',
+  'VA','WA','WV','WI','WY','DC',
+]);
 
 function normalizeLab(raw) {
   return {
@@ -204,15 +210,20 @@ export default function DropOffVerificationScreen({ route, navigation }) {
   };
 
   useEffect(() => {
+  if (isSelfPaid) {
     fetchLabs();
-  }, []);
+  } else {
+    setLabsLoading(false);
+    setOtherSelected(true);
+  }
+}, []);
 
   const selectedLab = labs.find((l) => l.id === selectedLabId);
   const otherFormValid =
     otherForm.labName.trim() &&
     otherForm.address.trim() &&
     otherForm.city.trim() &&
-    otherForm.state.trim() &&
+    US_STATES.has(otherForm.state.trim().toUpperCase()) &&
     /^\d{5}$/.test(otherForm.zip);
 
   const canConfirm =
@@ -229,7 +240,27 @@ export default function DropOffVerificationScreen({ route, navigation }) {
     setSelectedLabId('');
   };
 
-  const handlePickPhoto = async () => {
+  const handleTakePhoto = async () => {
+    const perm = await ImagePicker.requestCameraPermissionsAsync();
+    if (perm.status !== 'granted') {
+      Alert.alert('Permission needed', 'Please allow camera access to take a drop-off photo.');
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({
+      base64: true,
+      quality: 0.6,
+    });
+    console.log('camera result:', JSON.stringify({
+      canceled: result.canceled,
+      hasAsset: !!result.assets?.[0],
+      base64Length: result.assets?.[0]?.base64?.length,
+    }));
+    if (!result.canceled && result.assets?.[0]) {
+      setPhoto({ uri: result.assets[0].uri, base64: result.assets[0].base64 });
+    }
+  };
+
+  const handlePickFromGallery = async () => {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (perm.status !== 'granted') {
       Alert.alert('Permission needed', 'Please allow photo library access to attach a drop-off photo.');
@@ -248,6 +279,22 @@ export default function DropOffVerificationScreen({ route, navigation }) {
     if (!result.canceled && result.assets?.[0]) {
       setPhoto({ uri: result.assets[0].uri, base64: result.assets[0].base64 });
     }
+  };
+
+  // Entry point for the "Upload drop-off photo" / "Change photo" tap —
+  // lets the phlebotomist choose Camera or Gallery instead of jumping
+  // straight into the gallery.
+  const handlePickPhoto = () => {
+    Alert.alert(
+      'Drop-off Photo',
+      'Take a new photo or choose one from your gallery.',
+      [
+        { text: 'Take Photo', onPress: handleTakePhoto },
+        { text: 'Choose from Gallery', onPress: handlePickFromGallery },
+        { text: 'Cancel', style: 'cancel' },
+      ],
+      { cancelable: true }
+    );
   };
 
   const uploadPhoto = async () => {
@@ -474,6 +521,8 @@ export default function DropOffVerificationScreen({ route, navigation }) {
           </FadeInUp>
         )}
 
+        {isSelfPaid && (
+        <>
         <FadeInUp delay={60}>
           <View style={styles.sectionHeadingRow}>
             <Text style={styles.sectionLabel}>Select drop-off lab</Text>
@@ -530,6 +579,17 @@ export default function DropOffVerificationScreen({ route, navigation }) {
             );
           })
         )}
+        </>
+        )}
+
+        {!isSelfPaid && (
+          <FadeInUp delay={60}>
+            <Text style={[styles.sectionLabel, { marginBottom: 6 }]}>Drop-off lab</Text>
+            <Text style={styles.sectionSubLabel}>
+              This is an insurance-billed test — drop off at any accredited lab.
+            </Text>
+          </FadeInUp>
+        )}
 
         {/* Other lab option */}
         <FadeInUp delay={90 + labs.length * 55 + 40}>
@@ -573,7 +633,7 @@ export default function DropOffVerificationScreen({ route, navigation }) {
               <Text style={styles.inputLabel}>Lab address</Text>
               <TextInput
                 style={styles.input}
-                placeholder="Street address"
+                placeholder="e.g. 6825 Ridge Road"
                 placeholderTextColor="#9CA3AF"
                 value={otherForm.address}
                 onChangeText={(t) => setOtherForm((p) => ({ ...p, address: t }))}
@@ -583,7 +643,7 @@ export default function DropOffVerificationScreen({ route, navigation }) {
                   <Text style={styles.inputLabel}>City</Text>
                   <TextInput
                     style={styles.input}
-                    placeholder="City"
+                    placeholder="e.g. New Port Richey"
                     placeholderTextColor="#9CA3AF"
                     value={otherForm.city}
                     onChangeText={(t) => setOtherForm((p) => ({ ...p, city: t }))}
@@ -593,7 +653,7 @@ export default function DropOffVerificationScreen({ route, navigation }) {
                   <Text style={styles.inputLabel}>State</Text>
                   <TextInput
                     style={styles.input}
-                    placeholder="ST"
+                    placeholder="e.g. FL"
                     placeholderTextColor="#9CA3AF"
                     autoCapitalize="characters"
                     maxLength={2}
@@ -605,7 +665,7 @@ export default function DropOffVerificationScreen({ route, navigation }) {
               <Text style={styles.inputLabel}>Zip code</Text>
               <TextInput
                 style={styles.input}
-                placeholder="12345"
+                placeholder="e.g. 34654"
                 placeholderTextColor="#9CA3AF"
                 keyboardType="number-pad"
                 maxLength={5}

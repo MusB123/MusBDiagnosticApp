@@ -659,16 +659,18 @@ export async function changePatientPassword({ currentPassword, newPassword }) {
   return data;
 }
 
-export async function rateAppointment(appointmentId, rating, comment = '') {
+export async function rateAppointment(appointmentId, rating, comment = '', options = {}) {
   const token = await getStoredPatientToken();
   if (!token) throw new Error('NOT_LOGGED_IN');
+
+  const { categories = {}, tags = [] } = options;
 
   let response;
   try {
     response = await fetch(PATIENT_ENDPOINTS.rateAppointment(appointmentId), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ rating, comment }),
+      body: JSON.stringify({ rating, comment, categories, tags }),
     });
   } catch {
     throw new Error('NETWORK_ERROR');

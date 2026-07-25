@@ -12,16 +12,13 @@ import {
   Easing,
   Modal,
   Pressable,
-  Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { getStoredPatientUser, bookAppointment, uploadDocument } from '../utils/auth';
-import { CATALOG_ENDPOINTS } from '../config/api';
-
-const { height: SCREEN_H } = Dimensions.get('window');
+import { CATALOG_ENDPOINTS, PATIENT_ENDPOINTS } from '../config/api';
 
 const COLORS = {
   navy: '#1B3A8C',
@@ -50,9 +47,10 @@ const COLORS = {
   orange: '#EA580C',
 };
 
-// Fallback list — used ONLY if the backend labs fetch fails, so the screen
-// never leaves the patient with an empty center list. Mirrors the Django
-// SEED_LABS in bookings/views.py (manage_labs).
+// Fallback — used ONLY if the backend labs fetch fails, so the screen
+// never leaves the patient with no walk-in center to display. First entry
+// mirrors the Django SEED_LABS in bookings/views.py (manage_labs) and is
+// treated as "our" center.
 const FALLBACK_CENTERS = [
   {
     id: 'fallback-1',
@@ -61,54 +59,6 @@ const FALLBACK_CENTERS = [
     latitude: 28.21778,
     longitude: -82.70957,
     phone: '',
-  },
-  {
-    id: 'fallback-2',
-    name: 'Quest Diagnostics - New Port Richey',
-    address: '5435 Grand Blvd, New Port Richey, FL 34652',
-    latitude: 28.2435,
-    longitude: -82.7201,
-    phone: '(727) 848-1322',
-  },
-  {
-    id: 'fallback-3',
-    name: 'Labcorp - New Port Richey',
-    address: '5323 Trouble Creek Rd, New Port Richey, FL 34652',
-    latitude: 28.2255,
-    longitude: -82.7155,
-    phone: '(727) 841-8622',
-  },
-  {
-    id: 'fallback-4',
-    name: 'BayCare Laboratories - Trinity',
-    address: '2040 Trinity Oaks Blvd, Trinity, FL 34655',
-    latitude: 28.192,
-    longitude: -82.668,
-    phone: '(727) 372-2300',
-  },
-  {
-    id: 'fallback-5',
-    name: 'Quest Diagnostics - Port Richey',
-    address: '9330 US Highway 19, Port Richey, FL 34668',
-    latitude: 28.2915,
-    longitude: -82.721,
-    phone: '(727) 847-1234',
-  },
-  {
-    id: 'fallback-6',
-    name: 'Tampa General Hospital Urgent Care & Lab',
-    address: '8807 Little Rd, New Port Richey, FL 34654',
-    latitude: 28.2805,
-    longitude: -82.669,
-    phone: '(727) 868-2456',
-  },
-  {
-    id: 'fallback-7',
-    name: 'AdventHealth Lab - West Florida',
-    address: '4433 Rowan Rd, New Port Richey, FL 34653',
-    latitude: 28.2312,
-    longitude: -82.6845,
-    phone: '(727) 376-7890',
   },
 ];
 
@@ -149,18 +99,6 @@ const BRING_ITEMS = [
   },
 ];
 
-// Rotating accent colors applied to each center's icon ring, purely for a
-// livelier, more colorful list.
-const CENTER_ACCENTS = [
-  { color: COLORS.navy, bg: '#EAF0FB' },
-  { color: COLORS.teal, bg: COLORS.tealLight },
-  { color: COLORS.purple, bg: COLORS.purpleLight },
-  { color: COLORS.pink, bg: COLORS.pinkLight },
-  { color: COLORS.sky, bg: COLORS.skyLight },
-  { color: COLORS.orange, bg: COLORS.amberLight },
-  { color: COLORS.green, bg: COLORS.greenLight },
-];
-
 // Normalize a lab record coming back from the backend (transform_doc output).
 function normalizeLab(raw) {
   return {
@@ -171,6 +109,7 @@ function normalizeLab(raw) {
     latitude: raw.latitude,
     longitude: raw.longitude,
     distanceMiles: raw.distance_miles,
+    isWalkinCenter: raw.is_walkin_center === true,
     icon: 'business',
   };
 }
@@ -352,113 +291,62 @@ function BringChecklistCard({ delay = 0 }) {
   );
 }
 
-/** Row shown in place of the old always-expanded center list. Tapping it
- *  opens the CenterSelectModal so the picker feels like a deliberate,
- *  focused choice rather than a long scroll of cards. */
-function CenterPickerRow({ center, loading, error, onPress, accentIndex = 0 }) {
-  const accent = CENTER_ACCENTS[accentIndex % CENTER_ACCENTS.length];
-  return (
-    <AnimatedPressable style={centerModalStyles.pickerRow} onPress={onPress} scaleTo={0.98} disabled={loading}>
-      <View style={[centerModalStyles.pickerIconRing, { backgroundColor: accent.bg }]}>
-        <Ionicons name="business" size={20} color={accent.color} />
+/** Selectable list of ALL walk-in centers — auto-fetched from the backend
+ *  (every entry returned by CATALOG_ENDPOINTS.labs). Patients pick which
+ *  one they want to walk into; the selected id lives in parent state. */
+function WalkinCenterList({ centers, selectedId, onSelect, loading, error, onRetry }) {
+  if (loading) {
+    return (
+      <View style={centerCardStyles.row}>
+        <ActivityIndicator size="small" color={COLORS.navy} />
+        <Text style={centerCardStyles.loadingText}>Loading centers…</Text>
       </View>
-      <View style={{ flex: 1 }}>
-        {loading ? (
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <ActivityIndicator size="small" color={COLORS.navy} />
-            <Text style={centerModalStyles.pickerLoadingText}>Finding nearby centers…</Text>
-          </View>
-        ) : center ? (
-          <>
-            <Text style={centerModalStyles.pickerName} numberOfLines={1}>{center.name}</Text>
-            <Text style={centerModalStyles.pickerMeta} numberOfLines={1}>{center.address}</Text>
-          </>
-        ) : (
-          <Text style={centerModalStyles.pickerPlaceholder}>Tap to choose a lab center</Text>
-        )}
-        {error ? <Text style={centerModalStyles.pickerError}>Showing default centers</Text> : null}
-      </View>
-      <View style={centerModalStyles.pickerChangeBtn}>
-        <Text style={centerModalStyles.pickerChangeText}>{center ? 'Change' : 'Select'}</Text>
-        <Ionicons name="chevron-forward" size={14} color={COLORS.navy} />
-      </View>
-    </AnimatedPressable>
-  );
-}
-
-/** Full-screen-ish sliding modal that lists every available lab center. */
-function CenterSelectModal({ visible, centers, selectedId, onSelect, onClose, onRetry, error }) {
-  const slide = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    Animated.timing(slide, {
-      toValue: visible ? 1 : 0,
-      duration: 320,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: true,
-    }).start();
-  }, [visible]);
-
-  const translateY = slide.interpolate({ inputRange: [0, 1], outputRange: [SCREEN_H, 0] });
+    );
+  }
 
   return (
-    <Modal visible={visible} transparent animationType="none" onRequestClose={onClose}>
-      <Pressable style={centerModalStyles.backdrop} onPress={onClose} />
-      <Animated.View style={[centerModalStyles.sheet, { transform: [{ translateY }] }]}>
-        <View style={centerModalStyles.sheetHandle} />
-        <View style={centerModalStyles.sheetHeader}>
-          <Text style={centerModalStyles.sheetTitle}>Choose a lab center</Text>
-          <TouchableOpacity onPress={onClose} style={centerModalStyles.sheetCloseBtn}>
-            <Ionicons name="close" size={18} color={COLORS.navyDark} />
+    <View>
+      {centers.map((c, i) => {
+        const selected = c.id === selectedId;
+        return (
+          <FadeInUp key={c.id} delay={i * 40} distance={8}>
+            <AnimatedPressable
+              style={[centerCardStyles.row, selected && centerCardStyles.rowSelected]}
+              onPress={() => onSelect(c.id)}
+              scaleTo={0.98}
+            >
+              <View style={[centerCardStyles.iconRing, selected && { backgroundColor: COLORS.navy }]}>
+                <Ionicons name="business" size={20} color={selected ? COLORS.white : COLORS.navy} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={centerCardStyles.name} numberOfLines={1}>{c.name}</Text>
+                <Text style={centerCardStyles.meta} numberOfLines={2}>{c.address}</Text>
+                {!!c.phone && <Text style={centerCardStyles.meta}>{c.phone}</Text>}
+                {c.distanceMiles != null && (
+                  <Text style={centerCardStyles.meta}>{c.distanceMiles.toFixed(1)} mi away</Text>
+                )}
+              </View>
+              <Ionicons
+                name={selected ? 'radio-button-on' : 'radio-button-off'}
+                size={20}
+                color={selected ? COLORS.navy : COLORS.gray}
+              />
+            </AnimatedPressable>
+          </FadeInUp>
+        );
+      })}
+      {error ? (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4, marginBottom: 8 }}>
+          <Ionicons name="alert-circle" size={12} color={COLORS.error} />
+          <Text style={centerCardStyles.errorText}>Showing default center</Text>
+          <TouchableOpacity onPress={onRetry}>
+            <Text style={centerCardStyles.retryText}>Retry</Text>
           </TouchableOpacity>
         </View>
-
-        {error ? (
-          <View style={centerModalStyles.errorBanner}>
-            <Ionicons name="alert-circle" size={14} color={COLORS.error} />
-            <Text style={centerModalStyles.errorBannerText}>Couldn't load live centers — showing defaults.</Text>
-            <TouchableOpacity onPress={onRetry}>
-              <Text style={centerModalStyles.errorRetry}>Retry</Text>
-            </TouchableOpacity>
-          </View>
-        ) : null}
-
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 24 }}>
-          {centers.map((c, i) => {
-            const isSelected = selectedId === c.id;
-            const accent = CENTER_ACCENTS[i % CENTER_ACCENTS.length];
-            return (
-              <FadeInUp key={c.id} delay={i * 40} distance={8}>
-                <AnimatedPressable
-                  style={[centerModalStyles.centerCard, isSelected && centerModalStyles.centerCardSelected]}
-                  onPress={() => onSelect(c.id)}
-                  scaleTo={0.98}
-                >
-                  <View style={[centerModalStyles.centerIconRing, { backgroundColor: accent.bg }]}>
-                    <Ionicons name={c.icon || 'business'} size={20} color={accent.color} />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[centerModalStyles.centerName, isSelected && { color: COLORS.navy }]} numberOfLines={1}>
-                      {c.name}
-                    </Text>
-                    <Text style={centerModalStyles.centerMeta} numberOfLines={1}>{c.address}</Text>
-                    {typeof c.distanceMiles === 'number' && (
-                      <Text style={centerModalStyles.centerMeta}>{c.distanceMiles} mi away</Text>
-                    )}
-                  </View>
-                  <View style={[centerModalStyles.radioBtn, isSelected && centerModalStyles.radioBtnSelected]}>
-                    {isSelected && <Ionicons name="checkmark" size={14} color={COLORS.white} />}
-                  </View>
-                </AnimatedPressable>
-              </FadeInUp>
-            );
-          })}
-        </ScrollView>
-      </Animated.View>
-    </Modal>
+      ) : null}
+    </View>
   );
 }
-
 
 /** Animated, colorful payment-option modal — replaces the plain Alert.
  *  Two selectable cards (Pay in app / Pay at center), each showing its
@@ -661,16 +549,12 @@ export default function InPersonTestsScreen({ navigation, route }) {
   const [selectedTestsData, setSelectedTestsData] = useState([]);
   const [appliedOffer, setAppliedOffer] = useState(null);
   const [extraTestsData, setExtraTestsData] = useState([]);
-  const [selectedCenter, setSelectedCenter] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [patientUser, setPatientUser] = useState(null);
 
-  // ── Doctor's order & insurance (mirrors BookMobileVisitScreen) ──
+  // ── Doctor's order (mirrors BookMobileVisitScreen) ──
   const [doctorOrder, setDoctorOrder] = useState('self');
   const [prescriptionFile, setPrescriptionFile] = useState(null);
-  const [insurance, setInsurance] = useState('none');
-  const [insuranceFront, setInsuranceFront] = useState(null);
-  const [insuranceBack, setInsuranceBack] = useState(null);
 
   const [paymentModalVisible, setPaymentModalVisible] = useState(false);
   const [paymentTotals, setPaymentTotals] = useState({ payInApp: 0, payAtCenter: 0 });
@@ -685,16 +569,26 @@ export default function InPersonTestsScreen({ navigation, route }) {
   // again or looping back to GuestInfo a second time.
   const [guestInfo, setGuestInfo] = useState(null);
 
-  // ── Centers / labs from backend ──
+  // ── Our walk-in centers — auto-fetched from the backend. Every returned
+  // lab is kept (no longer sliced to just the first one) so the patient can
+  // choose which center to walk into; `selectedCenterId` tracks the choice.
   const [centers, setCenters] = useState([]);
   const [centersLoading, setCentersLoading] = useState(true);
   const [centersError, setCentersError] = useState(false);
-  const [centerModalVisible, setCenterModalVisible] = useState(false);
+  const [selectedCenterId, setSelectedCenterId] = useState(null);
+  const center = centers.find((c) => c.id === selectedCenterId) || centers[0] || null;
 
   // ── Date / time — picked on a separate screen (ScheduleVisitScreen),
   // same pattern as BookMobileVisitScreen. Only Fixed / Urgent tiers show
   // for in-person visits (no visit-fee/flexible tier — see visitType param).
   const [schedule, setSchedule] = useState(null);
+
+  // ── Walk-in fee preview — the flat, admin-configured "in-centre
+  // collection charge" (calculate_walkin_patient_fee on the backend) plus
+  // the resulting authoritative total. Fetched as soon as we know the test
+  // total (+ scheduling fee) so it can be shown on the summary card BEFORE
+  // the patient taps "Book appointment", not just at the payment step.
+  const [walkinFeePreview, setWalkinFeePreview] = useState({ collectionFee: 0, totalPatientFee: null });
 
   // ── Success overlay state ──
   const [successVisible, setSuccessVisible] = useState(false);
@@ -709,14 +603,16 @@ export default function InPersonTestsScreen({ navigation, route }) {
       if (!res.ok) throw new Error(data?.error || 'Failed to load centers');
 
       const list = Array.isArray(data) ? data : (Array.isArray(data?.labs) ? data.labs : []);
-      const normalized = list.map(normalizeLab).slice(0, 7); // show up to 7 centers
+      const normalized = list.map(normalizeLab).filter((c) => c.isWalkinCenter);
+      // Keep every walk-in center returned by the backend — the patient
+      // chooses which one to visit instead of us picking for them.
       const finalList = normalized.length ? normalized : FALLBACK_CENTERS;
       setCenters(finalList);
-      setSelectedCenter((prev) => prev || finalList[0]?.id);
+      setSelectedCenterId((prev) => prev || finalList[0]?.id || null);
     } catch (err) {
       setCentersError(true);
       setCenters(FALLBACK_CENTERS);
-      setSelectedCenter((prev) => prev || FALLBACK_CENTERS[0]?.id);
+      setSelectedCenterId(FALLBACK_CENTERS[0].id);
     } finally {
       setCentersLoading(false);
     }
@@ -792,20 +688,29 @@ export default function InPersonTestsScreen({ navigation, route }) {
         0
       );
   const selectedTestIds = selectedTestsData.map((t) => t.id);
-  const center = centers.find((c) => c.id === selectedCenter);
-  const centerIndex = centers.findIndex((c) => c.id === selectedCenter);
 
   // Date/time + scheduling fee, sourced from ScheduleVisitScreen.
   const formattedTime = schedule?.timeLabel || null;
   const formattedDateLabel = schedule?.dateLabel || null;
   const schedulingFee = schedule?.totalPatientFee || 0;
+
+  // grandTotal stays test+scheduling only — this is what's actually sent to
+  // the backend as test_price / labTestsTotal. The backend's
+  // calculate_walkin_patient_fee() adds the in-centre collection charge
+  // itself server-side, so we must NOT add it here or it gets double-charged.
   const grandTotal = testsTotal + schedulingFee;
+
+  // Client-side preview of the collection charge + authoritative total, for
+  // DISPLAY only (summary card + payment modal). Sourced from
+  // /api/patients/walkin-fee-preview/, which mirrors
+  // calculate_walkin_patient_fee() exactly.
+  const collectionFee = walkinFeePreview.collectionFee || 0;
+  const estimatedTotal = walkinFeePreview.totalPatientFee ?? grandTotal;
 
   const goToSelectTests = () => {
     navigation.navigate('SelectTests', {
       returnTo: 'InPersonTests',
       initialSelectedIds: selectedTestIds,
-      hasInsurance: insurance === 'have',
       passthroughSchedule: schedule,
     });
   };
@@ -823,9 +728,8 @@ export default function InPersonTestsScreen({ navigation, route }) {
     });
   };
 
-  // ── Generic upload flow: Choose File (Image/PDF) or Take Photo ──
-  // Mirrors the flow used on BookMobileVisitScreen, adapted for this
-  // screen's three upload slots (prescription, insurance front, insurance back).
+  // ── Doctor's order upload flow: Choose File (Image/PDF) or Take Photo ──
+  // Mirrors the flow used on BookMobileVisitScreen.
 
   const requestCameraPermission = async () => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
@@ -915,31 +819,17 @@ export default function InPersonTestsScreen({ navigation, route }) {
 
   const handleSelectDoctorOrder = (value) => {
     setDoctorOrder(value);
-    if (value === 'order') {
-      // no-op — tests remain independently selectable for in-person visits
-    }
     if (value === 'self') {
       setPrescriptionFile(null);
-      setInsurance('none');
-      setInsuranceFront(null);
-      setInsuranceBack(null);
-    }
-  };
-
-  const handleSelectInsurance = (value) => {
-    setInsurance(value);
-    if (value === 'none') {
-      setInsuranceFront(null);
-      setInsuranceBack(null);
     }
   };
 
   // ── Document upload to S3 (mirrors CheckoutScreen's pattern exactly) ──
   // The "Pay at Center" path calls bookAppointment() directly instead of
   // routing through CheckoutScreen, so it must do this same key-upload +
-  // field-naming itself or the doctor's order / insurance card would never
-  // reach the backend. build_appointment_docs() (utils/s3_upload.py) accepts
-  // an S3 key under the *_base64 field names (it detects the "patient-docs/"
+  // field-naming itself or the doctor's order would never reach the
+  // backend. build_appointment_docs() (utils/s3_upload.py) accepts an S3
+  // key under the *_base64 field name (it detects the "patient-docs/"
   // prefix and passes it through instead of trying to decode it).
   const uploadPrescriptionDoc = async () => {
     if (doctorOrder !== 'order' || !prescriptionFile?.uri) return null;
@@ -956,39 +846,48 @@ export default function InPersonTestsScreen({ navigation, route }) {
     }
   };
 
-  const uploadInsuranceDocs = async () => {
-    if (insurance !== 'have') return { front: null, back: null };
-    let front = null;
-    let back = null;
-
-    try {
-      if (insuranceFront?.uri) {
-        const { key } = await uploadDocument({
-          uri: insuranceFront.uri,
-          filename: insuranceFront.name || 'insurance-front',
-          kind: 'patient-docs',
-        });
-        front = { key, name: insuranceFront.name || 'Insurance Front' };
-      }
-    } catch (err) {
-      console.warn('Could not upload insurance front:', err);
-    }
-
-    try {
-      if (insuranceBack?.uri) {
-        const { key } = await uploadDocument({
-          uri: insuranceBack.uri,
-          filename: insuranceBack.name || 'insurance-back',
-          kind: 'patient-docs',
-        });
-        back = { key, name: insuranceBack.name || 'Insurance Back' };
-      }
-    } catch (err) {
-      console.warn('Could not upload insurance back:', err);
-    }
-
-    return { front, back };
+  // Real walk-in fee preview — POST /api/patients/walkin-fee-preview/
+  // (bookings/views.py::walkin_fee_preview -> calculate_walkin_patient_fee).
+  // AllowAny, so no auth header needed. Returns the same totalPatientFee /
+  // collectionFee shape book_appointment() computes server-side, so the
+  // total shown here always matches what's actually charged.
+  const fetchWalkinFeePreview = async ({ testTotal }) => {
+    const res = await fetch(PATIENT_ENDPOINTS.walkinFeePreview, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ test_total: testTotal }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.error || 'Failed to preview walk-in fee');
+    return {
+      totalPatientFee: data.totalPatientFee ?? data.total_patient_fee ?? testTotal,
+      collectionFee: data.collectionFee ?? data.collection_fee ?? 0,
+    };
   };
+
+  // Keep the walk-in fee preview (collection charge + authoritative total)
+  // fresh as soon as we know the test total / scheduling fee, so the summary
+  // card can show the real "In-centre collection charge" line and total
+  // BEFORE the patient ever taps "Book appointment".
+  useEffect(() => {
+    const base = testsTotal + schedulingFee;
+    if (base <= 0) {
+      setWalkinFeePreview({ collectionFee: 0, totalPatientFee: null });
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const preview = await fetchWalkinFeePreview({ testTotal: base });
+        if (!cancelled) setWalkinFeePreview(preview);
+      } catch (e) {
+        if (!cancelled) setWalkinFeePreview({ collectionFee: 0, totalPatientFee: null });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [testsTotal, schedulingFee]);
 
   // Accepts an optional guest object so it can be called right after
   // GuestInfoScreen returns — reading `guestInfo` state at that exact
@@ -998,8 +897,9 @@ export default function InPersonTestsScreen({ navigation, route }) {
       Alert.alert('No tests selected', 'Please select at least one test before booking.');
       return;
     }
-    if (!selectedCenter) {
-      setCenterModalVisible(true);
+    if (!center) {
+      Alert.alert('Center unavailable', "We couldn't load our walk-in center. Please try again.");
+      fetchCenters();
       return;
     }
     if (!schedule) {
@@ -1007,15 +907,11 @@ export default function InPersonTestsScreen({ navigation, route }) {
       return;
     }
 
-    let payAtCenterTotal = grandTotal;
-    try {
-      const preview = await fetchWalkinFeePreview({ testTotal: grandTotal, payAtCenter: true });
-      payAtCenterTotal = preview.totalPatientFee;
-    } catch (e) {
-    // fall back silently — booking itself still computes the real total
-    }
-
-    setPaymentTotals({ payInApp: grandTotal, payAtCenter: payAtCenterTotal });
+    // The in-centre collection charge applies identically to every walk-in,
+    // self-pay or insured, regardless of whether they pay in-app or at the
+    // center (calculate_walkin_patient_fee on the backend) — so both cards
+    // in the payment modal show the SAME authoritative total.
+    setPaymentTotals({ payInApp: estimatedTotal, payAtCenter: estimatedTotal });
     setPendingGuestInfo(guestOverride || null);
     setPaymentModalVisible(true);
   };
@@ -1026,8 +922,9 @@ export default function InPersonTestsScreen({ navigation, route }) {
       return;
     }
 
-    if (!selectedCenter) {
-      setCenterModalVisible(true);
+    if (!center) {
+      Alert.alert('Center unavailable', "We couldn't load our walk-in center. Please try again.");
+      fetchCenters();
       return;
     }
 
@@ -1061,7 +958,9 @@ export default function InPersonTestsScreen({ navigation, route }) {
     const info = guestOverride || guestInfo;
     navigation.navigate('Checkout', {
       mobileVisitTotal: 0, // no visit fee for in-person
-      labTestsTotal: grandTotal,
+      labTestsTotal: testsTotal + schedulingFee, 
+      walkinCollectionFee: collectionFee,       
+      totalPatientFee: estimatedTotal,  
       labTestsNames: selectedTestsData.map((t) => t.name).join(', '),
       address: center?.address || '',
       visitType: 'walkin',
@@ -1075,9 +974,6 @@ export default function InPersonTestsScreen({ navigation, route }) {
       isGuest: !patientUser,
       doctorOrder,
       prescriptionFile,
-      insurance,
-      insuranceFront,
-      insuranceBack,
     });
   };
 
@@ -1086,7 +982,6 @@ export default function InPersonTestsScreen({ navigation, route }) {
     setSubmitting(true);
     try {
       const doctorOrderDoc = await uploadPrescriptionDoc();
-      const { front: insuranceFrontDoc, back: insuranceBackDoc } = await uploadInsuranceDocs();
 
       const result = await bookAppointment({
         test_name: selectedTestsData.map((t) => t.name).join(', '),
@@ -1104,10 +999,6 @@ export default function InPersonTestsScreen({ navigation, route }) {
         labAddress: center?.address || '',
         doctor_order_base64: doctorOrderDoc?.key || null,
         doctor_order_name: doctorOrderDoc?.name || null,
-        insurance_front_base64: insuranceFrontDoc?.key || null,
-        insurance_front_name: insuranceFrontDoc?.name || null,
-        insurance_back_base64: insuranceBackDoc?.key || null,
-        insurance_back_name: insuranceBackDoc?.name || null,
       });
 
       const authoritativeTotal = result?.totalPatientFee ?? grandTotal;
@@ -1128,11 +1019,27 @@ export default function InPersonTestsScreen({ navigation, route }) {
 
   const handleSuccessDone = () => {
     setSuccessVisible(false);
-    if (!patientUser && guestInfo) {
+    const wasGuest = !patientUser && guestInfo;
+    resetFormState();
+    if (wasGuest) {
       navigation.navigate('CreateAccountPrompt');
     } else {
       navigation.navigate('PatientHome');
     }
+  };
+
+  const resetFormState = () => {
+    setSelectedTestsData([]);
+    setAppliedOffer(null);
+    setExtraTestsData([]);
+    setDoctorOrder('self');
+    setPrescriptionFile(null);
+    setSchedule(null);
+    setWalkinFeePreview({ collectionFee: 0, totalPatientFee: null });
+    setPaymentTotals({ payInApp: 0, payAtCenter: 0 });
+    setPendingGuestInfo(null);
+    setGuestInfo(null);
+    setSelectedCenterId(centers[0]?.id || null);
   };
   const handleSelectPayInApp = () => {
     setPaymentModalVisible(false);
@@ -1224,105 +1131,9 @@ export default function InPersonTestsScreen({ navigation, route }) {
           </FadeInUp>
         )}
 
-        {/* Insurance — only shown once a doctor's order is selected */}
-        {doctorOrder === 'order' && (
-          <>
-            <FadeInUp delay={100}>
-              <Text style={styles.sectionLabel}>Insurance</Text>
-              <Text style={styles.sectionSubtitle}>
-                Add your insurance card so we can verify coverage before your visit.
-              </Text>
-            </FadeInUp>
-            <View style={styles.orderRow}>
-              <OrderOptionCard
-                icon="close-circle-outline"
-                accent={COLORS.gray}
-                accentBg={COLORS.lightGray}
-                title="No insurance"
-                subtitle="Self-pay"
-                selected={insurance === 'none'}
-                onPress={() => handleSelectInsurance('none')}
-                delay={110}
-              />
-              <OrderOptionCard
-                icon="card-outline"
-                accent={COLORS.sky}
-                accentBg={COLORS.skyLight}
-                title="I have insurance"
-                subtitle="Add my card"
-                selected={insurance === 'have'}
-                onPress={() => handleSelectInsurance('have')}
-                delay={150}
-              />
-            </View>
-
-            {insurance === 'have' && (
-              <FadeInUp delay={0}>
-                <View style={{ gap: 12, marginTop: 14, marginBottom: 8 }}>
-                  <AnimatedPressable
-                    style={[styles.uploadBox, insuranceFront && styles.uploadBoxDone]}
-                    onPress={() => showUploadOptions('Insurance card — front', setInsuranceFront)}
-                    scaleTo={0.98}
-                  >
-                    {insuranceFront ? (
-                      <>
-                        <View style={styles.uploadDoneIconWrap}>
-                          <Ionicons name="checkmark" size={24} color={COLORS.white} />
-                        </View>
-                        <Text style={styles.uploadDoneTitle}>Front uploaded</Text>
-                        <Text style={styles.uploadDoneText} numberOfLines={1}>
-                          {insuranceFront.name}
-                        </Text>
-                        <Text style={styles.uploadChangeText}>Tap to change</Text>
-                      </>
-                    ) : (
-                      <>
-                        <View style={styles.uploadIconWrap}>
-                          <Ionicons name="card-outline" size={22} color={COLORS.gray} />
-                        </View>
-                        <Text style={styles.uploadTitle}>Upload insurance card — front</Text>
-                        <Text style={styles.uploadSub}>PDF, PNG, JPG up to 10MB</Text>
-                      </>
-                    )}
-                  </AnimatedPressable>
-
-                  <AnimatedPressable
-                    style={[styles.uploadBox, insuranceBack && styles.uploadBoxDone]}
-                    onPress={() => showUploadOptions('Insurance card — back', setInsuranceBack)}
-                    scaleTo={0.98}
-                  >
-                    {insuranceBack ? (
-                      <>
-                        <View style={styles.uploadDoneIconWrap}>
-                          <Ionicons name="checkmark" size={24} color={COLORS.white} />
-                        </View>
-                        <Text style={styles.uploadDoneTitle}>Back uploaded</Text>
-                        <Text style={styles.uploadDoneText} numberOfLines={1}>
-                          {insuranceBack.name}
-                        </Text>
-                        <Text style={styles.uploadChangeText}>Tap to change</Text>
-                      </>
-                    ) : (
-                      <>
-                        <View style={styles.uploadIconWrap}>
-                          <Ionicons name="card-outline" size={22} color={COLORS.gray} />
-                        </View>
-                        <Text style={styles.uploadTitle}>Upload insurance card — back</Text>
-                        <Text style={styles.uploadSub}>PDF, PNG, JPG up to 10MB</Text>
-                      </>
-                    )}
-                  </AnimatedPressable>
-                </View>
-              </FadeInUp>
-            )}
-          </>
-        )}
-
         {/* Tests Section — offer-aware lab tests card, same pattern as
             BookMobileVisitScreen (icon header, count badge, offer pill +
-            extra tests, discount strikethrough, running total). Prices are
-            hidden per-test when the backend marks them hidePrice (insurance
-            flow) — same behavior as BookMobileVisitScreen. */}
+            extra tests, discount strikethrough, running total). */}
         <FadeInUp delay={0}>
           <View style={[styles.sectionLabelRow, { marginTop: 20 }]}>
             <Text style={styles.sectionLabel}>Lab tests</Text>
@@ -1436,68 +1247,51 @@ export default function InPersonTestsScreen({ navigation, route }) {
           </View>
         </FadeInUp>
 
-        {/* No Visit Fee Banner */}
-        <FadeInUp delay={140}>
-          <View style={styles.noFeeBanner}>
-            <View style={styles.noFeeIconRing}>
-              <IconPop delay={200}>
-                <Ionicons name="business" size={18} color={COLORS.amber} />
-              </IconPop>
-            </View>
-            <View style={styles.noFeeText}>
-              <Text style={styles.noFeeTitle}>In-person — no visit fee</Text>
-              <Text style={styles.noFeeDesc}>
-                You come to us, so mobile charges do not apply.
-              </Text>
-            </View>
-          </View>
-        </FadeInUp>
-
         {/* What to bring — animated, professional checklist */}
-        <BringChecklistCard delay={160} />
+        <BringChecklistCard delay={140} />
 
-        {/* Select Center — a single tappable row that opens a picker
-            sheet listing every center, instead of a long inline list. */}
-        <FadeInUp delay={180}>
-          <Text style={styles.sectionLabel}>Select center</Text>
+        {/* Our walk-in centers — auto-fetched, patient picks one. */}
+        <FadeInUp delay={160}>
+          <Text style={styles.sectionLabel}>Choose a walk-in center</Text>
         </FadeInUp>
-        <FadeInUp delay={200}>
-          <CenterPickerRow
-            center={center}
+        <FadeInUp delay={180}>
+          <WalkinCenterList
+            centers={centers}
+            selectedId={selectedCenterId}
+            onSelect={setSelectedCenterId}
             loading={centersLoading}
             error={centersError}
-            accentIndex={centerIndex >= 0 ? centerIndex : 0}
-            onPress={() => setCenterModalVisible(true)}
+            onRetry={fetchCenters}
           />
         </FadeInUp>
 
         {/* Select date & time — picked on ScheduleVisitScreen (Fixed /
             Urgent tiers only for in-person, via visitType: 'in_person') */}
-        <FadeInUp delay={260}>
+        <FadeInUp delay={220}>
           <Text style={[styles.sectionLabel, { marginTop: 24 }]}>Select date & time</Text>
         </FadeInUp>
-        <FadeInUp delay={280}>
-          <AnimatedPressable style={centerModalStyles.pickerRow} onPress={goToScheduleVisit} scaleTo={0.98}>
-            <View style={[centerModalStyles.pickerIconRing, { backgroundColor: '#E0E7FF' }]}>
+        <FadeInUp delay={240}>
+          <AnimatedPressable style={centerCardStyles.row} onPress={goToScheduleVisit} scaleTo={0.98}>
+            <View style={[centerCardStyles.iconRing, { backgroundColor: '#E0E7FF' }]}>
               <Ionicons name="calendar" size={20} color={COLORS.navy} />
             </View>
             <View style={{ flex: 1 }}>
               {schedule ? (
                 <>
-                  <Text style={centerModalStyles.pickerName} numberOfLines={1}>
+                  <Text style={centerCardStyles.name} numberOfLines={1}>
                     {schedule.dateLabel} · {schedule.timeLabel}
                   </Text>
-                  <Text style={centerModalStyles.pickerMeta} numberOfLines={1}>
+                  <Text style={centerCardStyles.meta} numberOfLines={1}>
                     {schedule.slotType === 'urgent' ? 'Urgent' : 'Fixed time'}
                     {schedulingFee > 0 ? ` · +$${schedulingFee.toFixed(0)} scheduling fee` : ''}
                   </Text>
                 </>
               ) : (
-                <Text style={centerModalStyles.pickerPlaceholder}>Tap to choose date & time</Text>
+                <Text style={centerCardStyles.placeholder}>Tap to choose date & time</Text>
               )}
             </View>
-            <View style={centerModalStyles.pickerChangeBtn}>
-              <Text style={centerModalStyles.pickerChangeText}>{schedule ? 'Change' : 'Select'}</Text>
+            <View style={centerCardStyles.changeBtn}>
+              <Text style={centerCardStyles.changeText}>{schedule ? 'Change' : 'Select'}</Text>
               <Ionicons name="chevron-forward" size={14} color={COLORS.navy} />
             </View>
           </AnimatedPressable>
@@ -1505,7 +1299,7 @@ export default function InPersonTestsScreen({ navigation, route }) {
 
         {/* Schedule summary */}
         {schedule && (
-          <FadeInUp delay={340}>
+          <FadeInUp delay={300}>
             <View style={styles.scheduleSummary}>
               <View style={styles.scheduleIconRing}>
                 <Ionicons name="calendar" size={18} color={COLORS.white} />
@@ -1519,16 +1313,18 @@ export default function InPersonTestsScreen({ navigation, route }) {
         )}
 
         {/* Price Summary */}
-        <FadeInUp delay={380}>
+        <FadeInUp delay={340}>
           <View style={styles.summaryCard}>
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>{appliedOffer ? 'Offer total' : 'Tests subtotal'}</Text>
               <Text style={styles.summaryValue}>${testsTotal.toFixed(0)}</Text>
             </View>
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Visit fee</Text>
-              <Text style={styles.summaryFree}>FREE</Text>
-            </View>
+            {collectionFee > 0 && (
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>In-centre collection charge</Text>
+                <Text style={styles.summaryValue}>${collectionFee.toFixed(0)}</Text>
+              </View>
+            )}
             {schedulingFee > 0 && (
               <View style={styles.summaryRow}>
                 <Text style={styles.summaryLabel}>Scheduling fee ({schedule?.slotType})</Text>
@@ -1538,7 +1334,7 @@ export default function InPersonTestsScreen({ navigation, route }) {
             <View style={styles.summaryDivider} />
             <View style={styles.summaryRow}>
               <Text style={styles.totalLabel}>Total</Text>
-              <Text style={styles.totalValue}>${grandTotal.toFixed(0)}</Text>
+              <Text style={styles.totalValue}>${estimatedTotal.toFixed(0)}</Text>
             </View>
           </View>
         </FadeInUp>
@@ -1559,19 +1355,6 @@ export default function InPersonTestsScreen({ navigation, route }) {
           )}
         </AnimatedPressable>
       </View>
-
-      <CenterSelectModal
-        visible={centerModalVisible}
-        centers={centers}
-        selectedId={selectedCenter}
-        error={centersError}
-        onRetry={fetchCenters}
-        onSelect={(id) => {
-          setSelectedCenter(id);
-          setCenterModalVisible(false);
-        }}
-        onClose={() => setCenterModalVisible(false)}
-      />
 
       <PaymentOptionModal
         visible={paymentModalVisible}
@@ -1641,7 +1424,7 @@ const styles = StyleSheet.create({
     marginTop: -6,
   },
 
-  // ── Doctor's order / insurance upload box (mirrors BookMobileVisitScreen) ──
+  // ── Doctor's order upload box (mirrors BookMobileVisitScreen) ──
   orderRow: { flexDirection: 'row', gap: 12 },
   uploadBox: {
     marginTop: 14,
@@ -1795,26 +1578,6 @@ const styles = StyleSheet.create({
   },
   selectTestsBtnFullText: { color: COLORS.white, fontSize: 14, fontWeight: '800' },
 
-  noFeeBanner: {
-    flexDirection: 'row',
-    backgroundColor: COLORS.amberLight,
-    borderWidth: 1,
-    borderColor: COLORS.amberBorder,
-    borderRadius: 16,
-    padding: 14,
-    marginBottom: 24,
-    gap: 12,
-    alignItems: 'flex-start',
-  },
-  noFeeIconRing: {
-    width: 36, height: 36, borderRadius: 12,
-    backgroundColor: COLORS.white, alignItems: 'center', justifyContent: 'center',
-    marginTop: 1,
-  },
-  noFeeText: { flex: 1 },
-  noFeeTitle: { fontSize: 14, fontWeight: '800', color: COLORS.amberText, marginBottom: 4 },
-  noFeeDesc: { fontSize: 13, color: COLORS.amberText, lineHeight: 19 },
-
   scheduleSummary: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1847,7 +1610,6 @@ const styles = StyleSheet.create({
   summaryRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 },
   summaryLabel: { fontSize: 13, color: COLORS.bodyText },
   summaryValue: { fontSize: 13, fontWeight: '700', color: COLORS.navyDark },
-  summaryFree: { fontSize: 13, fontWeight: '800', color: COLORS.green },
   summaryDivider: { height: 1, backgroundColor: COLORS.border, marginBottom: 10 },
   totalLabel: { fontSize: 15, fontWeight: '800', color: COLORS.navyDark },
   totalValue: { fontSize: 15, fontWeight: '900', color: COLORS.navy },
@@ -1962,8 +1724,10 @@ const bringStyles = StyleSheet.create({
   itemDesc: { fontSize: 12, color: 'rgba(255,255,255,0.72)', lineHeight: 17 },
 });
 
-const centerModalStyles = StyleSheet.create({
-  pickerRow: {
+// Shared row style for the walk-in center list and the
+// (interactive) date/time row.
+const centerCardStyles = StyleSheet.create({
+  row: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: COLORS.white,
@@ -1979,16 +1743,22 @@ const centerModalStyles = StyleSheet.create({
     elevation: 1,
     marginBottom: 8,
   },
-  pickerIconRing: {
+  rowSelected: {
+    borderColor: COLORS.navy,
+    borderWidth: 2,
+  },
+  iconRing: {
     width: 44, height: 44, borderRadius: 14,
+    backgroundColor: '#EAF0FB',
     alignItems: 'center', justifyContent: 'center',
   },
-  pickerName: { fontSize: 14, fontWeight: '700', color: COLORS.navyDark, marginBottom: 3 },
-  pickerMeta: { fontSize: 12, color: COLORS.gray },
-  pickerPlaceholder: { fontSize: 13.5, color: COLORS.gray, fontWeight: '600' },
-  pickerLoadingText: { fontSize: 13, color: COLORS.gray, fontWeight: '600' },
-  pickerError: { fontSize: 11, color: COLORS.error, fontWeight: '600', marginTop: 2 },
-  pickerChangeBtn: {
+  name: { fontSize: 14, fontWeight: '700', color: COLORS.navyDark, marginBottom: 3 },
+  meta: { fontSize: 12, color: COLORS.gray },
+  placeholder: { fontSize: 13.5, color: COLORS.gray, fontWeight: '600' },
+  loadingText: { fontSize: 13, color: COLORS.gray, fontWeight: '600' },
+  errorText: { fontSize: 11, color: COLORS.error, fontWeight: '600' },
+  retryText: { fontSize: 11, color: COLORS.navy, fontWeight: '800', textDecorationLine: 'underline' },
+  changeBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 2,
@@ -1997,82 +1767,9 @@ const centerModalStyles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 7,
   },
-  pickerChangeText: { fontSize: 12.5, fontWeight: '800', color: COLORS.navy },
-
-  backdrop: { flex: 1, backgroundColor: 'rgba(13,31,60,0.5)' },
-  sheet: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    maxHeight: SCREEN_H * 0.82,
-    backgroundColor: COLORS.white,
-    borderTopLeftRadius: 26,
-    borderTopRightRadius: 26,
-    paddingHorizontal: 20,
-    paddingTop: 10,
-    paddingBottom: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 16,
-    elevation: 12,
-  },
-  sheetHandle: {
-    width: 40,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: COLORS.lightGray,
-    alignSelf: 'center',
-    marginBottom: 14,
-  },
-  sheetHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 14,
-  },
-  sheetTitle: { fontSize: 17, fontWeight: '900', color: COLORS.navyDark },
-  sheetCloseBtn: {
-    width: 30, height: 30, borderRadius: 15,
-    backgroundColor: COLORS.offWhite, alignItems: 'center', justifyContent: 'center',
-  },
-  errorBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: '#FEF2F2',
-    borderRadius: 12,
-    padding: 10,
-    marginBottom: 12,
-  },
-  errorBannerText: { flex: 1, fontSize: 12, color: COLORS.error, fontWeight: '600' },
-  errorRetry: { fontSize: 12, color: COLORS.error, fontWeight: '900', textDecorationLine: 'underline' },
-
-  centerCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: COLORS.white,
-    borderRadius: 16,
-    padding: 14,
-    marginBottom: 10,
-    borderWidth: 1.5,
-    borderColor: COLORS.border,
-    gap: 12,
-  },
-  centerCardSelected: { borderColor: COLORS.navy, backgroundColor: '#F0F4FF' },
-  centerIconRing: {
-    width: 44, height: 44, borderRadius: 14,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  centerName: { fontSize: 14, fontWeight: '700', color: COLORS.navyDark, marginBottom: 3 },
-  centerMeta: { fontSize: 12, color: COLORS.gray },
-  radioBtn: {
-    width: 24, height: 24, borderRadius: 12, borderWidth: 2,
-    borderColor: COLORS.border, alignItems: 'center', justifyContent: 'center',
-  },
-  radioBtnSelected: { backgroundColor: COLORS.navy, borderColor: COLORS.navy },
+  changeText: { fontSize: 12.5, fontWeight: '800', color: COLORS.navy },
 });
+
 const paymentModalStyles = StyleSheet.create({
   backdrop: {
     flex: 1,
@@ -2227,5 +1924,5 @@ const successStyles = StyleSheet.create({
     textAlign: 'center',
     includeFontPadding: false,
   },
-  
+
 });

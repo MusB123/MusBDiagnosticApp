@@ -71,7 +71,27 @@ const MAX_DOB_YEAR = CURRENT_YEAR;
 
 const USA_CODE = COUNTRY_CODES.find((c) => c.code === '+1');
 
+// Backend requires: min 10 chars, at least 1 uppercase, 1 lowercase, 1 number, 1 special char
+const PASSWORD_RULES = [
+  { key: 'length', label: 'At least 10 characters', test: (v) => v.length >= 10 },
+  { key: 'upper', label: 'One uppercase letter (A-Z)', test: (v) => /[A-Z]/.test(v) },
+  { key: 'lower', label: 'One lowercase letter (a-z)', test: (v) => /[a-z]/.test(v) },
+  { key: 'number', label: 'One number (0-9)', test: (v) => /[0-9]/.test(v) },
+  { key: 'special', label: 'One special character (!@#$...)', test: (v) => /[^A-Za-z0-9]/.test(v) },
+];
+
 export default function RegisterScreen({ navigation }) {
+  const [addressSuggestions, setAddressSuggestions] = useState([]);
+  const [addressSearchLoading, setAddressSearchLoading] = useState(false);
+  const [addressSearchError, setAddressSearchError] = useState('');
+  const sessionTokenRef = useRef(generateSessionToken());
+  const debounceRef = useRef(null);
+  const abortRef = useRef(null);
+  const [showPassword, setShowPassword] = useState(false);
+  const [passwordFocused, setPasswordFocused] = useState(false);
+  const [countryCode, setCountryCode] = useState(USA_CODE);
+  const [showPicker, setShowPicker] = useState(false);
+  const [countrySearch, setCountrySearch] = useState('');
   const [form, setForm] = useState({
     firstName: '',
     middleName: '',
@@ -81,19 +101,7 @@ export default function RegisterScreen({ navigation }) {
     phone: '',
     email: '',
     password: '',
-    confirmPassword: '',
   });
-  const [addressSuggestions, setAddressSuggestions] = useState([]);
-  const [addressSearchLoading, setAddressSearchLoading] = useState(false);
-  const [addressSearchError, setAddressSearchError] = useState('');
-  const sessionTokenRef = useRef(generateSessionToken());
-  const debounceRef = useRef(null);
-  const abortRef = useRef(null);
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [countryCode, setCountryCode] = useState(USA_CODE);
-  const [showPicker, setShowPicker] = useState(false);
-  const [countrySearch, setCountrySearch] = useState('');
 
   const filteredCountries = COUNTRY_CODES.filter(
     (item) =>
@@ -282,16 +290,16 @@ export default function RegisterScreen({ navigation }) {
       Alert.alert('Invalid email', 'Please enter a valid email address.');
       return;
     }
-    if (!form.password || form.password.length < 6) {
-      Alert.alert('Password required', 'Please choose a password of at least 6 characters.');
+    const failedPasswordRule = PASSWORD_RULES.find((rule) => !rule.test(form.password));
+    if (!form.password.trim()) {
+      Alert.alert('Password required', 'Please choose a password to continue.');
       return;
     }
-    if (!form.confirmPassword) {
-      Alert.alert('Confirm password required', 'Please re-enter your password to continue.');
-      return;
-    }
-    if (form.password !== form.confirmPassword) {
-      Alert.alert('Passwords don\u2019t match', 'Please re-enter matching passwords.');
+    if (failedPasswordRule) {
+      Alert.alert(
+        'Password too weak',
+        'Password must include: ' + PASSWORD_RULES.map((r) => r.label.toLowerCase()).join(', ')
+      );
       return;
     }
     // Document upload now happens on step 2 (licence, certificate, insurance),
@@ -476,12 +484,14 @@ export default function RegisterScreen({ navigation }) {
             <View style={styles.passwordWrapper}>
               <TextInput
                 style={styles.passwordInput}
-                placeholder="At least 6 characters"
+                placeholder="At least 10 characters"
                 placeholderTextColor="#BBBDC4"
                 value={form.password}
                 onChangeText={(v) => handleChange('password', v)}
                 secureTextEntry={!showPassword}
                 autoCapitalize="none"
+                onFocus={() => setPasswordFocused(true)}
+                onBlur={() => setPasswordFocused(false)}
               />
               <TouchableOpacity
                 style={styles.eyeButton}
@@ -496,31 +506,27 @@ export default function RegisterScreen({ navigation }) {
               </TouchableOpacity>
             </View>
 
-            <Text style={styles.label}>
-              Confirm password <Text style={styles.required}>*</Text>
-            </Text>
-            <View style={styles.passwordWrapper}>
-              <TextInput
-                style={styles.passwordInput}
-                placeholder="Re-enter your password"
-                placeholderTextColor="#BBBDC4"
-                value={form.confirmPassword}
-                onChangeText={(v) => handleChange('confirmPassword', v)}
-                secureTextEntry={!showConfirmPassword}
-                autoCapitalize="none"
-              />
-              <TouchableOpacity
-                style={styles.eyeButton}
-                onPress={() => setShowConfirmPassword((prev) => !prev)}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              >
-                <Ionicons
-                  name={showConfirmPassword ? 'eye-off-outline' : 'eye-outline'}
-                  size={20}
-                  color="#8A92A6"
-                />
-              </TouchableOpacity>
-            </View>
+            {/* Password requirements checklist */}
+            {(passwordFocused || form.password.length > 0) && (
+              <View style={styles.rulesBox}>
+                <Text style={styles.rulesTitle}>Password must contain:</Text>
+                {PASSWORD_RULES.map((rule) => {
+                  const passed = rule.test(form.password);
+                  return (
+                    <View key={rule.key} style={styles.ruleRow}>
+                      <Ionicons
+                        name={passed ? 'checkmark-circle' : 'ellipse-outline'}
+                        size={14}
+                        color={passed ? '#2E7D32' : '#8A92A6'}
+                      />
+                      <Text style={[styles.ruleText, passed && styles.ruleTextPassed]}>
+                        {rule.label}
+                      </Text>
+                    </View>
+                  );
+                })}
+              </View>
+            )}
           </View>
 
           {/* Continue Button */}
@@ -748,6 +754,35 @@ const styles = StyleSheet.create({
   },
   eyeButton: {
     padding: 8,
+  },
+
+  rulesBox: {
+    marginTop: 10,
+    padding: 12,
+    backgroundColor: '#F5F6FA',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E8EAF0',
+  },
+  rulesTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#5A6275',
+    marginBottom: 6,
+  },
+  ruleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 4,
+  },
+  ruleText: {
+    fontSize: 12,
+    color: '#8A92A6',
+  },
+  ruleTextPassed: {
+    color: '#2E7D32',
+    fontWeight: '600',
   },
 
   nextButton: {

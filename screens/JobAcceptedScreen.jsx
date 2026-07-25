@@ -1,5 +1,5 @@
 // src/screens/JobAcceptedScreen.jsx
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -20,6 +20,47 @@ import { PHLEB_ENDPOINTS } from '../config/api';
 const PRIMARY = '#18377D';
 const GREEN = '#1B7A4D';
 
+// ---------------------------------------------------------------------------
+// Tube swatch colors — matched by keyword against whatever tube name string
+// the backend sends (e.g. "Lavender / EDTA"), just for the little color chip.
+// ---------------------------------------------------------------------------
+const TUBE_COLOR_KEYWORDS = [
+  ['lavender', '#B39DDB'],
+  ['gold', '#E8B84B'],
+  ['sst', '#E8B84B'],
+  ['light blue', '#4F8EF7'],
+  ['citrate', '#4F8EF7'],
+  ['red', '#E5484D'],
+  ['green', '#3FB27F'],
+  ['heparin', '#3FB27F'],
+  ['gray', '#9CA3AF'],
+  ['grey', '#9CA3AF'],
+  ['yellow', '#F5D547'],
+  ['royal blue', '#274690'],
+  ['black', '#374151'],
+];
+
+function resolveTubeColor(name) {
+  const n = String(name || '').toLowerCase();
+  for (const [keyword, color] of TUBE_COLOR_KEYWORDS) {
+    if (n.includes(keyword)) return color;
+  }
+  return '#9CA3AF';
+}
+
+// Reads the tube names straight from the backend (job.required_tubes /
+// job.requiredTubes — the tube_types your lab_tests catalog carries per
+// test, already merged by the API). Just names, deduped, no quantity math.
+function getRequiredTubes(job) {
+  const backendTubes = job?.required_tubes || job?.requiredTubes || job?.tubes || [];
+  const names = (Array.isArray(backendTubes) ? backendTubes : [])
+    .map((t) => (typeof t === 'string' ? t : t?.name))
+    .filter(Boolean);
+
+  const unique = [...new Set(names)];
+  return unique.map((name) => ({ name, color: resolveTubeColor(name) }));
+}
+
 export default function JobAcceptedScreen({ route, navigation }) {
   const { job } = route.params || {};
   const jobId = job?.id || job?.appointment_id || job?.dispatch_booking_id;
@@ -34,13 +75,22 @@ export default function JobAcceptedScreen({ route, navigation }) {
     || (Array.isArray(job?.lab_tests) ? job.lab_tests.join(', ') : null)
     || 'Clinical Test';
 
-  const testName = Array.isArray(rawTestName)
-    ? rawTestName.filter(Boolean).map(String).join('\n')
-    : String(rawTestName ?? '')
-        .split(',')
-        .map((t) => t.trim())
-        .filter(Boolean)
-        .join('\n') || 'Clinical Test';
+  // Normalized array of individual test names — used both for display and
+  // for deriving the required tube types below.
+  const testsArray = useMemo(() => {
+    if (Array.isArray(rawTestName)) {
+      return rawTestName.filter(Boolean).map(String);
+    }
+    return String(rawTestName ?? '')
+      .split(',')
+      .map((t) => t.trim())
+      .filter(Boolean);
+  }, [rawTestName]);
+
+  const testName = testsArray.length ? testsArray.join('\n') : 'Clinical Test';
+
+  const requiredTubes = useMemo(() => getRequiredTubes(job), [job]);
+
   const testPrice = job?.testPrice || job?.test_price;
   const earning = job?.earnings?.total ?? job?.earning ?? job?.earned ?? job?.amount_earned;
   const fastingRequired = !!(job?.fastingRequired || job?.fasting_required);
@@ -238,6 +288,23 @@ export default function JobAcceptedScreen({ route, navigation }) {
           <InfoRow label="Payment method" value={paymentMethod} last />
         </View>
 
+        {/* Required Tube Types */}
+        {requiredTubes.length > 0 && (
+          <>
+            <Text style={[styles.sectionLabel, { marginTop: 20 }]}>REQUIRED TUBE TYPES</Text>
+            <View style={styles.card}>
+              {requiredTubes.map((tube, idx) => (
+                <TubeRow
+                  key={tube.name}
+                  name={tube.name}
+                  color={tube.color}
+                  last={idx === requiredTubes.length - 1}
+                />
+              ))}
+            </View>
+          </>
+        )}
+
         {/* Order */}
         <Text style={[styles.sectionLabel, { marginTop: 20 }]}>ORDER</Text>
         <View style={styles.card}>
@@ -353,6 +420,15 @@ function DocRow({ icon, label, available, onPress, disabled, last }) {
   );
 }
 
+function TubeRow({ name, color, last }) {
+  return (
+    <View style={[styles.tubeRow, last && { marginBottom: 0, borderBottomWidth: 0 }]}>
+      <View style={[styles.tubeSwatch, { backgroundColor: color }]} />
+      <Text style={styles.tubeName}>{name}</Text>
+    </View>
+  );
+}
+
 const TOP_PADDING =
   Platform.OS === 'android' ? (StatusBar.currentHeight || 24) + 8 : 54;
 
@@ -435,6 +511,22 @@ const styles = StyleSheet.create({
   },
   fastingBannerText: { fontSize: 13, fontWeight: '700', color: '#92400E', flex: 1 },
   collectionText: { fontSize: 13.5, color: '#4A5568', lineHeight: 20 },
+  tubeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingBottom: 14,
+    marginBottom: 14,
+    borderBottomWidth: 1,
+    borderStyle: 'dashed',
+    borderBottomColor: '#E5E7EB',
+  },
+  tubeSwatch: {
+    width: 22,
+    height: 26,
+    borderRadius: 5,
+  },
+  tubeName: { flex: 1, fontSize: 14, fontWeight: '700', color: '#111827' },
   actionRow: { flexDirection: 'row', gap: 12, marginTop: 18 },
   navigateButton: {
     flex: 1, flexDirection: 'row', gap: 8, backgroundColor: GREEN,

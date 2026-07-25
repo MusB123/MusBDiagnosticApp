@@ -13,19 +13,30 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 
-const PRIMARY      = '#18377D';
-const PRIMARY_DARK = '#0F2557';
+const PRIMARY       = '#18377D';
+const PRIMARY_DARK  = '#0F2557';
 const PRIMARY_LIGHT = '#3B5BA9';
-const GREEN        = '#1B7A4D';
-const GREEN_LIGHT  = '#22C55E';
-const GREEN_BG     = '#DCFCE7';
-const BG           = '#F6F8FC';
-const CARD_BORDER  = '#EEF1F7';
-const BODY_GRAY    = '#6B7280';
+const GREEN         = '#1B7A4D';
+const GREEN_LIGHT   = '#22C55E';
+const GREEN_BG      = '#DCFCE7';
+const AMBER         = '#D97706';
+const AMBER_BG      = '#FEF3C7';
+const BLUE          = '#2563EB';
+const BLUE_BG       = '#DBEAFE';
+const PINK          = '#DB2777';
+const PINK_BG       = '#FCE7F3';
+const PURPLE        = '#7C3AED';
+const PURPLE_BG     = '#EDE9FE';
+const BG            = '#F6F8FC';
+const CARD_BORDER   = '#EEF1F7';
+const BODY_GRAY     = '#6B7280';
 
 const TOP_PADDING = Platform.OS === 'android' ? (StatusBar.currentHeight || 24) + 8 : 54;
 
-/** Springy press-scale wrapper — same primitive used across the app. */
+/* ────────────────────────────────────────────────────────────
+   Shared animation primitives
+──────────────────────────────────────────────────────────── */
+
 function AnimatedPressable({ style, onPress, children, scaleTo = 0.97, ...rest }) {
   const scale = useRef(new Animated.Value(1)).current;
   const pressIn = () =>
@@ -48,7 +59,6 @@ function AnimatedPressable({ style, onPress, children, scaleTo = 0.97, ...rest }
   );
 }
 
-/** Fades + slides a section up into place. */
 function FadeInUp({ delay = 0, distance = 16, children, style }) {
   const anim = useRef(new Animated.Value(0)).current;
   useEffect(() => {
@@ -75,7 +85,67 @@ function FadeInUp({ delay = 0, distance = 16, children, style }) {
   );
 }
 
-/** Checkmark badge: pops in with a bouncy spring + a soft expanding ring pulse. */
+/** Row entrance: pops in with a slight scale + slide from the side, staggered by index. */
+function FadeInSide({ delay = 0, children, style }) {
+  const anim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.spring(anim, {
+      toValue: 1,
+      delay,
+      useNativeDriver: true,
+      speed: 14,
+      bounciness: 8,
+    }).start();
+  }, []);
+  return (
+    <Animated.View
+      style={[
+        style,
+        {
+          opacity: anim,
+          transform: [
+            { translateX: anim.interpolate({ inputRange: [0, 1], outputRange: [-14, 0] }) },
+            { scale: anim.interpolate({ inputRange: [0, 1], outputRange: [0.94, 1] }) },
+          ],
+        },
+      ]}
+    >
+      {children}
+    </Animated.View>
+  );
+}
+
+/** Small twinkling dot — used to scatter a few colorful sparkles around the success badge. */
+function Sparkle({ color, size = 8, top, left, right, bottom, delay = 0 }) {
+  const anim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.delay(delay),
+        Animated.timing(anim, { toValue: 1, duration: 650, easing: Easing.out(Easing.ease), useNativeDriver: true }),
+        Animated.timing(anim, { toValue: 0, duration: 650, easing: Easing.in(Easing.ease), useNativeDriver: true }),
+        Animated.delay(900),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, []);
+  return (
+    <Animated.View
+      pointerEvents="none"
+      style={{
+        position: 'absolute',
+        top, left, right, bottom,
+        width: size, height: size, borderRadius: size / 2,
+        backgroundColor: color,
+        opacity: anim.interpolate({ inputRange: [0, 1], outputRange: [0.15, 1] }),
+        transform: [{ scale: anim.interpolate({ inputRange: [0, 1], outputRange: [0.4, 1.15] }) }],
+      }}
+    />
+  );
+}
+
+/** Checkmark badge: bouncy pop-in + soft expanding ring + scattered color sparkles. */
 function SuccessBadge() {
   const pop = useRef(new Animated.Value(0)).current;
   const ring = useRef(new Animated.Value(0)).current;
@@ -91,6 +161,11 @@ function SuccessBadge() {
 
   return (
     <View style={styles.badgeWrap}>
+      <Sparkle color={AMBER} size={9} top={4} left={6} delay={0} />
+      <Sparkle color={BLUE} size={7} top={14} right={2} delay={220} />
+      <Sparkle color={PINK} size={7} bottom={10} left={0} delay={440} />
+      <Sparkle color={GREEN_LIGHT} size={9} bottom={2} right={10} delay={660} />
+
       <Animated.View
         pointerEvents="none"
         style={[
@@ -101,12 +176,7 @@ function SuccessBadge() {
           },
         ]}
       />
-      <Animated.View
-        style={[
-          styles.badgeCircleOuter,
-          { transform: [{ scale: pop }], opacity: pop },
-        ]}
-      >
+      <Animated.View style={[styles.badgeCircleOuter, { transform: [{ scale: pop }], opacity: pop }]}>
         <LinearGradient
           colors={[GREEN_LIGHT, GREEN]}
           start={{ x: 0, y: 0 }}
@@ -120,17 +190,54 @@ function SuccessBadge() {
   );
 }
 
-/** One label/value row inside an info card. */
-function InfoRow({ label, value, valueColor, icon, isLast }) {
+/** Counts a number up from 0 to `value` on mount — used for the payout hero figure. */
+function CountUpMoney({ value, style }) {
+  const [display, setDisplay] = React.useState(0);
+  const anim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (value == null) return;
+    const id = anim.addListener(({ value: v }) => setDisplay(v * value));
+    Animated.timing(anim, { toValue: 1, duration: 900, delay: 250, easing: Easing.out(Easing.cubic), useNativeDriver: false }).start();
+    return () => anim.removeListener(id);
+  }, [value]);
+  if (value == null) return <Text style={style}>—</Text>;
+  return <Text style={style}>${display.toFixed(2)}</Text>;
+}
+
+/**
+ * One colorful tile in the summary — its own tinted background, a bold
+ * gradient icon circle, and a colored left accent bar. Each tile pops in
+ * with a slight stagger so the whole summary cascades into view.
+ */
+function InfoTile({ label, value, icon, color, bg, gradient, delay = 0 }) {
   return (
-    <View style={[styles.infoRow, !isLast && styles.infoRowBorder]}>
-      <View style={styles.infoRowLabelWrap}>
-        {icon && <Ionicons name={icon} size={15} color={BODY_GRAY} style={{ marginRight: 8 }} />}
-        <Text style={styles.infoRowLabel}>{label}</Text>
+    <FadeInSide delay={delay} style={[styles.tile, { backgroundColor: bg, borderColor: color + '22' }]}>
+      <View style={[styles.tileAccent, { backgroundColor: color }]} />
+      <LinearGradient
+        colors={gradient}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.tileIconWrap}
+      >
+        <Ionicons name={icon} size={16} color="#FFFFFF" />
+      </LinearGradient>
+      <View style={styles.tileTextWrap}>
+        <Text style={[styles.tileLabel, { color }]}>{label}</Text>
+        <Text style={styles.tileValue}>{value || '—'}</Text>
       </View>
-      <Text style={[styles.infoRowValue, valueColor && { color: valueColor }]} numberOfLines={1}>
-        {value || '—'}
-      </Text>
+    </FadeInSide>
+  );
+}
+
+/** One tile in the payout breakdown grid — icon, label, value, each with breathing room. */
+function PayoutTile({ label, value, icon, color, bg }) {
+  return (
+    <View style={styles.payoutTile}>
+      <View style={[styles.payoutTileIconWrap, { backgroundColor: bg }]}>
+        <Ionicons name={icon} size={15} color={color} />
+      </View>
+      <Text style={styles.payoutTileLabel}>{label}</Text>
+      <Text style={[styles.payoutTileValue, { color }]}>{value}</Text>
     </View>
   );
 }
@@ -165,7 +272,6 @@ export default function JobCompletedScreen({ route, navigation }) {
   }
 
   const totalPayout = job?.earnings?.total ?? job?.total_payout ?? job?.provider_payout ?? null;
-  const payoutDisplay = totalPayout != null ? `$${Number(totalPayout).toFixed(2)}` : '—';
   const collectionFee = job?.earnings?.collection_fee ?? job?.provider_collection_pay ?? null;
   const testCommission = job?.earnings?.test_commission ?? job?.provider_test_commission_pay ?? null;
   const collectionFeeDisplay = collectionFee != null ? `$${Number(collectionFee).toFixed(2)}` : null;
@@ -207,6 +313,10 @@ export default function JobCompletedScreen({ route, navigation }) {
         >
           <View style={styles.headerGlow} />
           <View style={styles.headerGlowSecondary} />
+          <View style={styles.headerBadge}>
+            <Ionicons name="shield-checkmark" size={13} color="#FFFFFF" />
+            <Text style={styles.headerBadgeText}>VERIFIED</Text>
+          </View>
           <Text style={styles.headerTitle}>Job Completed</Text>
         </LinearGradient>
       </Animated.View>
@@ -218,61 +328,104 @@ export default function JobCompletedScreen({ route, navigation }) {
       >
         <FadeInUp delay={40} style={{ alignItems: 'center' }}>
           <SuccessBadge />
-          <Text style={styles.successTitle}>Job Completed</Text>
+          <Text style={styles.successTitle}>Great work!</Text>
           <Text style={styles.successSub}>Chain of custody verified end-to-end.</Text>
         </FadeInUp>
 
         <FadeInUp delay={140}>
-          <View style={styles.card}>
-            <InfoRow label="Patient" value={patientName} icon="person-outline" />
-            <InfoRow label="Collection" value={collectionDisplay} icon="calendar-outline" />
-            <InfoRow
-              label="Collection status"
-              value="Completed"
-              valueColor={GREEN_LIGHT}
-              icon="checkmark-circle-outline"
+          <View style={styles.cardHeaderRow}>
+            <Ionicons name="document-text-outline" size={15} color={PRIMARY} />
+            <Text style={styles.cardHeaderText}>VISIT SUMMARY</Text>
+          </View>
+
+          <View style={styles.tileGroup}>
+            <InfoTile
+              label="PATIENT"
+              value={patientName}
+              icon="person-outline"
+              color={BLUE}
+              bg={BLUE_BG}
+              gradient={['#3B82F6', BLUE]}
+              delay={180}
             />
-            <InfoRow label="Drop-off location" value={dropLocation} icon="flask-outline" />
-            <InfoRow label="Drop-off time" value={dropTimeDisplay} icon="time-outline" isLast />
+            <InfoTile
+              label="COLLECTION"
+              value={collectionDisplay}
+              icon="calendar-outline"
+              color={AMBER}
+              bg={AMBER_BG}
+              gradient={['#F59E0B', AMBER]}
+              delay={260}
+            />
+            <InfoTile
+              label="STATUS"
+              value="Completed"
+              icon="checkmark-circle-outline"
+              color={GREEN}
+              bg={GREEN_BG}
+              gradient={[GREEN_LIGHT, GREEN]}
+              delay={340}
+            />
+            <InfoTile
+              label="DROP-OFF LOCATION"
+              value={dropLocation}
+              icon="flask-outline"
+              color={PURPLE}
+              bg={PURPLE_BG}
+              gradient={['#A78BFA', PURPLE]}
+              delay={420}
+            />
+            <InfoTile
+              label="DROP-OFF TIME"
+              value={dropTimeDisplay}
+              icon="time-outline"
+              color={PINK}
+              bg={PINK_BG}
+              gradient={['#F472B6', PINK]}
+              delay={500}
+            />
           </View>
         </FadeInUp>
 
-        <FadeInUp delay={220}>
+        <FadeInUp delay={580}>
           <LinearGradient
-            colors={['#FFFFFF', '#F3F6FC']}
-            style={styles.payoutCard}
+            colors={[GREEN, '#166B45']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.payoutHero}
           >
-            <View style={styles.payoutRow}>
-              <Text style={styles.payoutLabel}>Total payout</Text>
-              <Text style={styles.payoutValue}>{payoutDisplay}</Text>
-            </View>
+            <View style={styles.payoutHeroGlow} />
+            <Text style={styles.payoutHeroLabel}>TOTAL PAYOUT</Text>
+            <CountUpMoney value={totalPayout} style={styles.payoutHeroValue} />
 
-            {(collectionFeeDisplay || testCommissionDisplay) && (
-              <View style={styles.payoutBreakdown}>
-                {collectionFeeDisplay && (
-                  <View style={styles.payoutBreakdownRow}>
-                    <Text style={styles.payoutBreakdownLabel}>Collection fee</Text>
-                    <Text style={styles.payoutBreakdownValue}>{collectionFeeDisplay}</Text>
-                  </View>
-                )}
-                {testCommissionDisplay && (
-                  <View style={styles.payoutBreakdownRow}>
-                    <Text style={styles.payoutBreakdownLabel}>Test commission</Text>
-                    <Text style={styles.payoutBreakdownValue}>{testCommissionDisplay}</Text>
-                  </View>
-                )}
-              </View>
-            )}
-
-            <View style={styles.payoutDivider} />
-            <View style={styles.payoutRow}>
-              <Text style={styles.payoutLabel}>Payment status</Text>
-              <View style={styles.paymentPill}>
-                <View style={styles.paymentDot} />
-                <Text style={styles.paymentPillText}>{paymentStatus}</Text>
-              </View>
+            <View style={styles.paymentPill}>
+              <View style={styles.paymentDot} />
+              <Text style={styles.paymentPillText}>{paymentStatus}</Text>
             </View>
           </LinearGradient>
+
+          {(collectionFeeDisplay || testCommissionDisplay) && (
+            <View style={styles.payoutTileRow}>
+              {collectionFeeDisplay && (
+                <PayoutTile
+                  label="Collection fee"
+                  value={collectionFeeDisplay}
+                  icon="car-outline"
+                  color={BLUE}
+                  bg={BLUE_BG}
+                />
+              )}
+              {testCommissionDisplay && (
+                <PayoutTile
+                  label="Test commission"
+                  value={testCommissionDisplay}
+                  icon="ribbon-outline"
+                  color={AMBER}
+                  bg={AMBER_BG}
+                />
+              )}
+            </View>
+          )}
         </FadeInUp>
 
         <View style={{ height: 20 }} />
@@ -300,31 +453,44 @@ const styles = StyleSheet.create({
 
   header: {
     paddingTop: TOP_PADDING,
-    paddingBottom: 20,
+    paddingBottom: 22,
     paddingHorizontal: 20,
     alignItems: 'center',
-    borderBottomLeftRadius: 26,
-    borderBottomRightRadius: 26,
+    borderBottomLeftRadius: 28,
+    borderBottomRightRadius: 28,
     overflow: 'hidden',
   },
   headerGlow: {
     position: 'absolute',
     top: -50, right: -40,
-    width: 160, height: 160, borderRadius: 80,
+    width: 170, height: 170, borderRadius: 85,
     backgroundColor: PRIMARY_LIGHT, opacity: 0.35,
   },
   headerGlowSecondary: {
     position: 'absolute',
     bottom: -60, left: -30,
-    width: 140, height: 140, borderRadius: 70,
-    backgroundColor: '#FFFFFF', opacity: 0.06,
+    width: 150, height: 150, borderRadius: 75,
+    backgroundColor: GREEN_LIGHT, opacity: 0.12,
   },
-  headerTitle: { color: '#FFFFFF', fontSize: 17, fontWeight: '800' },
+  headerBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: 'rgba(255,255,255,0.16)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.3)',
+    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    marginBottom: 8,
+  },
+  headerBadgeText: { color: '#FFFFFF', fontSize: 10, fontWeight: '800', letterSpacing: 0.6 },
+  headerTitle: { color: '#FFFFFF', fontSize: 19, fontWeight: '800' },
 
   scrollContent: { padding: 20, paddingBottom: 40 },
 
   badgeWrap: {
-    width: 100, height: 100,
+    width: 110, height: 110,
     alignItems: 'center', justifyContent: 'center',
     marginBottom: 6,
   },
@@ -344,74 +510,135 @@ const styles = StyleSheet.create({
     width: 84, height: 84, borderRadius: 42,
     alignItems: 'center', justifyContent: 'center',
   },
-  successTitle: { fontSize: 20, fontWeight: '800', color: '#111827', marginTop: 6 },
+  successTitle: { fontSize: 21, fontWeight: '800', color: '#111827', marginTop: 8 },
   successSub: { fontSize: 13, color: BODY_GRAY, marginTop: 6, textAlign: 'center' },
 
-  card: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 18,
+  cardHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 28,
+    marginBottom: 12,
+    paddingHorizontal: 4,
+  },
+  cardHeaderText: { fontSize: 11, fontWeight: '800', color: PRIMARY, letterSpacing: 0.6 },
+
+  // ── Colorful summary tiles ──
+  tileGroup: { gap: 10 },
+  tile: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 16,
     borderWidth: 1.5,
-    borderColor: CARD_BORDER,
-    paddingHorizontal: 16,
-    marginTop: 26,
+    paddingVertical: 13,
+    paddingHorizontal: 14,
+    overflow: 'hidden',
     shadowColor: '#0F172A',
-    shadowOpacity: 0.05,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 1,
+  },
+  tileAccent: {
+    position: 'absolute',
+    left: 0, top: 0, bottom: 0,
+    width: 4,
+  },
+  tileIconWrap: {
+    width: 34, height: 34, borderRadius: 11,
+    alignItems: 'center', justifyContent: 'center',
+    marginRight: 12,
+    shadowColor: '#000',
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
     elevation: 2,
   },
-  infoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 14,
+  tileTextWrap: { flex: 1 },
+  tileLabel: {
+    fontSize: 10.5,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+    marginBottom: 2,
   },
-  infoRowBorder: {
-    borderBottomWidth: 1,
-    borderBottomColor: '#F1F3F9',
+  tileValue: {
+    fontSize: 14.5,
+    fontWeight: '800',
+    color: '#111827',
   },
-  infoRowLabelWrap: { flexDirection: 'row', alignItems: 'center' },
-  infoRowLabel: { fontSize: 13, color: BODY_GRAY, fontWeight: '600' },
-  infoRowValue: { fontSize: 14, color: '#111827', fontWeight: '800', maxWidth: '55%', textAlign: 'right' },
 
-  payoutCard: {
-    borderRadius: 18,
-    borderWidth: 1.5,
-    borderColor: CARD_BORDER,
-    padding: 18,
-    marginTop: 16,
-  },
-  payoutRow: {
-    flexDirection: 'row',
+  // ── Payout hero card ──
+  payoutHero: {
+    borderRadius: 20,
+    padding: 22,
+    marginTop: 22,
     alignItems: 'center',
-    justifyContent: 'space-between',
+    overflow: 'hidden',
+    shadowColor: GREEN,
+    shadowOpacity: 0.3,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 5,
   },
-  payoutBreakdown: {
-    marginTop: 10,
-    gap: 6,
+  payoutHeroGlow: {
+    position: 'absolute',
+    top: -40, right: -30,
+    width: 140, height: 140, borderRadius: 70,
+    backgroundColor: '#FFFFFF', opacity: 0.08,
   },
-  payoutBreakdownRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingLeft: 4,
+  payoutHeroLabel: {
+    color: 'rgba(255,255,255,0.85)',
+    fontSize: 11.5,
+    fontWeight: '800',
+    letterSpacing: 1,
+    marginBottom: 6,
   },
-  payoutBreakdownLabel: { fontSize: 12.5, color: BODY_GRAY, fontWeight: '500' },
-  payoutBreakdownValue: { fontSize: 13, color: '#374151', fontWeight: '700' },
-  payoutLabel: { fontSize: 13.5, color: BODY_GRAY, fontWeight: '600' },
-  payoutValue: { fontSize: 24, fontWeight: '800', color: GREEN },
-  payoutDivider: { height: 1, backgroundColor: '#EEF1F7', marginVertical: 14 },
+  payoutHeroValue: {
+    color: '#FFFFFF',
+    fontSize: 38,
+    fontWeight: '800',
+    marginBottom: 14,
+  },
+
   paymentPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: GREEN_BG,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.35)',
     borderRadius: 20,
     paddingHorizontal: 12,
     paddingVertical: 6,
     gap: 6,
   },
-  paymentDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: GREEN },
-  paymentPillText: { fontSize: 12.5, fontWeight: '800', color: GREEN },
+  paymentDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#FFFFFF' },
+  paymentPillText: { fontSize: 12.5, fontWeight: '800', color: '#FFFFFF' },
+
+  payoutTileRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 12,
+  },
+  payoutTile: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    borderWidth: 1.5,
+    borderColor: CARD_BORDER,
+    padding: 14,
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 1,
+  },
+  payoutTileIconWrap: {
+    width: 30, height: 30, borderRadius: 10,
+    alignItems: 'center', justifyContent: 'center',
+    marginBottom: 8,
+  },
+  payoutTileLabel: { fontSize: 11.5, color: BODY_GRAY, fontWeight: '600', marginBottom: 4 },
+  payoutTileValue: { fontSize: 16, fontWeight: '800' },
 
   bottomBar: {
     paddingHorizontal: 20,

@@ -106,9 +106,13 @@ function formatDayDate(dateStr) {
    try {
     const res = await fetch(PHLEB_ENDPOINTS.dispatch.officeNearbyRequests, { headers: authHeader() });
     const data = await res.json();
-    setOfficeRequests(data.requests || []);
+    const mobileOnly = (data.requests || []).filter((r) => {
+      const time = String(r.preferred_time || '').toLowerCase();
+      return !time.startsWith('walk-in');
+    });
+    setOfficeRequests(mobileOnly);
    } catch {}
- };
+  };
 
   // If the phlebotomist already has an in-progress assigned job, send them
   // straight to it instead of re-showing the online toggle.

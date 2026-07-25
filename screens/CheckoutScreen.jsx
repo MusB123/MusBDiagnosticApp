@@ -8,6 +8,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useStripe } from '@stripe/stripe-react-native';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import { getStoredPatientUser, bookAppointment, uploadDocument, fetchWalkinFeePreview, markAppointmentPaid } from '../utils/auth';
+import { resetBookingDetailsKeepAddress } from '../utils/bookingDraft';
 import * as FileSystem from 'expo-file-system/legacy';
 
 const BACKEND_URL = 'https://musb-diagnostic-website.onrender.com';
@@ -213,6 +214,7 @@ export default function CheckoutScreen({ navigation, route }) {
   const address       = route?.params?.address        || '';
   const zipCode        = route?.params?.zipCode        || '';
   const visitType     = route?.params?.visitType      || 'mobile';
+  const walkinCollectionFee = visitType === 'walkin' ? (Number(route?.params?.walkinCollectionFee) || 0) : 0;
   const preferredTime = route?.params?.preferredTime  || 'Now';
   const quotedBookingTime = route?.params?.quotedBookingTime || preferredTime;
   const preferredDate = route?.params?.preferredDate  || new Date().toISOString().split('T')[0];
@@ -248,7 +250,7 @@ export default function CheckoutScreen({ navigation, route }) {
         ? backendTotal
         : +(baseFee + distanceFee + driversReserveFee + surchargesTotal).toFixed(2))
     : 0;
-  const grandTotal = +(mobileVisitTotal + labTestsTotal).toFixed(2);
+  const grandTotal = +(mobileVisitTotal + labTestsTotal + walkinCollectionFee).toFixed(2);
 
   // Sent back to book_appointment so its ±$0.50 quote-drift check passes
   // instead of bouncing with a 409 at the worst possible moment (post-payment).
@@ -465,6 +467,7 @@ export default function CheckoutScreen({ navigation, route }) {
 
   const handleSuccessContinue = () => {
     setShowSuccess(false);
+    resetBookingDetailsKeepAddress();
     if (route?.params?.isGuest) {
       navigation.navigate('CreateAccountPrompt', { appointmentId: successData.appointmentId });
     } else {
@@ -584,6 +587,17 @@ export default function CheckoutScreen({ navigation, route }) {
                   />
                 )}
               </>
+            )}
+
+            {walkinCollectionFee > 0 && (
+              <SummaryRow
+                icon="business"
+                iconColor={COLORS.slate}
+                iconBg={COLORS.slateLight}
+                label="In-centre collection charge"
+                value={`$${walkinCollectionFee.toFixed(0)}`}
+                delay={170}
+              />
             )}
 
             <View style={styles.summaryDivider} />

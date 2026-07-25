@@ -305,12 +305,24 @@ export default function DashboardScreen({ route, navigation }) {
   const fetchNearbyRequests = async () => {
     try {
       const data = await authGet(PHLEB_ENDPOINTS.dispatch.officeNearbyRequests);
-      const withinRadius = (data.requests || []).filter(
+      const mobileOnly = (data.requests || []).filter((r) => {
+        const time = String(r.preferred_time || '').toLowerCase();
+        return !time.startsWith('walk-in');
+      });
+      const withinRadius = mobileOnly.filter(
         (r) => r.distance_miles == null || r.distance_miles <= NEARBY_RADIUS_MILES
       );
-      setRequests(withinRadius);
+
+    // Most recently submitted first (by created_at), oldest last.
+      const sorted = [...withinRadius].sort((a, b) => {
+        const aTime = new Date(a.created_at || 0).getTime();
+        const bTime = new Date(b.created_at || 0).getTime();
+        return bTime - aTime; // descending → newest submission on top
+      });
+
+      setRequests(sorted);
     } catch {
-      // fail silently, keep last known data
+    // fail silently, keep last known data
     } finally {
       setLoading(false);
     }
@@ -319,6 +331,7 @@ export default function DashboardScreen({ route, navigation }) {
   const handleGoOnline = () => navigation.navigate('PatientMap', { fullName, autoOnline:true });
   const handleHistory  = () => navigation.navigate('PhlebHistory', { fullName });
   const handleProfile  = () => navigation.navigate('PhlebProfile',    { fullName });
+  const handleScorecard = () => navigation.navigate('PhlebScorecard', { fullName });
 
   // Resume the active job at the right screen for its current status:
   //   assigned              -> JobAccepted (patient details, navigate, "I've arrived")
@@ -503,6 +516,10 @@ export default function DashboardScreen({ route, navigation }) {
         <TouchableOpacity style={styles.navItem} onPress={handleHistory}>
           <Ionicons name="time-outline" size={22} color={GRAY} />
           <Text style={styles.navLabel}>History</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.navItem} onPress={handleScorecard}>
+          <Ionicons name="star-outline" size={22} color={GRAY} />
+          <Text style={styles.navLabel}>Ratings</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.navItem} onPress={handleProfile}>
           <Ionicons name="person-outline" size={22} color={GRAY} />

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,9 @@ import {
   ActivityIndicator,
   Alert,
   Linking,
+  Animated,
+  Easing,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -36,19 +39,133 @@ const COLORS = {
 
 const GENDERS = ['Male', 'Female', 'Other', 'Prefer not to say'];
 
+// Number of documents shown before the "View all" toggle appears.
+const DOCS_PREVIEW_COUNT = 4;
+
 // ── Support contact ─────────────────────────────────────────────────────────
 // 👉 EDIT THIS: once you have a real admin/technician inbox, replace the
 // string below. The "Need help?" row and the mailto link are already wired
 // up to it — nothing else needs to change.
 const SUPPORT_EMAIL = 'info@musbdiagnostics.com';
 
+// ── Skeleton loading components ─────────────────────────────────────────────
+
+/** Shimmering placeholder block — the base building block for the skeleton. */
+function SkeletonBlock({ width, height, borderRadius = 8, style }) {
+  const shimmer = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(shimmer, { toValue: 1, duration: 800, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(shimmer, { toValue: 0, duration: 800, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, []);
+
+  const opacity = shimmer.interpolate({ inputRange: [0, 1], outputRange: [0.4, 1] });
+
+  return (
+    <Animated.View
+      style={[
+        { width, height, borderRadius, backgroundColor: COLORS.lightGray, opacity },
+        style,
+      ]}
+    />
+  );
+}
+
+/** One skeleton "field" row — label bar + input bar, matches <Field/> spacing. */
+function SkeletonField({ labelWidth = 90 }) {
+  return (
+    <View style={skeletonStyles.fieldWrap}>
+      <SkeletonBlock width={labelWidth} height={12} style={{ marginBottom: 8 }} />
+      <SkeletonBlock width="100%" height={46} borderRadius={12} />
+    </View>
+  );
+}
+
+/** One skeleton "link row" — matches the <linkRow> icon+text+chevron layout. */
+function SkeletonLinkRow() {
+  return (
+    <View style={skeletonStyles.linkRow}>
+      <SkeletonBlock width={36} height={36} borderRadius={10} />
+      <SkeletonBlock width="60%" height={14} style={{ marginLeft: 12 }} />
+    </View>
+  );
+}
+
+/** Full skeleton layout for the Profile screen — mirrors the real content
+ *  structure (avatar, quick links, documents, personal info fields) so the
+ *  transition from loading → loaded doesn't cause a layout jump. */
+function ProfileSkeleton() {
+  return (
+    <View style={{ padding: 20 }}>
+      {/* Avatar section */}
+      <View style={{ alignItems: 'center', marginBottom: 28 }}>
+        <SkeletonBlock width={72} height={72} borderRadius={36} style={{ marginBottom: 10 }} />
+        <SkeletonBlock width={140} height={18} style={{ marginBottom: 6 }} />
+        <SkeletonBlock width={180} height={13} />
+      </View>
+
+      {/* My Care section */}
+      <SkeletonBlock width={80} height={11} style={{ marginBottom: 12 }} />
+      <SkeletonLinkRow />
+      <SkeletonLinkRow />
+
+      {/* Documents section */}
+      <SkeletonBlock width={110} height={11} style={{ marginTop: 16, marginBottom: 12 }} />
+      <SkeletonLinkRow />
+      <SkeletonLinkRow />
+
+      {/* Personal info section */}
+      <SkeletonBlock width={120} height={11} style={{ marginTop: 16, marginBottom: 12 }} />
+      <SkeletonField labelWidth={80} />
+      <SkeletonField labelWidth={60} />
+      <SkeletonField labelWidth={110} />
+      <SkeletonBlock width={60} height={13} style={{ marginBottom: 8 }} />
+      <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
+        <SkeletonBlock width={70} height={34} borderRadius={20} />
+        <SkeletonBlock width={80} height={34} borderRadius={20} />
+        <SkeletonBlock width={60} height={34} borderRadius={20} />
+      </View>
+      <SkeletonField labelWidth={70} />
+
+      {/* Emergency contact section */}
+      <SkeletonBlock width={160} height={11} style={{ marginTop: 16, marginBottom: 12 }} />
+      <SkeletonField labelWidth={100} />
+      <SkeletonField labelWidth={100} />
+    </View>
+  );
+}
+
+/** Skeleton row shown inline in the Documents section while a background
+ *  refresh (after upload / pull-to-refresh) is in flight, without wiping
+ *  the whole screen back to the full-page skeleton. */
+function SkeletonDocRow() {
+  return (
+    <View style={skeletonStyles.linkRow}>
+      <SkeletonBlock width={36} height={36} borderRadius={10} />
+      <View style={{ marginLeft: 12, flex: 1 }}>
+        <SkeletonBlock width="70%" height={14} style={{ marginBottom: 6 }} />
+        <SkeletonBlock width="35%" height={11} />
+      </View>
+    </View>
+  );
+}
+
 export default function ProfileScreen({ navigation }) {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [saving, setSaving] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
   const [documents, setDocuments] = useState([]);
   const [docsLoading, setDocsLoading] = useState(true);
+  const [showAllDocs, setShowAllDocs] = useState(false);
 
   const [email, setEmail] = useState(''); // read-only
   const [isGuest, setIsGuest] = useState(false);
@@ -71,55 +188,82 @@ export default function ProfileScreen({ navigation }) {
     confirmPassword: '',
   });
 
-  useEffect(() => {
-    let isMounted = true;
-    async function load() {
-      try {
-        const profile = await fetchPatientProfile();
-        if (!isMounted) return;
-        setEmail(profile.email || '');
-        setIsGuest(!!profile.is_guest); // set server-side in guest_checkout
-        setForm({
-          name: profile.name || '',
-          phone: profile.phone || '',
-          dob: profile.dob || '',
-          gender: profile.gender || '',
-          address: profile.address || '',
-          emergency_contact_name: profile.emergency_contact_name || '',
-          emergency_contact_phone: profile.emergency_contact_phone || '',
-        });
-      } catch (err) {
-        if (isMounted) {
-          setLoadError(
-            err.message === 'NETWORK_ERROR'
-              ? "Can't reach the server. Check your connection."
-              : err.message
-          );
-        }
-      } finally {
-        if (isMounted) setLoading(false);
+  const loadProfile = async (isMountedRef) => {
+    try {
+      const profile = await fetchPatientProfile();
+      if (!isMountedRef.current) return;
+      setEmail(profile.email || '');
+      setIsGuest(!!profile.is_guest); // set server-side in guest_checkout
+      setForm({
+        name: profile.name || '',
+        phone: profile.phone || '',
+        dob: profile.dob || '',
+        gender: profile.gender || '',
+        address: profile.address || '',
+        emergency_contact_name: profile.emergency_contact_name || '',
+        emergency_contact_phone: profile.emergency_contact_phone || '',
+      });
+      setLoadError('');
+    } catch (err) {
+      if (isMountedRef.current) {
+        setLoadError(
+          err.message === 'NETWORK_ERROR'
+            ? "Can't reach the server. Check your connection."
+            : err.message
+        );
       }
+    } finally {
+      if (isMountedRef.current) setLoading(false);
     }
-    load();
-    return () => { isMounted = false; };
-  }, []);
+  };
+
+  // Sorts newest-first so freshly uploaded documents surface at the top of
+  // the (limited) preview list instead of getting buried below older ones.
+  const loadDocuments = async (isMountedRef) => {
+    try {
+      const data = await fetchPatientDashboard();
+      if (!isMountedRef.current) return;
+      const docs = data?.documents || [];
+      const sorted = [...docs].sort((a, b) => {
+        const da = new Date(a.date || a.created_at || 0);
+        const db = new Date(b.date || b.created_at || 0);
+        return db - da;
+      });
+      setDocuments(sorted);
+    } catch (err) {
+      // Non-fatal — profile still works without documents
+      console.warn('Could not load documents:', err.message);
+    } finally {
+      if (isMountedRef.current) setDocsLoading(false);
+    }
+  };
 
   useEffect(() => {
-    let isMounted = true;
-    async function loadDocs() {
-      try {
-        const data = await fetchPatientDashboard();
-        if (isMounted) setDocuments(data?.documents || []);
-      } catch (err) {
-        // Non-fatal — profile still works without documents
-        console.warn('Could not load documents:', err.message);
-      } finally {
-        if (isMounted) setDocsLoading(false);
-      }
-    }
-    loadDocs();
-    return () => { isMounted = false; };
+    const isMountedRef = { current: true };
+    loadProfile(isMountedRef);
+    loadDocuments(isMountedRef);
+    return () => { isMountedRef.current = false; };
   }, []);
+
+  // Re-fetch documents every time this screen regains focus — e.g. after the
+  // patient uploads a doctor's order / insurance card on another screen and
+  // navigates back here. Keeps the list current without needing an app
+  // restart. Uses a lightweight in-place refresh (no full-page skeleton).
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      const isMountedRef = { current: true };
+      loadDocuments(isMountedRef);
+    });
+    return unsubscribe;
+  }, [navigation]);
+
+  // Pull-to-refresh — refreshes both profile info and documents together.
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    const isMountedRef = { current: true };
+    await Promise.all([loadProfile(isMountedRef), loadDocuments(isMountedRef)]);
+    setRefreshing(false);
+  };
 
   const updateField = (field, value) => {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -208,8 +352,15 @@ export default function ProfileScreen({ navigation }) {
 
   if (loading) {
     return (
-      <SafeAreaView style={[styles.safeArea, styles.centered]}>
-        <ActivityIndicator size="large" color={COLORS.navy} />
+      <SafeAreaView style={styles.safeArea}>
+        <StatusBar barStyle="dark-content" backgroundColor={COLORS.white} />
+        <View style={styles.header}>
+          <SkeletonBlock width={36} height={36} borderRadius={18} />
+          <SkeletonBlock width={80} height={20} style={{ marginLeft: 12 }} />
+        </View>
+        <ScrollView showsVerticalScrollIndicator={false}>
+          <ProfileSkeleton />
+        </ScrollView>
       </SafeAreaView>
     );
   }
@@ -237,6 +388,9 @@ export default function ProfileScreen({ navigation }) {
     );
   }
 
+  const visibleDocuments = showAllDocs ? documents : documents.slice(0, DOCS_PREVIEW_COUNT);
+  const hasMoreDocs = documents.length > DOCS_PREVIEW_COUNT;
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="dark-content" backgroundColor={COLORS.white} />
@@ -258,6 +412,9 @@ export default function ProfileScreen({ navigation }) {
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={COLORS.navy} />
+        }
       >
         {/* Avatar */}
         <View style={styles.avatarSection}>
@@ -302,43 +459,74 @@ export default function ProfileScreen({ navigation }) {
           <Ionicons name="chevron-forward" size={18} color={COLORS.gray} />
         </TouchableOpacity>
 
-        {/* Documents */}
-        <Text style={styles.sectionLabel}>DOCUMENTS</Text>
+        {/* Documents — shows the DOCS_PREVIEW_COUNT most recent, newest
+            first, with a "View all" toggle for the rest. Auto-refreshes on
+            screen focus and pull-to-refresh, so a newly uploaded document
+            (e.g. from BookMobileVisit / InPersonTests) appears here without
+            needing to close and reopen the app. */}
+        <View style={styles.sectionLabelRow}>
+          <Text style={[styles.sectionLabel, { marginBottom: 0 }]}>DOCUMENTS</Text>
+          {documents.length > 0 && (
+            <Text style={styles.docsCountText}>{documents.length} total</Text>
+          )}
+        </View>
+
         {docsLoading ? (
-          <ActivityIndicator color={COLORS.navy} style={{ marginBottom: 16 }} />
+          <>
+            <SkeletonDocRow />
+            <SkeletonDocRow />
+          </>
         ) : documents.length === 0 ? (
           <View style={styles.staticField}>
             <Text style={styles.staticFieldText}>No documents uploaded yet</Text>
           </View>
         ) : (
-          documents.map((doc) => (
-            <TouchableOpacity
-              key={doc.id}
-              style={styles.linkRow}
-              onPress={() => {
-                if (doc.url) {
-                  Linking.openURL(doc.url).catch(() =>
-                    Alert.alert('Error', 'Could not open this document.')
-                  );
-                } else {
-                  Alert.alert('Unavailable', 'This document could not be found.');
-                }
-              }}
-            >
-              <View style={styles.linkIconWrap}>
+          <>
+            {visibleDocuments.map((doc) => (
+              <TouchableOpacity
+                key={doc.id}
+                style={styles.linkRow}
+                onPress={() => {
+                  if (doc.url) {
+                    Linking.openURL(doc.url).catch(() =>
+                      Alert.alert('Error', 'Could not open this document.')
+                    );
+                  } else {
+                    Alert.alert('Unavailable', 'This document could not be found.');
+                  }
+                }}
+              >
+                <View style={styles.linkIconWrap}>
+                  <Ionicons
+                    name={doc.type === 'Insurance Card' ? 'card-outline' : 'document-text-outline'}
+                    size={20}
+                    color={COLORS.navy}
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.linkText} numberOfLines={1}>{doc.name}</Text>
+                  <Text style={{ fontSize: 12, color: COLORS.gray, marginTop: 2 }}>{doc.date}</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color={COLORS.gray} />
+              </TouchableOpacity>
+            ))}
+
+            {hasMoreDocs && (
+              <TouchableOpacity
+                style={styles.viewAllBtn}
+                onPress={() => setShowAllDocs((prev) => !prev)}
+              >
+                <Text style={styles.viewAllBtnText}>
+                  {showAllDocs ? 'Show less' : `View all ${documents.length} documents`}
+                </Text>
                 <Ionicons
-                  name={doc.type === 'Insurance Card' ? 'card-outline' : 'document-text-outline'}
-                  size={20}
+                  name={showAllDocs ? 'chevron-up' : 'chevron-down'}
+                  size={16}
                   color={COLORS.navy}
                 />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.linkText} numberOfLines={1}>{doc.name}</Text>
-                <Text style={{ fontSize: 12, color: COLORS.gray, marginTop: 2 }}>{doc.date}</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color={COLORS.gray} />
-            </TouchableOpacity>
-          ))
+              </TouchableOpacity>
+            )}
+          </>
         )}
 
         {/* Personal Info */}
@@ -517,6 +705,21 @@ function Field({ label, value, editable, onChangeText, placeholder, keyboardType
   );
 }
 
+const skeletonStyles = StyleSheet.create({
+  fieldWrap: { marginBottom: 16 },
+  linkRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.white,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    marginBottom: 10,
+  },
+});
+
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: COLORS.white },
   centered: { justifyContent: 'center', alignItems: 'center' },
@@ -576,6 +779,31 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     marginBottom: 12,
     marginTop: 8,
+  },
+  sectionLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 8,
+    marginBottom: 12,
+  },
+  docsCountText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: COLORS.gray,
+  },
+  viewAllBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 12,
+    marginBottom: 6,
+  },
+  viewAllBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: COLORS.navy,
   },
 
   fieldWrap: { marginBottom: 16 },
