@@ -257,27 +257,27 @@ function TestRow({ test, isSelected, onToggle, delay }) {
           </View>
 
           <View style={styles.testInfo}>
-          <Text style={[styles.testName, isSelected && styles.testNameSelected]}>
-            {test.name}
-          </Text>
-          {!!test.desc && (
-            <Text style={styles.testDesc} numberOfLines={2} ellipsizeMode="tail">
-              {test.desc}
+            <Text style={[styles.testName, isSelected && styles.testNameSelected]}>
+              {test.name}
             </Text>
-          )}
-          {(test.sampleType || test.turnaround) && (
-            <Text style={styles.testMeta} numberOfLines={1}>
-              {test.sampleType ? `${test.sampleType} · ` : ''}{test.turnaround}
-            </Text>
-          )}
+            {!!test.desc && (
+              <Text style={styles.testDesc} numberOfLines={2} ellipsizeMode="tail">
+                {test.desc}
+              </Text>
+            )}
+            {(test.sampleType || test.turnaround) && (
+              <Text style={styles.testMeta} numberOfLines={1}>
+                {test.sampleType ? `${test.sampleType} · ` : ''}{test.turnaround}
+              </Text>
+            )}
 
-          {test.fastingRequired && (
-            <View style={styles.fastingBadge}>
-              <Feather name="clock" size={10} color="#B45309" />
-              <Text style={styles.fastingBadgeText}>Fasting required</Text>
-            </View>
-          )}
-        </View>
+            {test.fastingRequired && (
+              <View style={styles.fastingBadge}>
+                <Feather name="clock" size={10} color="#B45309" />
+                <Text style={styles.fastingBadgeText}>Fasting required</Text>
+              </View>
+            )}
+          </View>
 
           <View style={styles.testRight}>
             {test.hidePrice ? null : (
@@ -455,7 +455,7 @@ export default function SelectTestsScreen({ navigation, route }) {
   }, []);
 
   // Insurance-billed patients don't use cash-price bundle offers — force
-// back to the tests tab if insurance gets selected while on Offers.
+  // back to the tests tab if insurance gets selected while on Offers.
   useEffect(() => {
     if (hasInsurance && viewMode === 'offers') {
       setViewMode('tests');
@@ -522,8 +522,9 @@ export default function SelectTestsScreen({ navigation, route }) {
     }
     let isMounted = true;
     async function loadOffers() {
-     try {
+      try {
         const data = await fetchOffers(hasInsurance);
+        console.log('RAW OFFERS FROM API:', JSON.stringify(data, null, 2));
         if (isMounted) setOffers(data || []);
       } catch (err) {
         if (isMounted) setOffersError(err.message || 'Could not load offers.');
@@ -602,15 +603,15 @@ export default function SelectTestsScreen({ navigation, route }) {
 
   const toggleTest = (id) => {
     if (appliedOffer) {
-      const isPartOfOffer = (appliedOffer.testIds || []) .includes(id);
+      const isPartOfOffer = (appliedOffer.testIds || []).includes(id);
       if (isPartOfOffer) {
-      // Removing one of the bundle's own tests breaks the bundle pricing.
+        // Removing one of the bundle's own tests breaks the bundle pricing.
         setAppliedOffer(null);
         setSelectedTests((prev) => prev.filter((t) => t !== id));
         return;
       }
-    // Adding/removing a test outside the bundle — keep the offer applied,
-    // just add its normal price on top.
+      // Adding/removing a test outside the bundle — keep the offer applied,
+      // just add its normal price on top.
     }
     setSelectedTests((prev) =>
       prev.includes(id) ? prev.filter((t) => t !== id) : [...prev, id]
@@ -631,14 +632,14 @@ export default function SelectTestsScreen({ navigation, route }) {
     : [];
   const testsTotal = appliedOffer
     ? appliedOffer.price +
-      extraTestsData.reduce(
-        (sum, t) => sum + (t.discountPrice != null ? t.discountPrice : (t.price ?? 0)),
-       0
-      )
+    extraTestsData.reduce(
+      (sum, t) => sum + (t.discountPrice != null ? t.discountPrice : (t.price ?? 0)),
+      0
+    )
     : selectedTestsData.reduce(
-        (sum, t) => sum + (t.discountPrice != null ? t.discountPrice : (t.price ?? 0)),
-        0
-      );
+      (sum, t) => sum + (t.discountPrice != null ? t.discountPrice : (t.price ?? 0)),
+      0
+    );
 
   const handleConfirm = () => {
     if (returnTo) {
@@ -650,14 +651,14 @@ export default function SelectTestsScreen({ navigation, route }) {
         extraTestsData,
         ...(s
           ? {
-              scheduledDate: s.isoDate,
-              scheduledDateLabel: s.dateLabel,
-              scheduledTimeLabel: s.timeLabel,
-              preferredTime: s.preferredTime,
-              slotType: s.slotType,
-              slotIndex: s.slotIndex,
-              totalPatientFee: s.totalPatientFee,
-            }
+            scheduledDate: s.isoDate,
+            scheduledDateLabel: s.dateLabel,
+            scheduledTimeLabel: s.timeLabel,
+            preferredTime: s.preferredTime,
+            slotType: s.slotType,
+            slotIndex: s.slotIndex,
+            totalPatientFee: s.totalPatientFee,
+          }
           : {}),
       });
     } else {
@@ -678,9 +679,16 @@ export default function SelectTestsScreen({ navigation, route }) {
   // minute above, which forces this to re-run.
   const liveOffers = offers
     .filter((o) => o.is_active)
-    .map((o) => ({ ...o, msLeft: getMsLeft(o.expires_at), hidePrice: hasInsurance || !!o.hide_price }))
+    .map((o) => ({
+      ...o,
+      msLeft: o.is_unlimited ? null : getMsLeft(o.end_date),
+      hidePrice: hasInsurance || !!o.hide_price,
+    }))
     .filter((o) => o.msLeft === null || o.msLeft > 0)
-    .map((o) => (o.msLeft !== null ? { ...o, time_left: formatTimeLeft(o.msLeft) } : o));
+    .map((o) => ({
+      ...o,
+      time_left: o.msLeft !== null ? formatTimeLeft(o.msLeft) : null,
+    }));
 
   console.log('liveOffers time_left values:', liveOffers.map(o => ({ title: o.title, time_left: o.time_left })));
   // eslint-disable-next-line no-unused-expressions
@@ -1066,10 +1074,10 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
     marginRight: 12,
   },
-  testInfo: { flex: 1, paddingRight: 8 , minWidth: 0,},
+  testInfo: { flex: 1, paddingRight: 8, minWidth: 0, },
   testName: { fontSize: 14.5, fontWeight: '700', color: COLORS.navyDark, marginBottom: 2, letterSpacing: 0.1 },
   testNameSelected: { color: COLORS.navy },
-  testDesc: { fontSize: 12, color: COLORS.bodyText, lineHeight: 18, marginBottom: 3,flexWrap: 'wrap', },
+  testDesc: { fontSize: 12, color: COLORS.bodyText, lineHeight: 18, marginBottom: 3, flexWrap: 'wrap', },
   testMeta: { fontSize: 11.5, color: COLORS.gray, fontWeight: '500' },
   fastingBadge: {
     flexDirection: 'row',

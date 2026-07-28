@@ -1,8 +1,7 @@
 // config/api.js
 // Unified API configuration for MusB (Patient + Phlebotomist apps)
 
-const BASE_URL = 'https://musb-diagnostic-website.onrender.com';
-
+export const BASE_URL = 'https://api.musbdiagnostics.com';
 const PHLEB_BASE = `${BASE_URL}/api/phleb`;
 const PHLEB_GLOBAL = `${BASE_URL}/api/phlebotomists`; // global phlebotomist routes
 const DISPATCH_BASE = `${BASE_URL}/api/dispatch`; // ⚠ verify this app exists on the backend
@@ -37,8 +36,8 @@ export const PATIENT_ENDPOINTS = {
   changePassword: `${PATIENT_PREFIX}/change-password/`,
   rateAppointment: (appointmentId) => `${PATIENT_PREFIX}/appointments/${appointmentId}/rate/`,
   markAppointmentPaid: (appointmentId) => `${BASE_URL}/api/patients/appointments/${appointmentId}/mark-paid/`,
-  guestCheckout: `${PATIENT_PREFIX}/guest-checkout/`,  
-  setPassword: `${PATIENT_PREFIX}/set-password/`, 
+  guestCheckout: `${PATIENT_PREFIX}/guest-checkout/`,
+  setPassword: `${PATIENT_PREFIX}/set-password/`,
 };
 
 // ── Phlebotomist endpoints (full version, from phleb app) ───────────────────

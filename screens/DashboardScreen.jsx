@@ -7,18 +7,18 @@ import { Ionicons, Feather } from '@expo/vector-icons';
 import { PHLEB_ENDPOINTS } from '../config/api';
 import { getActiveSession, authGet, getStoredPhlebUser } from '../utils/auth';
 
-const PRIMARY   = '#18377D';
+const PRIMARY = '#18377D';
 const PRIMARY_D = '#0F2557';
 const PRIMARY_L = '#2C4FA8';
-const GREEN     = '#22C55E';
-const GREEN_BG  = '#DCFCE7';
-const ORANGE    = '#F97316';
+const GREEN = '#22C55E';
+const GREEN_BG = '#DCFCE7';
+const ORANGE = '#F97316';
 const ORANGE_BG = '#FFF7ED';
-const RED       = '#EF4444';
-const GRAY      = '#9CA3AF';
+const RED = '#EF4444';
+const GRAY = '#9CA3AF';
 const BODY_GRAY = '#6B7280';
-const BORDER    = '#EEF1F7';
-const BG        = '#F6F8FC';
+const BORDER = '#EEF1F7';
+const BG = '#F6F8FC';
 
 // Max distance (miles) from the office for a request to show on the dashboard.
 const NEARBY_RADIUS_MILES = 50;
@@ -206,18 +206,19 @@ export default function DashboardScreen({ route, navigation }) {
     .split(' ').map((w) => w[0]).join('').substring(0, 2).toUpperCase();
 
   const [requests, setRequests] = useState([]);
-  const [loading, setLoading]   = useState(true);
+  const [loading, setLoading] = useState(true);
   const [jobsDone, setJobsDone] = useState(0);
   const [earnedToday, setEarnedToday] = useState('$0.00');
   // The phlebotomist's current in-progress job (accepted/arrived/collecting),
   // if any — lets them resume the flow from wherever they left it.
   const [activeJob, setActiveJob] = useState(null);
   const tokenRef = useRef(null);
-  const pollRef  = useRef(null);
+  const pollRef = useRef(null);
   const phlebIdRef = useRef(null);
 
   useEffect(() => {
     getActiveSession().then(s => {
+      console.log('SESSION CHECK:', s);
       if (s?.token) {
         tokenRef.current = s.token;
         fetchDashboard();
@@ -228,6 +229,8 @@ export default function DashboardScreen({ route, navigation }) {
           fetchNearbyRequests();
           fetchTodaysStats();
         }, 10000); // every 10s
+      } else {
+        console.log('NO TOKEN — session missing or expired:', s);
       }
     });
 
@@ -263,7 +266,7 @@ export default function DashboardScreen({ route, navigation }) {
 
       const completedToday = list.filter((j) => {
         const status = j.status || 'completed';
-        const dateStr = j.completed_at || j.date_iso || j.created_at || j.date; 
+        const dateStr = j.completed_at || j.date_iso || j.created_at || j.date;
         return status === 'completed' && isToday(dateStr);
       });
 
@@ -304,7 +307,10 @@ export default function DashboardScreen({ route, navigation }) {
   // Requests within NEARBY_RADIUS_MILES of the office, same source MapScreen uses.
   const fetchNearbyRequests = async () => {
     try {
+      console.log('FETCHING NEARBY...');
       const data = await authGet(PHLEB_ENDPOINTS.dispatch.officeNearbyRequests);
+      console.log('RAW NEARBY REQUESTS:', JSON.stringify(data.requests, null, 2));
+
       const mobileOnly = (data.requests || []).filter((r) => {
         const time = String(r.preferred_time || '').toLowerCase();
         return !time.startsWith('walk-in');
@@ -313,7 +319,7 @@ export default function DashboardScreen({ route, navigation }) {
         (r) => r.distance_miles == null || r.distance_miles <= NEARBY_RADIUS_MILES
       );
 
-    // Most recently submitted first (by created_at), oldest last.
+      // Most recently submitted first (by created_at), oldest last.
       const sorted = [...withinRadius].sort((a, b) => {
         const aTime = new Date(a.created_at || 0).getTime();
         const bTime = new Date(b.created_at || 0).getTime();
@@ -321,16 +327,17 @@ export default function DashboardScreen({ route, navigation }) {
       });
 
       setRequests(sorted);
-    } catch {
-    // fail silently, keep last known data
+    } catch (err) {
+      console.log('NEARBY FETCH ERROR:', err);
+      // fail silently, keep last known data
     } finally {
       setLoading(false);
     }
   };
 
-  const handleGoOnline = () => navigation.navigate('PatientMap', { fullName, autoOnline:true });
-  const handleHistory  = () => navigation.navigate('PhlebHistory', { fullName });
-  const handleProfile  = () => navigation.navigate('PhlebProfile',    { fullName });
+  const handleGoOnline = () => navigation.navigate('PatientMap', { fullName, autoOnline: true });
+  const handleHistory = () => navigation.navigate('PhlebHistory', { fullName });
+  const handleProfile = () => navigation.navigate('PhlebProfile', { fullName });
   const handleScorecard = () => navigation.navigate('PhlebScorecard', { fullName });
 
   // Resume the active job at the right screen for its current status:
@@ -466,7 +473,7 @@ export default function DashboardScreen({ route, navigation }) {
                       .filter(Boolean)
                       .join(' · ')}
                   </Text>
-                 </View>
+                </View>
                 <LiveDot color={ORANGE} />
               </AnimatedPressable>
             </FadeInUp>

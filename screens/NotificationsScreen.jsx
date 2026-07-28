@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet,
-  StatusBar, ScrollView, ActivityIndicator,
+  StatusBar, ScrollView, ActivityIndicator, Modal, Clipboard,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { fetchPatientDashboard } from '../utils/auth';
@@ -170,6 +170,8 @@ export default function NotificationsScreen({ navigation }) {
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [pinModalNotif, setPinModalNotif] = useState(null); // notif whose PIN to show
+  const [pinCopied, setPinCopied] = useState(false);
 
   const load = () => {
     setLoading(true);
@@ -292,7 +294,20 @@ export default function NotificationsScreen({ navigation }) {
                         </View>
                         <Text style={styles.notifMessage}>{notif.message}</Text>
                         {notif.action && (
-                          <TouchableOpacity style={styles.notifActionBtn} onPress={() => markRead(notif.id)}>
+                          <TouchableOpacity
+                            style={styles.notifActionBtn}
+                            onPress={() => {
+                              markRead(notif.id);
+                              if (notif.action === 'View PIN') {
+                                setPinCopied(false);
+                                setPinModalNotif(notif);
+                              } else if (notif.action === 'Track Visit') {
+                                navigation.navigate('PatientHome');
+                              } else if (notif.action === 'View Appointment' || notif.action === 'View History') {
+                                navigation.navigate('PatientHome');
+                              }
+                            }}
+                          >
                             <Text style={styles.notifActionText}>{notif.action} →</Text>
                           </TouchableOpacity>
                         )}
@@ -307,6 +322,88 @@ export default function NotificationsScreen({ navigation }) {
           <View style={{ height: 24 }} />
         </ScrollView>
       )}
+
+      {/* ── PIN / OTP Modal ──────────────────────────────────────── */}
+      <Modal
+        visible={!!pinModalNotif}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPinModalNotif(null)}
+      >
+        <View style={styles.pinOverlay}>
+          <View style={styles.pinCard}>
+            {/* Header */}
+            <View style={styles.pinCardHeader}>
+              <View style={styles.pinIconCircle}>
+                <Text style={styles.pinIconEmoji}>🔐</Text>
+              </View>
+              <Text style={styles.pinCardTitle}>Your Arrival PIN</Text>
+              <Text style={styles.pinCardSub}>
+                Share this code with your specialist when they arrive.
+              </Text>
+            </View>
+
+            {/* PIN display */}
+            <View style={styles.pinDisplay}>
+              {(() => {
+                const raw = pinModalNotif?.raw;
+                const pin =
+                  raw?.arrival_pin ??
+                  raw?.verification_pin ??
+                  raw?.pin ??
+                  raw?.otp ??
+                  raw?.access_pin ??
+                  null;
+                if (!pin) {
+                  return (
+                    <Text style={styles.pinNoData}>
+                      PIN not available yet.{`\n`}It will appear here once the specialist is on the way.
+                    </Text>
+                  );
+                }
+                const digits = String(pin).split('');
+                return (
+                  <>
+                    <View style={styles.pinDigitsRow}>
+                      {digits.map((d, i) => (
+                        <View key={i} style={styles.pinDigitBox}>
+                          <Text style={styles.pinDigit}>{d}</Text>
+                        </View>
+                      ))}
+                    </View>
+                    <TouchableOpacity
+                      style={styles.pinCopyBtn}
+                      onPress={() => {
+                        Clipboard.setString(String(pin));
+                        setPinCopied(true);
+                        setTimeout(() => setPinCopied(false), 2000);
+                      }}
+                    >
+                      <Text style={styles.pinCopyText}>
+                        {pinCopied ? '✓ Copied!' : 'Copy PIN'}
+                      </Text>
+                    </TouchableOpacity>
+                  </>
+                );
+              })()}
+            </View>
+
+            {/* Appointment detail */}
+            {pinModalNotif?.raw && (
+              <View style={styles.pinApptRow}>
+                <Text style={styles.pinApptLabel}>Appointment</Text>
+                <Text style={styles.pinApptValue} numberOfLines={2}>
+                  {pinModalNotif.message}
+                </Text>
+              </View>
+            )}
+
+            <TouchableOpacity style={styles.pinCloseBtn} onPress={() => setPinModalNotif(null)}>
+              <Text style={styles.pinCloseBtnText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -397,4 +494,78 @@ const styles = StyleSheet.create({
   errorText: { color: COLORS.red, fontSize: 14, marginBottom: 16, textAlign: 'center' },
   retryBtn: { backgroundColor: COLORS.navy, borderRadius: 10, paddingHorizontal: 24, paddingVertical: 10 },
   retryText: { color: COLORS.white, fontWeight: '700', fontSize: 14 },
+
+  // ── PIN Modal ─────────────────────────────────────────────────────────────
+  pinOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(13,31,60,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  pinCard: {
+    width: '100%',
+    backgroundColor: COLORS.white,
+    borderRadius: 24,
+    padding: 24,
+    shadowColor: '#000',
+    shadowOpacity: 0.18,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 10,
+  },
+  pinCardHeader: { alignItems: 'center', marginBottom: 20 },
+  pinIconCircle: {
+    width: 64, height: 64, borderRadius: 32,
+    backgroundColor: COLORS.blueLight,
+    alignItems: 'center', justifyContent: 'center',
+    marginBottom: 12,
+  },
+  pinIconEmoji: { fontSize: 28 },
+  pinCardTitle: { fontSize: 20, fontWeight: '800', color: COLORS.navyDark, marginBottom: 6 },
+  pinCardSub: {
+    fontSize: 13, color: COLORS.gray, textAlign: 'center', lineHeight: 18, paddingHorizontal: 8,
+  },
+  pinDisplay: {
+    backgroundColor: COLORS.offWhite,
+    borderRadius: 16,
+    paddingVertical: 20,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: COLORS.lightGray,
+  },
+  pinDigitsRow: { flexDirection: 'row', gap: 10, marginBottom: 14 },
+  pinDigitBox: {
+    width: 52, height: 64, borderRadius: 14,
+    backgroundColor: COLORS.white,
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 2, borderColor: COLORS.navy,
+    shadowColor: COLORS.navy,
+    shadowOpacity: 0.12, shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 }, elevation: 3,
+  },
+  pinDigit: { fontSize: 30, fontWeight: '900', color: COLORS.navyDark, letterSpacing: 0 },
+  pinNoData: {
+    fontSize: 13.5, color: COLORS.gray, textAlign: 'center', lineHeight: 20,
+  },
+  pinCopyBtn: {
+    backgroundColor: COLORS.navy,
+    borderRadius: 10, paddingHorizontal: 22, paddingVertical: 9,
+  },
+  pinCopyText: { color: COLORS.white, fontWeight: '700', fontSize: 13 },
+  pinApptRow: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start',
+    marginBottom: 20, paddingHorizontal: 4,
+  },
+  pinApptLabel: { fontSize: 13, color: COLORS.gray, fontWeight: '600' },
+  pinApptValue: { fontSize: 13, fontWeight: '700', color: COLORS.navyDark, flex: 1, textAlign: 'right', marginLeft: 12 },
+  pinCloseBtn: {
+    backgroundColor: COLORS.offWhite,
+    borderRadius: 14, paddingVertical: 14,
+    alignItems: 'center',
+    borderWidth: 1, borderColor: COLORS.border,
+  },
+  pinCloseBtnText: { fontSize: 15, fontWeight: '700', color: COLORS.navyDark },
 });

@@ -7,11 +7,11 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useStripe } from '@stripe/stripe-react-native';
 import { Ionicons, Feather } from '@expo/vector-icons';
-import { getStoredPatientUser, bookAppointment, uploadDocument, fetchWalkinFeePreview, markAppointmentPaid } from '../utils/auth';
+import { getStoredPatientUser, getStoredPatientToken, bookAppointment, uploadDocument, fetchWalkinFeePreview, markAppointmentPaid, authPost } from '../utils/auth';
 import { resetBookingDetailsKeepAddress } from '../utils/bookingDraft';
 import * as FileSystem from 'expo-file-system/legacy';
+import { BASE_URL } from '../config/api';
 
-const BACKEND_URL = 'https://musb-diagnostic-website.onrender.com';
 
 const COLORS = {
   navy: '#1B3A8C', navyDark: '#0D1F3C', white: '#FFFFFF',
@@ -210,18 +210,18 @@ export default function CheckoutScreen({ navigation, route }) {
 
   // ── Route params (all safely coerced) ────────────────────────────────────
   const labTestsTotal = Number(route?.params?.labTestsTotal) || 0;
-  const labTestsNames = route?.params?.labTestsNames  || '';
-  const address       = route?.params?.address        || '';
-  const zipCode        = route?.params?.zipCode        || '';
-  const visitType     = route?.params?.visitType      || 'mobile';
+  const labTestsNames = route?.params?.labTestsNames || '';
+  const address = route?.params?.address || '';
+  const zipCode = route?.params?.zipCode || '';
+  const visitType = route?.params?.visitType || 'mobile';
   const walkinCollectionFee = visitType === 'walkin' ? (Number(route?.params?.walkinCollectionFee) || 0) : 0;
-  const preferredTime = route?.params?.preferredTime  || 'Now';
+  const preferredTime = route?.params?.preferredTime || 'Now';
   const quotedBookingTime = route?.params?.quotedBookingTime || preferredTime;
-  const preferredDate = route?.params?.preferredDate  || new Date().toISOString().split('T')[0];
+  const preferredDate = route?.params?.preferredDate || new Date().toISOString().split('T')[0];
   const [patientUser, setPatientUser] = useState(null);
   const selectedLabId = route?.params?.selectedLabId || '';
   const selectedLabName = route?.params?.selectedLabName || '';
-  const doctorOrder = route?.params?.doctorOrder || 'self'; 
+  const doctorOrder = route?.params?.doctorOrder || 'self';
   const appliedOffer = route?.params?.appliedOffer || null;
   const extraTestsData = route?.params?.extraTestsData || [];
   const prescriptionFile = route?.params?.prescriptionFile || null;
@@ -233,22 +233,22 @@ export default function CheckoutScreen({ navigation, route }) {
 
   // ── Pricing (flat-fee model — computed on BookMobileVisitScreen via
   // calculate_area_fee / calculate_marketplace_patient_fee) ──────────────
-  const baseFee            = visitType === 'mobile' ? Number(route?.params?.baseFee) || 0 : 0;
-  const distanceFee        = visitType === 'mobile' ? Number(route?.params?.distanceFee) || 0 : 0;
-  const driversReserveFee  = visitType === 'mobile' ? Number(route?.params?.driversReserveFee) || 0 : 0;
-  const surchargesTotal    = visitType === 'mobile' ? Number(route?.params?.surchargesTotal) || 0 : 0;
-  const serviceFee         = visitType === 'mobile' ? Number(route?.params?.serviceFee) || 0 : 0;
-  const slotType           = route?.params?.slotType || 'flexible';
-  const slotIndex          = route?.params?.slotIndex ?? null;
-  const timeSlotLabel      = route?.params?.timeSlotLabel || '';
+  const baseFee = visitType === 'mobile' ? Number(route?.params?.baseFee) || 0 : 0;
+  const distanceFee = visitType === 'mobile' ? Number(route?.params?.distanceFee) || 0 : 0;
+  const driversReserveFee = visitType === 'mobile' ? Number(route?.params?.driversReserveFee) || 0 : 0;
+  const surchargesTotal = visitType === 'mobile' ? Number(route?.params?.surchargesTotal) || 0 : 0;
+  const serviceFee = visitType === 'mobile' ? Number(route?.params?.serviceFee) || 0 : 0;
+  const slotType = route?.params?.slotType || 'flexible';
+  const slotIndex = route?.params?.slotIndex ?? null;
+  const timeSlotLabel = route?.params?.timeSlotLabel || '';
 
   // Trust the backend's own computed total — avoids drift if settings change
   // between screens. Only fall back to summing parts if it's missing.
   const backendTotal = Number(route?.params?.totalPatientFee);
   const mobileVisitTotal = visitType === 'mobile'
     ? (Number.isFinite(backendTotal) && backendTotal > 0
-        ? backendTotal
-        : +(baseFee + distanceFee + driversReserveFee + surchargesTotal).toFixed(2))
+      ? backendTotal
+      : +(baseFee + distanceFee + driversReserveFee + surchargesTotal).toFixed(2))
     : 0;
   const grandTotal = +(mobileVisitTotal + labTestsTotal + walkinCollectionFee).toFixed(2);
 
@@ -323,8 +323,8 @@ export default function CheckoutScreen({ navigation, route }) {
   };
 
   const allTestIds = appliedOffer
-  ? [...(appliedOffer.testIds || []), ...extraTestsData.map((t) => t.id)]
-  : selectedTests.map((t) => t.id);
+    ? [...(appliedOffer.testIds || []), ...extraTestsData.map((t) => t.id)]
+    : selectedTests.map((t) => t.id);
 
   // ── Pay handler ───────────────────────────────────────────────────────────
   const handlePay = async () => {
@@ -334,15 +334,15 @@ export default function CheckoutScreen({ navigation, route }) {
     try {
       let currentAppointmentId = appointmentId;
 
-    // ── Step 1: Create/validate the booking BEFORE charging the card ──
-    // This is the key fix. Previously we charged via Stripe first, then
-    // called bookAppointment(), and if the backend recomputed a different
-    // price by then (slot-type/time-of-day pricing can shift over the
-    // 30-60+ seconds it takes to fill out the Stripe sheet), the user's
-    // card had already been charged with nowhere clean to land. Now we
-    // let the backend validate/lock the price first, while there's still
-    // zero money on the line, and only proceed to Stripe if it accepts
-    // the quoted price.
+      // ── Step 1: Create/validate the booking BEFORE charging the card ──
+      // This is the key fix. Previously we charged via Stripe first, then
+      // called bookAppointment(), and if the backend recomputed a different
+      // price by then (slot-type/time-of-day pricing can shift over the
+      // 30-60+ seconds it takes to fill out the Stripe sheet), the user's
+      // card had already been charged with nowhere clean to land. Now we
+      // let the backend validate/lock the price first, while there's still
+      // zero money on the line, and only proceed to Stripe if it accepts
+      // the quoted price.
       if (!currentAppointmentId) {
         const doctorOrderDoc = await uploadPrescriptionDoc();
         const { front: insuranceFrontDoc, back: insuranceBackDoc } = await uploadInsuranceDocs();
@@ -363,8 +363,8 @@ export default function CheckoutScreen({ navigation, route }) {
             preferred_time: preferredTime,
             pricing_time: quotedBookingTime,
             payment_method: 'Card',
-            selected_lab_id: selectedLabId || undefined,     
-            selected_lab_name: selectedLabName || undefined, 
+            selected_lab_id: selectedLabId || undefined,
+            selected_lab_name: selectedLabName || undefined,
             doctor_order_base64: doctorOrderDoc?.key || null,
             doctor_order_name: doctorOrderDoc?.name || null,
             insurance_front_base64: insuranceFrontDoc?.key || null,
@@ -383,8 +383,8 @@ export default function CheckoutScreen({ navigation, route }) {
           console.log("message:", bookErr?.message);
           console.log("status:", bookErr?.status);
           console.log("data:", bookErr?.data);
-        // Price drifted, area no longer serviceable, slot taken, etc. —
-        // caught here, BEFORE Stripe is ever shown. No money moved.
+          // Price drifted, area no longer serviceable, slot taken, etc. —
+          // caught here, BEFORE Stripe is ever shown. No money moved.
           Alert.alert(
             "Booking Error",
             JSON.stringify(bookErr?.data || bookErr, null, 2)
@@ -396,21 +396,36 @@ export default function CheckoutScreen({ navigation, route }) {
         currentAppointmentId = bookingResult.appointment_id;
       }
 
-    // ── Step 2: Create the payment intent for the CONFIRMED price ──
-      const response = await fetch(`${BACKEND_URL}/api/payments/create-payment-intent/`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          amount: grandTotal.toFixed(2),
-          currency: 'usd',
-          email: patientEmail,
-          appointment_id: currentAppointmentId,
-        }),
-      });
+      
+     // ── Step 2: Create the payment intent for the CONFIRMED price ──
 
-      const data = await response.json();
+      const debugToken = await getStoredPatientToken();
+      console.log('token being sent:', debugToken ? `present, length ${debugToken.length}` : 'MISSING');
+     
+      let data;
+      try {
+        data = await authPost(
+          `${BASE_URL}/api/payments/create-payment-intent/`,
+          {
+            amount: grandTotal.toFixed(2),
+            currency: 'usd',
+            email: patientEmail,
+            appointment_id: currentAppointmentId,
+          },
+          'patient'
+        );
+      } catch (piErr) {
+        console.log('=== PAYMENT INTENT ERROR ===');
+        console.log('status:', piErr?.status);
+        console.log('data:', piErr?.data);
+        console.log('message:', piErr?.message);
+        Alert.alert('Error', piErr?.data?.detail || piErr?.message || 'Could not initialize payment. Please try again.');
+        setLoading(false);
+        return;
+      }
+
       if (!data.client_secret) {
-        Alert.alert('Error', 'Could not initialize payment. Please try again.');
+        Alert.alert('Error', data?.error || data?.detail || 'Could not initialize payment. Please try again.');
         setLoading(false);
         return;
       }
@@ -432,8 +447,8 @@ export default function CheckoutScreen({ navigation, route }) {
       const { error: paymentError } = await presentPaymentSheet();
 
       if (paymentError) {
-      // Booking exists but is still 'pending_payment' — user can retry
-      // paying for the same locked-price appointment without re-booking.
+        // Booking exists but is still 'pending_payment' — user can retry
+        // paying for the same locked-price appointment without re-booking.
         if (paymentError.code !== 'Canceled') {
           Alert.alert('Payment Failed', paymentError.message);
         }
@@ -441,7 +456,7 @@ export default function CheckoutScreen({ navigation, route }) {
         return;
       }
 
-    // ── Step 3: Mark the already-confirmed booking as paid ──
+      // ── Step 3: Mark the already-confirmed booking as paid ──
       try {
         await markAppointmentPaid(currentAppointmentId);
         setSuccessData({
@@ -450,9 +465,10 @@ export default function CheckoutScreen({ navigation, route }) {
         });
         setShowSuccess(true);
       } catch (markErr) {
-      // Payment succeeded and the booking already exists at the right
-      // price — this is just a status-flag update failing, not a pricing
-      // or double-charge risk. Safe to tell the user they're confirmed.
+        console.log('=== MARK PAID ERROR ===');
+        console.log('message:', markErr?.message);
+        console.log('status:', markErr?.status);
+        console.log('data:', markErr?.data);
         Alert.alert(
           'Payment received',
           'Your payment was successful and your appointment is booked. If anything looks off in your confirmation, please contact support.',
@@ -616,7 +632,7 @@ export default function CheckoutScreen({ navigation, route }) {
 
         {/* ── Payment Method ── */}
         <FadeInUp delay={140}>
-          <AnimatedPressable style={styles.paymentCard} scaleTo={0.99} onPress={() => {}}>
+          <AnimatedPressable style={styles.paymentCard} scaleTo={0.99} onPress={() => { }}>
             <View style={styles.paymentHeader}>
               <Text style={styles.paymentTitle}>Payment Method</Text>
               <View style={styles.paymentChangeBadge}>
