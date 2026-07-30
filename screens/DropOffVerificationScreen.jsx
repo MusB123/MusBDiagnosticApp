@@ -197,21 +197,23 @@ export default function DropOffVerificationScreen({ route, navigation }) {
     }).start();
   }, []);
 
-  const fetchLabs = async () => {
+  const fetchLabs = async (labType) => {
     setLabsLoading(true);
     setLabsError(false);
     try {
-      const addr = patient?.address && patient.address !== 'Address not provided'
-        ? `?address=${encodeURIComponent(patient.address)}`
-        : '';
-      const res = await fetch(`${CATALOG_ENDPOINTS.labs}${addr}`, { method: 'GET' });
+      const params = new URLSearchParams();
+      if (patient?.address && patient.address !== 'Address not provided') {
+        params.set('address', patient.address);
+      }
+      params.set('type', labType); // 'musb' or 'partner'
+
+      const res = await fetch(`${CATALOG_ENDPOINTS.labs}?${params.toString()}`, { method: 'GET' });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || 'Failed to load labs');
 
       const list = Array.isArray(data) ? data : (Array.isArray(data?.labs) ? data.labs : []);
       const normalized = list.map(normalizeLab);
 
-      console.log("Labs from API:", JSON.stringify(normalized, null, 2));
       setLabs(normalized.length ? normalized : FALLBACK_LABS);
     } catch (err) {
       setLabsError(true);
@@ -222,15 +224,14 @@ export default function DropOffVerificationScreen({ route, navigation }) {
   };
 
   useEffect(() => {
-  if (isUninsured) {
-    // Uninsured -> specimens must go to a MusB lab; load the list.
-    fetchLabs();
-  } else {
-    // Insured -> any accredited lab; default to the custom-entry form.
-    setLabsLoading(false);
-    setOtherSelected(true);
-  }
-}, []);
+    if (hasInsurance) {
+    // Insurance -> partner labs (Quest, Labcorp, etc.)
+      fetchLabs('partner');
+    } else {
+    // Self-paid / uninsured (incl. sample-collection-only) -> MusB labs only
+      fetchLabs('musb');
+    }
+  }, []);
 
   const selectedLab = labs.find((l) => l.id === selectedLabId);
   const otherFormValid =
@@ -554,25 +555,28 @@ export default function DropOffVerificationScreen({ route, navigation }) {
           </FadeInUp>
         )}
 
-        {isUninsured && (
         <>
         <FadeInUp delay={60}>
           <View style={styles.sectionHeadingRow}>
-            <Text style={styles.sectionLabel}>Select MusB drop-off lab</Text>
-            <TagBadge
-              label="MUSB DROP REQUIRED"
-              icon="star"
-              colors={[AMBER, '#B45309']}
-            />
+            <Text style={styles.sectionLabel}>
+              {hasInsurance ? 'Select drop-off lab' : 'Select MusB drop-off lab'}
+            </Text>
+            {hasInsurance ? (
+              <TagBadge label="INSURANCE" icon="shield-checkmark" colors={[BLUE_SOFT, '#1D4ED8']} />
+            ) : (
+              <TagBadge label="MUSB DROP REQUIRED" icon="star" colors={[AMBER, '#B45309']} />
+            )}
           </View>
           <Text style={styles.sectionSubLabel}>
-            This is an uninsured (self-pay) order — drop specimens at one of our MusB-designated locations.
+            {hasInsurance
+              ? 'This is an insurance-billed test — drop off at any accredited partner lab.'
+              : 'This is an uninsured (self-pay) order — drop specimens at one of our MusB-designated locations.'}
           </Text>
         </FadeInUp>
 
         {labsError && (
           <FadeInUp delay={80}>
-            <AnimatedPressable onPress={fetchLabs} style={styles.retryPill} scaleTo={0.96}>
+            <AnimatedPressable onPress={() => fetchLabs(hasInsurance ? 'partner' : 'musb')} style={styles.retryPill} scaleTo={0.96}>
               <Ionicons name="refresh" size={12} color={RED} />
               <Text style={styles.retryPillText}>Couldn't load live labs — tap to retry</Text>
             </AnimatedPressable>
@@ -613,16 +617,6 @@ export default function DropOffVerificationScreen({ route, navigation }) {
           })
         )}
         </>
-        )}
-
-        {hasInsurance && (
-          <FadeInUp delay={60}>
-            <Text style={[styles.sectionLabel, { marginBottom: 6 }]}>Drop-off lab</Text>
-            <Text style={styles.sectionSubLabel}>
-              This is an insurance-billed test — drop off at any accredited lab.
-            </Text>
-          </FadeInUp>
-        )}
 
         {/* Drop with patient — uninsured, sample-collection-only jobs only */}
         {canDropWithPatient && (

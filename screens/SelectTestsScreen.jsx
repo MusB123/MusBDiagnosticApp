@@ -11,6 +11,10 @@ import {
   TextInput,
   ActivityIndicator,
   Easing,
+  Modal,
+  Platform,
+  Dimensions,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather, Ionicons } from '@expo/vector-icons';
@@ -221,7 +225,7 @@ function SearchBar({ value, onChangeText }) {
 }
 
 /** Single test card — icon ring, accent bar when selected, spring checkmark, staggered entrance. */
-function TestRow({ test, isSelected, onToggle, delay }) {
+function TestRow({ test, isSelected, onToggle, onViewDetails, delay }) {
   const scale = useRef(new Animated.Value(1)).current;
   const check = useRef(new Animated.Value(isSelected ? 1 : 0)).current;
   const iconColors = getIconColors(test.iconName);
@@ -257,9 +261,11 @@ function TestRow({ test, isSelected, onToggle, delay }) {
           </View>
 
           <View style={styles.testInfo}>
-            <Text style={[styles.testName, isSelected && styles.testNameSelected]}>
-              {test.name}
-            </Text>
+            <View style={styles.testNameRow}>
+              <Text style={[styles.testName, isSelected && styles.testNameSelected]} numberOfLines={1}>
+                {test.name}
+              </Text>
+            </View>
             {!!test.desc && (
               <Text style={styles.testDesc} numberOfLines={2} ellipsizeMode="tail">
                 {test.desc}
@@ -277,6 +283,21 @@ function TestRow({ test, isSelected, onToggle, delay }) {
                 <Text style={styles.fastingBadgeText}>Fasting required</Text>
               </View>
             )}
+
+             <Pressable
+              onPress={(e) => {
+                e.stopPropagation?.();
+                onViewDetails();
+              }}
+              hitSlop={8}
+              style={styles.detailsLinkBtn}
+            >
+              <View style={styles.detailsLinkIconWrap}>
+                <Feather name="info" size={11} color={COLORS.navy} />
+              </View>
+              <Text style={styles.detailsLinkText}>View details</Text>
+              <Feather name="chevron-right" size={12} color={COLORS.navy} />
+            </Pressable>
           </View>
 
           <View style={styles.testRight}>
@@ -308,8 +329,153 @@ function TestRow({ test, isSelected, onToggle, delay }) {
   );
 }
 
+/** Bottom-sheet modal showing full test details, including preparation instructions. */
+function TestDetailsModal({ test, visible, onClose, isSelected, onToggle }) {
+  const slide = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(slide, {
+      toValue: visible ? 1 : 0,
+      duration: 260,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [visible]);
+
+  if (!test) return null;
+  const iconColors = getIconColors(test.iconName);
+  const hasDiscount = test.discountPrice != null;
+  const hasPrep = !!test.preparation && test.preparation.trim().toLowerCase() !== 'refer to package details';
+
+  return (
+    <Modal visible={visible} transparent animationType="none" onRequestClose={onClose}>
+      <Pressable style={styles.modalBackdrop} onPress={onClose}>
+        <Animated.View
+          style={[
+            styles.modalSheet,
+            {
+              transform: [
+                {
+                  translateY: slide.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [400, 0],
+                  }),
+                },
+              ],
+            },
+          ]}
+        >
+          {/* Stop backdrop press from closing when tapping inside the sheet */}
+          <View onStartShouldSetResponder={() => true}>
+            <View style={styles.modalHandle} />
+
+            <View style={styles.modalHeaderRow}>
+              <View style={[styles.iconWrap, { backgroundColor: iconColors.bg }]}>
+                <Feather name={getFeatherIcon(test.iconName)} size={20} color={iconColors.fg} />
+              </View>
+              <View style={{ flex: 1, marginLeft: 12 }}>
+                <Text style={styles.modalTitle}>{test.name}</Text>
+                <Text style={styles.modalCategory}>{test.category}</Text>
+              </View>
+              <Pressable onPress={onClose} hitSlop={10} style={styles.modalCloseBtn}>
+                <Feather name="x" size={18} color={COLORS.bodyText} />
+              </Pressable>
+            </View>
+
+            <ScrollView
+              style={styles.modalBody}
+              contentContainerStyle={{ paddingBottom: 12, flexGrow: 1 }}
+              showsVerticalScrollIndicator={true}
+              bounces={Platform.OS === 'ios'}
+              overScrollMode="never"
+              nestedScrollEnabled={true}
+              scrollEventThrottle={16}
+              keyboardShouldPersistTaps="handled"
+              scrollsToTop={false}
+              removeClippedSubviews={false}
+            >
+              {!!test.desc && (
+                <Text style={styles.modalDesc}>{test.desc}</Text>
+              )}
+
+              <View style={styles.modalMetaGrid}>
+                {!!test.sampleType && (
+                  <View style={styles.modalMetaItem}>
+                    <Feather name="droplet" size={14} color={COLORS.navy} />
+                    <View>
+                      <Text style={styles.modalMetaLabel}>Sample type</Text>
+                      <Text style={styles.modalMetaValue}>{test.sampleType}</Text>
+                    </View>
+                  </View>
+                )}
+                {!!test.turnaround && (
+                  <View style={styles.modalMetaItem}>
+                    <Feather name="clock" size={14} color={COLORS.navy} />
+                    <View>
+                      <Text style={styles.modalMetaLabel}>Turnaround</Text>
+                      <Text style={styles.modalMetaValue}>{test.turnaround}</Text>
+                    </View>
+                  </View>
+                )}
+              </View>
+
+              {test.fastingRequired && (
+                <View style={[styles.fastingBadge, { alignSelf: 'flex-start', marginTop: 4 }]}>
+                  <Feather name="clock" size={10} color="#B45309" />
+                  <Text style={styles.fastingBadgeText}>Fasting required before this test</Text>
+                </View>
+              )}
+
+              {hasPrep && (
+                <View style={styles.modalPrepBox}>
+                  <View style={styles.modalPrepHeaderRow}>
+                    <Feather name="clipboard" size={13} color="#B45309" />
+                    <Text style={styles.modalPrepHeader}>Preparation instructions</Text>
+                  </View>
+                  <Text style={styles.modalPrepText}>{test.preparation}</Text>
+                </View>
+              )}
+
+              {!test.hidePrice && (
+                <View style={styles.modalPriceRow}>
+                  {hasDiscount ? (
+                    <>
+                      <Text style={styles.modalStrikePrice}>${test.price.toFixed(0)}</Text>
+                      <Text style={styles.modalPrice}>${test.discountPrice.toFixed(0)}</Text>
+                    </>
+                  ) : (
+                    <Text style={styles.modalPrice}>${test.price.toFixed(0)}</Text>
+                  )}
+                </View>
+              )}
+            </ScrollView>
+
+            <AnimatedPressable
+              style={[styles.modalConfirmBtn, isSelected && styles.modalConfirmBtnSelected]}
+              onPress={() => {
+                onToggle();
+                onClose();
+              }}
+            >
+              <Feather
+                name={isSelected ? 'check' : 'plus'}
+                size={16}
+                color={COLORS.white}
+                style={{ marginRight: 8 }}
+              />
+              <Text style={styles.modalConfirmBtnText}>
+                {isSelected ? 'Selected — tap to remove' : 'Add to selection'}
+              </Text>
+            </AnimatedPressable>
+          </View>
+        </Animated.View>
+      </Pressable>
+    </Modal>
+  );
+}
+
 /** Colorful offer bundle card with an explicit Select/Applied action button. */
-function OfferCard({ offer, palette, isApplied, matchWarning, hasFasting, delay, onSelect, hidePrice }) {
+function OfferCard({ offer, palette, isApplied,hasFasting, delay, onSelect, hidePrice }) {
   const scale = useRef(new Animated.Value(1)).current;
   const glow = useRef(new Animated.Value(isApplied ? 1 : 0)).current;
 
@@ -387,12 +553,7 @@ function OfferCard({ offer, palette, isApplied, matchWarning, hasFasting, delay,
               {(offer.includes || []).join('  ·  ')}
             </Text>
 
-            {matchWarning && (
-              <View style={styles.offerWarningRow}>
-                <Feather name="info" size={11} color={COLORS.error} />
-                <Text style={styles.offerWarningText}>Some tests in this bundle aren't available.</Text>
-              </View>
-            )}
+            
             {hasFasting && (
               <View style={styles.fastingBadge}>
                 <Feather name="clock" size={10} color="#B45309" />
@@ -446,6 +607,9 @@ export default function SelectTestsScreen({ navigation, route }) {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
 
+  // Currently-open test details modal (null = closed).
+  const [detailsTest, setDetailsTest] = useState(null);
+
   // Ticking clock used to recompute each offer's remaining time and drop
   // any offer whose expires_at has passed, without needing to refetch.
   const [now, setNow] = useState(Date.now());
@@ -483,6 +647,7 @@ export default function SelectTestsScreen({ navigation, route }) {
             id: String(t.id ?? t._id ?? ''),
             name: t.title || 'Untitled Test',
             desc: t.description || '',
+            preparation: t.preparation || '',
             price,
             discountPrice: hasDiscount ? discountPrice : null,
             hidePrice,
@@ -541,60 +706,121 @@ export default function SelectTestsScreen({ navigation, route }) {
   }
 
   function matchTestsToOffer(offer, tests) {
-    if (Array.isArray(offer.included_test_ids) && offer.included_test_ids.length > 0) {
-      return offer.included_test_ids
-        .map((id) => tests.find((t) => t.id === String(id)))
-        .filter(Boolean);
-    }
-    const includes = offer.includes || [];
-    return includes
-      .map((includedTitle) => {
-        const normIncluded = normalizeTitle(includedTitle);
-        return (
-          tests.find((t) => normalizeTitle(t.name) === normIncluded) ||
-          tests.find(
-            (t) =>
-              normalizeTitle(t.name).includes(normIncluded) ||
-              normIncluded.includes(normalizeTitle(t.name))
-          )
-        );
-      })
-      .filter(Boolean);
+  const matchedMap = new Map(); // t.id -> test, de-dupes automatically
+
+  // Pass 1: try id-based matching (works IF backend ids line up)
+  if (Array.isArray(offer.included_test_ids)) {
+    offer.included_test_ids.forEach((id) => {
+      const t = tests.find((t) => t.id === String(id));
+      if (t) matchedMap.set(t.id, t);
+    });
   }
 
-  const handleSelectOffer = (offer) => {
-    // Tapping an already-applied offer jumps straight to checkout instead
-    // of re-applying it — this is what makes the card double as a
-    // "select & checkout" action rather than just a highlighter.
-    if (appliedOffer?.id === offer.id) {
-      handleConfirm();
-      return;
+  // Pass 2: title-based matching for anything not already matched.
+  // This is the fallback that actually has to carry the weight here,
+  // since we can't control how included_test_ids gets populated upstream.
+  const includes = offer.includes || [];
+  includes.forEach((includedTitle) => {
+    const normIncluded = normalizeTitle(includedTitle);
+    if (!normIncluded) return;
+
+    // Already matched by id? skip.
+    const already = [...matchedMap.values()].some(
+      (t) => normalizeTitle(t.name) === normIncluded
+    );
+    if (already) return;
+
+    // Exact normalized match first
+    let match = tests.find((t) => normalizeTitle(t.name) === normIncluded);
+
+    // Then word-overlap match (handles "CBC" vs "Complete Blood Count (CBC)",
+    // "Lipid Panel" vs "Lipid Panel - Cholesterol", etc.)
+    if (!match) {
+      const includedWords = normIncluded.match(/.{1,}/g) ? includedTitle
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, '')
+        .split(/\s+/)
+        .filter((w) => w.length > 2) : [];
+
+      match = tests.find((t) => {
+        const testWords = t.name
+          .toLowerCase()
+          .replace(/[^a-z0-9\s]/g, '')
+          .split(/\s+/)
+          .filter((w) => w.length > 2);
+        if (testWords.length === 0 || includedWords.length === 0) return false;
+        const overlap = testWords.filter((w) => includedWords.includes(w)).length;
+        // Require most of the shorter name's meaningful words to overlap
+        const minLen = Math.min(testWords.length, includedWords.length);
+        return overlap >= Math.max(1, Math.ceil(minLen * 0.6));
+      });
     }
 
-    const includes = offer.includes || [];
-    console.log("Offer includes:", includes);
-    const matched = matchTestsToOffer(offer, allTests);
-
-    console.log("Available tests:", allTests.map(t => t.name));
-    console.log("Matched:", matched);
-
-    if (matched.length === 0) {
-      console.log("No tests matched");
-      return;
+    // Last resort: loose substring match (your original fallback)
+    if (!match) {
+      match =
+        tests.find((t) => normalizeTitle(t.name).includes(normIncluded)) ||
+        tests.find((t) => normIncluded.includes(normalizeTitle(t.name)));
     }
 
-    setSelectedTests(matched.map((t) => t.id));
-    setAppliedOffer({
-      id: offer.id,
-      title: offer.title,
-      price: offer.hidePrice ? 0 : (parseFloat(offer.discounted_price) || 0),
-      hidePrice: !!offer.hidePrice,
-      matchedCount: matched.length,
-      totalCount: includes.length,
-      testIds: matched.map((t) => t.id),
-    });
-    setViewMode('tests'); // switch back so they can see the highlighted selection
-  };
+    if (match) matchedMap.set(match.id, match);
+  });
+
+  return [...matchedMap.values()];
+}
+
+function buildOfferLineItems(offer, tests) {
+  const includes = offer.includes || [];
+  const usedIds = new Set();
+
+  return includes.map((includedTitle, idx) => {
+    const norm = normalizeTitle(includedTitle);
+    const real =
+      tests.find((t) => normalizeTitle(t.name) === norm && !usedIds.has(t.id)) ||
+      tests.find((t) => normalizeTitle(t.name).includes(norm) && !usedIds.has(t.id)) ||
+      tests.find((t) => norm.includes(normalizeTitle(t.name)) && !usedIds.has(t.id));
+
+    if (real) {
+      usedIds.add(real.id);
+      return real;
+    }
+
+    // No catalog match — show it anyway as a display-only bundle item.
+    return {
+      id: `offer_item_${offer.id}_${idx}`,
+      name: includedTitle,
+      price: null,
+      discountPrice: null,
+      hidePrice: true,
+      isBundleItem: true,
+    };
+  });
+}
+
+
+const handleSelectOffer = (offer) => {
+  if (appliedOffer?.id === offer.id) {
+    handleConfirm();
+    return;
+  }
+
+  const includes = offer.includes || [];
+  const lineItems = buildOfferLineItems(offer, allTests);
+  const realMatchedCount = lineItems.filter((t) => !t.isBundleItem).length;
+
+  setSelectedTests(lineItems.map((t) => t.id));
+  setAppliedOffer({
+    id: offer.id,
+    title: offer.title,
+    price: offer.hidePrice ? 0 : (parseFloat(offer.discounted_price) || 0),
+    hidePrice: !!offer.hidePrice,
+    matchedCount: realMatchedCount,
+    totalCount: includes.length,
+    testIds: lineItems.map((t) => t.id),
+    bundleItems: lineItems, 
+  });
+  setViewMode('tests');
+};
 
   const clearOffer = () => {
     setAppliedOffer(null);
@@ -626,7 +852,14 @@ export default function SelectTestsScreen({ navigation, route }) {
     return matchesCategory && (search === '' || matchesSearch);
   });
 
-  const selectedTestsData = allTests.filter((t) => selectedTests.includes(t.id));
+  const selectedTestsData = appliedOffer
+  ? [
+      ...(appliedOffer.bundleItems || []),
+      ...allTests.filter(
+        (t) => selectedTests.includes(t.id) && !(appliedOffer.testIds || []).includes(t.id)
+      ),
+    ]
+  : allTests.filter((t) => selectedTests.includes(t.id));
   const extraTestsData = appliedOffer
     ? selectedTestsData.filter((t) => !(appliedOffer.testIds || []).includes(t.id))
     : [];
@@ -804,6 +1037,7 @@ export default function SelectTestsScreen({ navigation, route }) {
                 test={test}
                 isSelected={selectedTests.includes(test.id)}
                 onToggle={() => toggleTest(test.id)}
+                onViewDetails={() => setDetailsTest(test)}
                 delay={Math.min(i, 8) * 40}
               />
             ))
@@ -835,7 +1069,6 @@ export default function SelectTestsScreen({ navigation, route }) {
                 offer={offer}
                 palette={getOfferPalette(i)}
                 isApplied={appliedOffer?.id === offer.id}
-                matchWarning={matched.length < includes.length}
                 hasFasting={hasFasting}
                 delay={Math.min(i, 8) * 45}
                 onSelect={() => handleSelectOffer(offer)}
@@ -878,6 +1111,15 @@ export default function SelectTestsScreen({ navigation, route }) {
           </Text>
         </AnimatedPressable>
       </View>
+
+      {/* Test details modal */}
+      <TestDetailsModal
+        test={detailsTest}
+        visible={!!detailsTest}
+        onClose={() => setDetailsTest(null)}
+        isSelected={detailsTest ? selectedTests.includes(detailsTest.id) : false}
+        onToggle={() => detailsTest && toggleTest(detailsTest.id)}
+      />
     </SafeAreaView>
   );
 }
@@ -1075,8 +1317,33 @@ const styles = StyleSheet.create({
     marginRight: 12,
   },
   testInfo: { flex: 1, paddingRight: 8, minWidth: 0, },
-  testName: { fontSize: 14.5, fontWeight: '700', color: COLORS.navyDark, marginBottom: 2, letterSpacing: 0.1 },
+  testNameRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 },
+  testName: { fontSize: 14.5, fontWeight: '700', color: COLORS.navyDark, letterSpacing: 0.1, flexShrink: 1 },
   testNameSelected: { color: COLORS.navy },
+  detailsLinkBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    alignSelf: 'flex-start',
+    marginTop: 8,
+    paddingVertical: 4,
+    paddingRight: 8,
+  },
+  detailsLinkIconWrap: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: COLORS.navy,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  detailsLinkText: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: COLORS.navy,
+    letterSpacing: 0.1,
+  },
   testDesc: { fontSize: 12, color: COLORS.bodyText, lineHeight: 18, marginBottom: 3, flexWrap: 'wrap', },
   testMeta: { fontSize: 11.5, color: COLORS.gray, fontWeight: '500' },
   fastingBadge: {
@@ -1112,6 +1379,70 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.navy,
     alignItems: 'center', justifyContent: 'center',
   },
+
+  // ── Test details modal ───────────────────────────────────────────
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(13,31,60,0.45)',
+    justifyContent: 'flex-end',
+  },
+  modalSheet: {
+    backgroundColor: COLORS.white,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    paddingBottom: 24,
+    maxHeight: Math.round(Dimensions.get('window').height * 0.85),
+    flexShrink: 1,
+  },
+  modalHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: COLORS.border,
+    alignSelf: 'center',
+    marginBottom: 14,
+  },
+  modalHeaderRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 14 },
+  modalTitle: { fontSize: 17, fontWeight: '800', color: COLORS.navyDark },
+  modalCategory: { fontSize: 12.5, color: COLORS.gray, fontWeight: '600', marginTop: 2 },
+  modalCloseBtn: {
+    width: 30, height: 30, borderRadius: 15,
+    backgroundColor: COLORS.offWhite,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  modalBody: { flexGrow: 1, flexShrink: 1, minHeight: 100 },
+  modalDesc: { fontSize: 13.5, color: COLORS.bodyText, lineHeight: 20, marginBottom: 14 },
+  modalMetaGrid: { gap: 12, marginBottom: 4 },
+  modalMetaItem: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  modalMetaLabel: { fontSize: 11, color: COLORS.gray, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.3 },
+  modalMetaValue: { fontSize: 13.5, color: COLORS.navyDark, fontWeight: '700', marginTop: 1 },
+  modalPrepBox: {
+    backgroundColor: '#FFFBEB',
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    borderRadius: 12,
+    padding: 12,
+    marginTop: 14,
+  },
+  modalPrepHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 },
+  modalPrepHeader: { fontSize: 11.5, fontWeight: '800', color: '#B45309', textTransform: 'uppercase', letterSpacing: 0.3 },
+  modalPrepText: { fontSize: 12.5, color: '#92400E', lineHeight: 19 },
+  modalPriceRow: { flexDirection: 'row', alignItems: 'baseline', gap: 8, marginTop: 16 },
+  modalStrikePrice: { fontSize: 14, color: COLORS.gray, textDecorationLine: 'line-through', fontWeight: '600' },
+  modalPrice: { fontSize: 24, fontWeight: '900', color: COLORS.navy },
+  modalConfirmBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.navy,
+    borderRadius: 14,
+    paddingVertical: 15,
+    marginTop: 16,
+  },
+  modalConfirmBtnSelected: { backgroundColor: COLORS.green },
+  modalConfirmBtnText: { color: COLORS.white, fontSize: 14.5, fontWeight: '800', letterSpacing: 0.2 },
 
   summaryBox: {
     flexDirection: 'row',

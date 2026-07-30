@@ -16,6 +16,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import AddressBar from '../components/AddressBar';
+import * as Location from 'expo-location';
 import { setBookingDraft, getBookingDraft } from '../utils/bookingDraft';
 import { fetchPatientDashboard, getStoredPatientUser, rateAppointment, fetchOffers } from '../utils/auth';
 
@@ -315,13 +316,13 @@ function formatTimeLeft(value) {
   const diffHours = diffMs / (1000 * 60 * 60);
   if (diffHours < 1) {
     const mins = Math.round(diffMs / (1000 * 60));
-    return `${mins}m left`;
+    return `${mins}m`;
   }
   if (diffHours < 24) {
-    return `${Math.round(diffHours)}h left`;
+    return `${Math.round(diffHours)}h`;
   }
   const days = Math.round(diffHours / 24);
-  return `${days}d left`;
+  return `${days}d`;
 }
 
 /**
@@ -439,9 +440,7 @@ export default function HomeScreen({ navigation, route }) {
 
   const [locationData, setLocationDataState] = useState(() => getBookingDraft());
 
-  // Wrap the setter so every address change is also persisted to the
-  // module-level draft — this is what survives navigation back from
-  // Checkout after payment, without needing a full page refresh.
+  
   const setLocationData = (data) => {
     setLocationDataState((prev) => {
       const next = typeof data === 'function' ? data(prev) : data;
@@ -449,6 +448,50 @@ export default function HomeScreen({ navigation, route }) {
       return next;
     });
   };
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function autoFetchAddress() {
+      if (locationData?.address) return; // already have one — don't clobber it
+
+      try {
+        const { status } = await Location.getForegroundPermissionsAsync();
+        if (status !== 'granted') return; // don't pop the OS dialog on Home load
+
+        const position = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+        if (cancelled) return;
+
+        const geocode = await Location.reverseGeocodeAsync({
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+        });
+        if (cancelled || geocode.length === 0) return;
+
+        const place = geocode[0];
+        const street = [place.streetNumber, place.street].filter(Boolean).join(' ');
+        const cityRegion = [place.district, place.city, place.region].filter(Boolean).join(', ');
+        const postal = place.postalCode || '';
+        const country = place.country || '';
+        const address = [street, cityRegion, postal, country].filter(Boolean).join(', ');
+
+        setLocationData({
+          address,
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+          useGps: true,
+          zipCode: postal,
+        });
+      } catch (err) {
+        console.warn('Auto address fetch failed:', err);
+      }
+    }
+
+    autoFetchAddress();
+    return () => { cancelled = true; };
+  }, []);
   const [firstName, setFirstName] = useState(route?.params?.firstName || 'there');
   const [dashboard, setDashboard] = useState(null);
   const [loadingDashboard, setLoadingDashboard] = useState(true);
@@ -925,12 +968,18 @@ export default function HomeScreen({ navigation, route }) {
                   scaleTo={0.96}
                   onPress={() => {
                     setSelectedAppt(null);
+                    const testTotal = Number(appt.test_price) || 0;
+                    const totalFee = Number(appt.total_patient_fee ?? appt.totalPatientFee) || testTotal;
+                    const collectionFee = Math.max(totalFee - testTotal, 0);
+
                     navigation.navigate('Checkout', {
                       mobileVisitTotal: 0,
-                      labTestsTotal: Number(appt.test_price) || 0,
+                      labTestsTotal: testTotal,
+                      walkinCollectionFee: collectionFee,
+                      totalPatientFee: totalFee,
                       labTestsNames: appt.test || '',
                       address: appt.address || '',
-                      visitType: 'in_person',
+                      visitType: 'walkin',      
                       preferredDate: appt.preferred_date || appt.date || '',
                       preferredTime: 'Walk-in',
                       appointmentId: appt.id,
