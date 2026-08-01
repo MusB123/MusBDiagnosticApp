@@ -124,7 +124,7 @@ export default function RegisterStep2({ navigation, route }) {
     }
     const result = await ImagePicker.launchCameraAsync({
       quality: 0.5,
-      allowsEditing: true,
+      allowsEditing: false,
       base64: false,
       exif: false,
     });
@@ -149,7 +149,7 @@ export default function RegisterStep2({ navigation, route }) {
   const pickImage = async (key) => {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
-      allowsEditing: true,
+      allowsEditing: false,
       quality: 0.8,
       base64: false,
     });

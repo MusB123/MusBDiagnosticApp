@@ -499,6 +499,7 @@ export default function BookMobileVisitScreen() {
   const [appliedOffer, setAppliedOffer] = useState(bookingDraft.appliedOffer || null);
   const [extraTestsData, setExtraTestsData] = useState(bookingDraft.extraTestsData || []);
   const [schedule, setSchedule] = useState(bookingDraft.schedule || null);
+  const requiresDoctorOrder = selectedTests.some((t) => t.doctorOrderRequired);
 
   useEffect(() => {
     const unsubscribe = navigation.addListener('focus', () => {
@@ -556,7 +557,7 @@ export default function BookMobileVisitScreen() {
     try {
       const result = await ImagePicker.launchCameraAsync({
         quality: 0.8,
-        allowsEditing: true,
+        allowsEditing: false,
         base64: false,
       });
       if (!result.canceled && result.assets?.length > 0) {
@@ -578,7 +579,7 @@ export default function BookMobileVisitScreen() {
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
-        allowsEditing: true,
+        allowsEditing: false,
         quality: 0.8,
         base64: false,
       });
@@ -654,6 +655,13 @@ export default function BookMobileVisitScreen() {
     }
   };
 
+  useEffect(() => {
+    if (requiresDoctorOrder && doctorOrder === 'self') {
+      setDoctorOrder('order');
+      setBookingDraft({ doctorOrder: 'order' });
+    }
+  }, [requiresDoctorOrder]);
+
   const handleSelectInsurance = (value) => {
     setInsurance(value);
     setBookingDraft({ insurance: value });
@@ -713,6 +721,14 @@ export default function BookMobileVisitScreen() {
           <Text style={styles.sectionSubtitle}>
             Having a doctor's request order helps us route your tests automatically.
           </Text>
+          {requiresDoctorOrder && (
+            <View style={styles.doctorOrderRequiredBanner}>
+              <Ionicons name="alert-circle" size={16} color={COLORS.red} />
+              <Text style={styles.doctorOrderRequiredBannerText}>
+                One or more of your selected tests require a doctor's order. Please upload it below to continue.
+              </Text>
+            </View>
+          )}
         </FadeInUp>
         <View style={styles.orderRow}>
           <OrderOptionCard
@@ -720,10 +736,11 @@ export default function BookMobileVisitScreen() {
             accent={COLORS.teal}
             accentBg={COLORS.tealLight}
             title="Self-referred"
-            subtitle="No doctor's order"
+            subtitle={requiresDoctorOrder ? 'Not available for this order' : "No doctor's order"}
             selected={doctorOrder === 'self'}
             onPress={() => handleSelectDoctorOrder('self')}
             delay={90}
+            disabled={requiresDoctorOrder}
           />
           <OrderOptionCard
             icon="document-text-outline"
@@ -1081,6 +1098,13 @@ export default function BookMobileVisitScreen() {
               Alert.alert('Pick a time', 'Please choose your appointment day and time to continue.');
               return;
             }
+            if (requiresDoctorOrder && !prescriptionFile) {
+              Alert.alert(
+                "Doctor's order required",
+                "One or more of your selected tests require a doctor's order. Please upload it to continue."
+              );
+              return;
+            }
             if (insurance === 'have' && doctorOrder === 'order' && !prescriptionFile) {
               Alert.alert("Doctor's order document missing", "Please upload your doctor's order document before continuing.");
               return;
@@ -1278,6 +1302,24 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#92400E',
     lineHeight: 19,
+  },
+  doctorOrderRequiredBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: '#FEE2E2',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#FCA5A5',
+    gap: 8,
+  },
+  doctorOrderRequiredBannerText: {
+    flex: 1,
+    fontSize: 13,
+    color: '#9F1239',
+    lineHeight: 19,
+    fontWeight: '600',
   },
   skipHint: {
     fontSize: 12,

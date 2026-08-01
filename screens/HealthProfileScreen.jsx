@@ -163,7 +163,7 @@ export default function HealthProfileScreen({ navigation, route }) {
     }
     const result = await ImagePicker.launchCameraAsync({
       quality: 0.8,
-      allowsEditing: true,
+      allowsEditing: false,
       base64: false,
     });
     if (!result.canceled && result.assets?.length) {
@@ -192,7 +192,7 @@ export default function HealthProfileScreen({ navigation, route }) {
     }
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
-      allowsEditing: true,
+      allowsEditing: false,
       quality: 0.8,
       base64: false,
     });

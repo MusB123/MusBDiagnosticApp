@@ -78,7 +78,7 @@ export default function SplashScreen({ navigation, route }) {
           </View>
 
           <Text style={styles.title}>MusB Diagnostics</Text>
-          <Text style={styles.tagline}>Lab work, at your door.</Text>
+          <Text style={styles.tagline}>Lab at your door</Text>
 
           <View style={styles.badgeRow}>
             <View style={styles.badge}>

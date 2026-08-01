@@ -20,6 +20,8 @@ const GRAY      = '#9CA3AF';
 const BODY_GRAY = '#6B7280';
 const BORDER    = '#EEF1F7';
 const BG        = '#F6F8FC';
+const SKELETON_BASE = '#E7EBF3';
+const SKELETON_HI   = '#F4F6FB';
 
 const CATEGORY_LABELS = {
   technical: 'Technical execution',
@@ -132,6 +134,152 @@ function DistributionBar({ count, max, delay = 0 }) {
   );
 }
 
+/**
+ * Base shimmering block. Pulses opacity on a loop via useNativeDriver so it's
+ * cheap to run several of these at once on the loading screen.
+ */
+function Skeleton({ width, height, borderRadius = 8, style }) {
+  const anim = useRef(new Animated.Value(0.4)).current;
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(anim, {
+          toValue: 1, duration: 700,
+          easing: Easing.inOut(Easing.ease), useNativeDriver: true,
+        }),
+        Animated.timing(anim, {
+          toValue: 0.4, duration: 700,
+          easing: Easing.inOut(Easing.ease), useNativeDriver: true,
+        }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, []);
+
+  return (
+    <Animated.View
+      style={[
+        {
+          width, height, borderRadius,
+          backgroundColor: SKELETON_BASE,
+          opacity: anim,
+        },
+        style,
+      ]}
+    />
+  );
+}
+
+/** Full-screen skeleton mirroring the loaded scorecard layout. */
+function ScorecardSkeleton() {
+  return (
+    <ScrollView
+      contentContainerStyle={{ padding: 20, paddingBottom: 110 }}
+      showsVerticalScrollIndicator={false}
+      scrollEnabled={false}
+    >
+      {/* Header */}
+      <View style={styles.backBtn}>
+        <Ionicons name="arrow-back" size={20} color={BORDER} />
+      </View>
+      <Skeleton width={160} height={22} borderRadius={6} style={{ marginBottom: 16 }} />
+
+      {/* Note banner */}
+      <View style={[styles.noteBanner, { backgroundColor: '#F4F6FB', borderColor: BORDER }]}>
+        <Skeleton width={16} height={16} borderRadius={8} />
+        <View style={{ flex: 1, gap: 6 }}>
+          <Skeleton width="100%" height={11} />
+          <Skeleton width="70%" height={11} />
+        </View>
+      </View>
+
+      {/* Stat cards */}
+      <View style={styles.statRow}>
+        <View style={styles.statCard}>
+          <Skeleton width={90} height={10} style={{ marginBottom: 10 }} />
+          <Skeleton width={70} height={24} style={{ marginBottom: 8 }} />
+          <Skeleton width={60} height={11} />
+        </View>
+        <View style={styles.statCard}>
+          <Skeleton width={80} height={10} style={{ marginBottom: 10 }} />
+          <Skeleton width={70} height={24} style={{ marginBottom: 8 }} />
+          <Skeleton width={90} height={11} />
+        </View>
+      </View>
+
+      {/* Trend card */}
+      <View style={styles.trendCard}>
+        <Skeleton width={20} height={20} borderRadius={10} />
+        <View style={{ flex: 1, marginLeft: 10, gap: 6 }}>
+          <Skeleton width={120} height={10} />
+          <Skeleton width={60} height={16} />
+          <Skeleton width={140} height={11} />
+        </View>
+      </View>
+
+      {/* Category scores */}
+      <View style={styles.sectionHeaderRow}>
+        <Skeleton width={15} height={15} borderRadius={4} />
+        <Skeleton width={150} height={13} />
+      </View>
+      <View style={styles.card}>
+        {CATEGORY_ORDER.map((key, idx, arr) => (
+          <View key={key} style={[styles.categoryRow, idx === arr.length - 1 && { marginBottom: 0 }]}>
+            <View style={styles.categoryTopRow}>
+              <Skeleton width={140} height={12} />
+              <Skeleton width={24} height={12} />
+            </View>
+            <Skeleton width="100%" height={8} borderRadius={4} />
+          </View>
+        ))}
+      </View>
+
+      {/* Quality metrics */}
+      <View style={styles.sectionHeaderRow}>
+        <Skeleton width={15} height={15} borderRadius={4} />
+        <Skeleton width={110} height={13} />
+      </View>
+      <View style={styles.metricsGrid}>
+        {Object.keys(METRIC_LABELS).map((key) => (
+          <View key={key} style={styles.metricCard}>
+            <Skeleton width={90} height={10} style={{ marginBottom: 8 }} />
+            <Skeleton width={50} height={20} style={{ marginBottom: 8 }} />
+            <Skeleton width={70} height={10} />
+          </View>
+        ))}
+      </View>
+
+      {/* Rating distribution */}
+      <View style={styles.sectionHeaderRow}>
+        <Skeleton width={15} height={15} borderRadius={4} />
+        <Skeleton width={140} height={13} />
+      </View>
+      <View style={styles.card}>
+        {[5, 4, 3, 2, 1].map((star) => (
+          <View key={star} style={styles.distRow}>
+            <Skeleton width={28} height={12} />
+            <Skeleton width="100%" height={8} borderRadius={4} style={{ flex: 1 }} />
+            <Skeleton width={18} height={12} />
+          </View>
+        ))}
+      </View>
+
+      {/* Coaching focus */}
+      <View style={styles.sectionHeaderRow}>
+        <Skeleton width={15} height={15} borderRadius={4} />
+        <Skeleton width={180} height={13} />
+      </View>
+      <View style={styles.card}>
+        <Skeleton width="100%" height={12} style={{ marginBottom: 8 }} />
+        <Skeleton width="90%" height={12} style={{ marginBottom: 8 }} />
+        <Skeleton width="60%" height={12} />
+      </View>
+    </ScrollView>
+  );
+}
+
 export default function PhlebScorecardScreen({ navigation }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -157,9 +305,7 @@ export default function PhlebScorecardScreen({ navigation }) {
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
-        <View style={styles.centerFill}>
-          <ActivityIndicator color={PRIMARY} size="large" />
-        </View>
+        <ScorecardSkeleton />
       </SafeAreaView>
     );
   }
@@ -211,7 +357,7 @@ export default function PhlebScorecardScreen({ navigation }) {
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView
-        contentContainerStyle={{ padding: 20, paddingBottom: 40 }}
+        contentContainerStyle={{ padding: 20, paddingBottom: 110 }}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={() => fetchScorecard(true)} tintColor={PRIMARY} />
@@ -377,6 +523,38 @@ export default function PhlebScorecardScreen({ navigation }) {
           </View>
         </FadeInUp>
       </ScrollView>
+
+      {/* Bottom Navigation */}
+      <View style={styles.bottomNav}>
+        <TouchableOpacity
+          style={styles.navItem}
+          onPress={() => navigation && navigation.navigate('PhlebDashboard')}
+        >
+          <Ionicons name="home-outline" size={22} color={GRAY} />
+          <Text style={styles.navLabel}>Home</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.navItem}
+          onPress={() => navigation && navigation.navigate('PhlebHistory')}
+        >
+          <Ionicons name="time-outline" size={22} color={GRAY} />
+          <Text style={styles.navLabel}>History</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.navItem}>
+          <Ionicons name="star" size={22} color={PRIMARY} />
+          <Text style={[styles.navLabel, styles.navLabelActive]}>Ratings</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.navItem}
+          onPress={() => navigation && navigation.navigate('PhlebProfile')}
+        >
+          <Ionicons name="person-outline" size={22} color={GRAY} />
+          <Text style={styles.navLabel}>Profile</Text>
+        </TouchableOpacity>
+      </View>
     </SafeAreaView>
   );
 }
@@ -474,4 +652,11 @@ const styles = StyleSheet.create({
     borderRadius: 14, padding: 14, borderWidth: 1, borderColor: '#BBF7D0',
   },
   privacyFooterText: { flex: 1, fontSize: 12, color: '#166534', lineHeight: 18 },
+  bottomNav: {
+    flexDirection: 'row', backgroundColor: '#FFFFFF', borderTopWidth: 1, borderTopColor: '#E5E7EB',
+    paddingVertical: 10, position: 'absolute', bottom: 0, left: 0, right: 0,
+  },
+  navItem: { flex: 1, alignItems: 'center', gap: 4 },
+  navLabel: { fontSize: 11, color: GRAY, fontWeight: '500' },
+  navLabelActive: { color: PRIMARY, fontWeight: '700' },
 });

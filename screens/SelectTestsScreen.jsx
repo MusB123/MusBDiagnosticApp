@@ -284,6 +284,13 @@ function TestRow({ test, isSelected, onToggle, onViewDetails, delay }) {
               </View>
             )}
 
+            {test.doctorOrderRequired && (
+              <View style={styles.doctorOrderBadge}>
+                <Feather name="file-text" size={10} color="#7C3AED" />
+                <Text style={styles.doctorOrderBadgeText}>Doctor's order required</Text>
+              </View>
+            )}
+
              <Pressable
               onPress={(e) => {
                 e.stopPropagation?.();
@@ -423,6 +430,13 @@ function TestDetailsModal({ test, visible, onClose, isSelected, onToggle }) {
                 <View style={[styles.fastingBadge, { alignSelf: 'flex-start', marginTop: 4 }]}>
                   <Feather name="clock" size={10} color="#B45309" />
                   <Text style={styles.fastingBadgeText}>Fasting required before this test</Text>
+                </View>
+              )}
+
+              {test.doctorOrderRequired && (
+                <View style={[styles.doctorOrderBadge, { alignSelf: 'flex-start', marginTop: 4 }]}>
+                  <Feather name="file-text" size={10} color="#7C3AED" />
+                  <Text style={styles.doctorOrderBadgeText}>Requires a doctor's order</Text>
                 </View>
               )}
 
@@ -656,6 +670,7 @@ export default function SelectTestsScreen({ navigation, route }) {
             sampleType: t.sample_type || '',
             turnaround: t.turnaround || '',
             fastingRequired: !!t.fasting_required,
+            doctorOrderRequired: !!t.doctor_order_required,
           };
         });
         const uniqueCategories = [...new Set(normalized.map((t) => t.category))];
@@ -793,6 +808,7 @@ function buildOfferLineItems(offer, tests) {
       discountPrice: null,
       hidePrice: true,
       isBundleItem: true,
+      doctorOrderRequired: false,
     };
   });
 }
@@ -1358,6 +1374,18 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   fastingBadgeText: { fontSize: 10.5, fontWeight: '700', color: '#B45309' },
+  doctorOrderBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#EDE9FE',
+    alignSelf: 'flex-start',
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    marginTop: 4,
+  },
+  doctorOrderBadgeText: { fontSize: 10.5, fontWeight: '700', color: '#7C3AED' },
   testRight: { alignItems: 'flex-end', gap: 8 },
   testPrice: { fontSize: 14, fontWeight: '800', color: COLORS.bodyText },
   testPriceSelected: { color: COLORS.navyDark },

@@ -346,11 +346,11 @@ export default function CheckoutScreen({ navigation, route }) {
       if (!currentAppointmentId) {
         const doctorOrderDoc = await uploadPrescriptionDoc();
         const { front: insuranceFrontDoc, back: insuranceBackDoc } = await uploadInsuranceDocs();
-
+        const hasSelectedTests = !!labTestsNames || allTestIds.length > 0;
         let bookingResult;
         try {
           bookingResult = await bookAppointment({
-            test_name: labTestsTotal > 0 ? labTestsNames : 'Mobile Phlebotomy Visit',
+            test_name: hasSelectedTests ? labTestsNames : 'Mobile Phlebotomy Visit',
             test_price: labTestsTotal > 0 ? labTestsTotal : 0,
             test_ids: allTestIds.length > 0 ? allTestIds.join(',') : undefined,
             full_name: patientFullName,
@@ -371,6 +371,7 @@ export default function CheckoutScreen({ navigation, route }) {
             insurance_front_name: insuranceFrontDoc?.name || null,
             insurance_back_base64: insuranceBackDoc?.key || null,
             insurance_back_name: insuranceBackDoc?.name || null,
+            hasInsurance: insurance === 'have',
             slot_type: slotType,
             slot_index: slotIndex,
             quoted_total_fee: quotedTotalFee,
@@ -548,8 +549,13 @@ export default function CheckoutScreen({ navigation, route }) {
               </>
             )}
 
-            {/* Lab Tests — itemized, one row per test */}
-            {labTestsTotal > 0 && (
+            {/* Lab Tests — itemized, one row per test.
+                NOTE: gated on whether there ARE tests to show, not on
+                labTestsTotal > 0 — insured patients have hidden ($0/null)
+                prices, so labTestsTotal is legitimately 0 even when tests
+                were selected. Gating on the total made the whole section,
+                including test names, disappear for insured patients. */}
+            {(appliedOffer || (route?.params?.selectedTests?.length > 0) || labTestsTotal > 0) && (
               <>
                 <FadeInUp delay={110} distance={6}>
                   <Text style={styles.summarySectionLabel}>Lab Tests</Text>
@@ -561,24 +567,27 @@ export default function CheckoutScreen({ navigation, route }) {
                       iconColor={COLORS.navy}
                       iconBg={COLORS.blueLight}
                       label={`${appliedOffer.title} (${appliedOffer.testIds?.length ?? appliedOffer.matchedCount} tests)`}
-                      value={`$${appliedOffer.price.toFixed(0)}`}
+                      value={appliedOffer.hidePrice ? 'Covered' : `$${appliedOffer.price.toFixed(0)}`}
                       delay={130}
                     />
-                    {extraTestsData.map((test, i) => (
-                      <SummaryRow
-                        key={test.id ?? i}
-                        icon="flask"
-                        iconColor={COLORS.purple}
-                        iconBg={COLORS.purpleLight}
-                        label={test.name}
-                        value={`$${(test.discountPrice ?? test.price).toFixed(0)}`}
-                        delay={150 + i * 40}
-                      />
-                    ))}
+                    {extraTestsData.map((test, i) => {
+                      const price = test.discountPrice ?? test.price;
+                      return (
+                        <SummaryRow
+                          key={test.id ?? i}
+                          icon="flask"
+                          iconColor={COLORS.purple}
+                          iconBg={COLORS.purpleLight}
+                          label={test.name}
+                          value={test.hidePrice || price == null ? 'Covered' : `$${price.toFixed(0)}`}
+                          delay={150 + i * 40}
+                        />
+                      );
+                    })}
                   </>
                 ) : route?.params?.selectedTests?.length > 0 ? (
                   route.params.selectedTests.map((test, i) => {
-                    const hasDiscount = test.discountPrice != null && test.discountPrice < test.price;
+                    const hasDiscount = test.discountPrice != null && test.price != null && test.discountPrice < test.price;
                     const displayPrice = hasDiscount ? test.discountPrice : test.price;
                     return (
                       <SummaryRow
@@ -587,7 +596,7 @@ export default function CheckoutScreen({ navigation, route }) {
                         iconColor={COLORS.purple}
                         iconBg={COLORS.purpleLight}
                         label={test.name}
-                        value={`$${displayPrice.toFixed(0)}`}
+                        value={test.hidePrice || displayPrice == null ? 'Covered' : `$${displayPrice.toFixed(0)}`}
                         delay={130 + i * 40}
                       />
                     );
@@ -598,7 +607,7 @@ export default function CheckoutScreen({ navigation, route }) {
                     iconColor={COLORS.purple}
                     iconBg={COLORS.purpleLight}
                     label={labTestsNames}
-                    value={`$${labTestsTotal.toFixed(0)}`}
+                    value={labTestsTotal > 0 ? `$${labTestsTotal.toFixed(0)}` : 'Covered'}
                     delay={130}
                   />
                 )}

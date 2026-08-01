@@ -497,6 +497,14 @@ export default function JobHistoryScreen({ navigation }) {
           <Ionicons name="time" size={22} color={PRIMARY} />
           <Text style={[styles.navLabel, styles.navLabelActive]}>History</Text>
         </TouchableOpacity>
+        
+        <TouchableOpacity
+          style={styles.navItem}
+          onPress={() => navigation && navigation.navigate('PhlebScorecard')}
+        >
+          <Ionicons name="star-outline" size={22} color={GRAY} />
+          <Text style={styles.navLabel}>Ratings</Text>
+        </TouchableOpacity>
 
         <TouchableOpacity
           style={styles.navItem}

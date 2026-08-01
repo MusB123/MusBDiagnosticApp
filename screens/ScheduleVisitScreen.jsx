@@ -40,6 +40,18 @@ const DATE_ROW_H_PADDING = 20;
 // use the pricing/slot engine at all.
 const IN_PERSON_HOURS_LABEL = '8:00 AM – 5:00 PM';
 
+// Human-readable copy for the backend's `reason` codes on an unserviceable
+// pricing response (see area_pricing.calculate_area_fee /
+// api_pricing_preview). Keep these in sync with the backend's reason
+// strings — if the backend adds a new reason, it falls back to the
+// generic message below rather than showing nothing.
+const OUT_OF_RANGE_MESSAGES = {
+  address_not_found: "We couldn't locate this address. Please check it and try again.",
+  no_providers_in_range: 'No specialists currently cover this address.',
+  no_patient_location: "We couldn't locate this address. Please check it and try again.",
+};
+const DEFAULT_OUT_OF_RANGE_MESSAGE = 'This option is not available at your address.';
+
 /**
  * Returns { year, month (0-11), day, hour, minute, isoDate } for the current
  * moment as observed in SERVICE_TIME_ZONE, regardless of the device's own
@@ -280,8 +292,20 @@ function TimeWindowCard({ win, isSelected, onPress, delay, disabled }) {
   );
 }
 
-/** One scheduling-type card (Flexible / Fixed / Urgent) — fetches & shows its own price, expands to reveal slots. */
-function ScheduleTypeCard({ type, isExpanded, isSelected, price, loadingPrice, onToggle, onPickSlot, selectedSlotIndex, fixedSlots, delay, isSlotDisabled }) {
+/**
+ * One scheduling-type card (Flexible / Fixed / Urgent) — fetches & shows its
+ * own price, expands to reveal slots.
+ *
+ * `status` is { state: 'idle'|'loading'|'ok'|'out_of_range'|'error', reason }
+ * for THIS card only (each card tracks its own fetch independently — see
+ * loadingTypes/priceStatus in the parent). When out_of_range, the card is
+ * locked (can't expand/select) and shows why. When error, it shows a retry
+ * affordance instead of silently displaying "$—".
+ */
+function ScheduleTypeCard({
+  type, isExpanded, isSelected, price, status, onToggle, onPickSlot, onRetry,
+  selectedSlotIndex, fixedSlots, delay, isSlotDisabled,
+}) {
   const chevronAnim = useRef(new Animated.Value(isExpanded ? 1 : 0)).current;
   const borderAnim = useRef(new Animated.Value(isSelected ? 1 : 0)).current;
   useEffect(() => {
@@ -294,10 +318,15 @@ function ScheduleTypeCard({ type, isExpanded, isSelected, price, loadingPrice, o
   const borderColor = borderAnim.interpolate({ inputRange: [0, 1], outputRange: [COLORS.border, COLORS.navy] });
   const borderWidth = borderAnim.interpolate({ inputRange: [0, 1], outputRange: [1.5, 2] });
 
+  const isLoading = status.state === 'loading';
+  const isOutOfRange = status.state === 'out_of_range';
+  const isError = status.state === 'error';
+  const isLocked = isOutOfRange; // can't expand/select an unserviceable option
+
   return (
     <FadeInUp delay={delay} style={{ width: CARD_WIDTH, marginRight: CARD_GAP }}>
-      <Animated.View style={[styles.typeCard, { borderColor, borderWidth }]}>
-        {isSelected && (
+      <Animated.View style={[styles.typeCard, { borderColor, borderWidth }, isOutOfRange && styles.typeCardLocked]}>
+        {isSelected && !isLocked && (
           <View style={styles.typeSelectedTick}>
             <Ionicons name="checkmark-circle" size={18} color={COLORS.navy} />
           </View>
@@ -309,23 +338,46 @@ function ScheduleTypeCard({ type, isExpanded, isSelected, price, loadingPrice, o
         <Text style={styles.typeSubtitle}>{type.subtitle}</Text>
 
         <View style={styles.typePriceRow}>
-          <Text style={styles.typePriceFrom}>from</Text>
-          {loadingPrice ? (
-            <ActivityIndicator size="small" color={COLORS.navy} style={{ marginLeft: 6 }} />
+          {isLoading ? (
+            <>
+              <Text style={styles.typePriceFrom}>from</Text>
+              <ActivityIndicator size="small" color={COLORS.navy} style={{ marginLeft: 6 }} />
+            </>
+          ) : isOutOfRange ? (
+            <View style={styles.oorInlineRow}>
+              <Ionicons name="location-outline" size={13} color={COLORS.red} />
+              <Text style={styles.typePriceOOR}>Out of range</Text>
+            </View>
+          ) : isError ? (
+            <AnimatedPressable onPress={onRetry} scaleTo={0.96} style={styles.retryRow}>
+              <Ionicons name="refresh" size={13} color={COLORS.amber} />
+              <Text style={styles.retryText}>Couldn't load price — retry</Text>
+            </AnimatedPressable>
           ) : (
-            <Text style={styles.typePriceValue}>${price != null ? price.toFixed(0) : '—'}</Text>
+            <>
+              <Text style={styles.typePriceFrom}>from</Text>
+              <Text style={styles.typePriceValue}>${price != null ? price.toFixed(0) : '—'}</Text>
+              <Text style={styles.typePriceUnit}>{type.key === 'urgent' ? '/ visit' : '/ slot'}</Text>
+            </>
           )}
-          <Text style={styles.typePriceUnit}>{type.key === 'urgent' ? '/ visit' : '/ slot'}</Text>
         </View>
 
-        <AnimatedPressable style={styles.typeToggleBtn} onPress={onToggle} scaleTo={0.98}>
-          <Text style={styles.typeToggleText}>{isExpanded ? 'Hide times' : 'See times'}</Text>
-          <Animated.View style={{ transform: [{ rotate: chevronAnim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '180deg'] }) }] }}>
-            <Ionicons name="chevron-down" size={16} color={COLORS.navy} />
-          </Animated.View>
-        </AnimatedPressable>
+        {isOutOfRange ? (
+          <View style={styles.oorNote}>
+            <Text style={styles.oorNoteText}>
+              {OUT_OF_RANGE_MESSAGES[status.reason] || DEFAULT_OUT_OF_RANGE_MESSAGE}
+            </Text>
+          </View>
+        ) : (
+          <AnimatedPressable style={styles.typeToggleBtn} onPress={onToggle} scaleTo={0.98}>
+            <Text style={styles.typeToggleText}>{isExpanded ? 'Hide times' : 'See times'}</Text>
+            <Animated.View style={{ transform: [{ rotate: chevronAnim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '180deg'] }) }] }}>
+              <Ionicons name="chevron-down" size={16} color={COLORS.navy} />
+            </Animated.View>
+          </AnimatedPressable>
+        )}
 
-        {isExpanded && (
+        {isExpanded && !isOutOfRange && (
           <FadeInUp delay={0} distance={8}>
             <View style={styles.slotGrid}>
               {type.key === 'fixed' ? (
@@ -355,7 +407,7 @@ function ScheduleTypeCard({ type, isExpanded, isSelected, price, loadingPrice, o
                         selectedSlotIndex === slot.index && isSelected && styles.slotChipPriceSelected,
                         past && styles.slotChipTimeDisabled,
                       ]}>
-                        {past ? 'Passed' : `$${price != null ? price.toFixed(0) : '—'}`}
+                        {past ? 'Passed' : isLoading ? '…' : `$${price != null ? price.toFixed(0) : '—'}`}
                       </Text>
                     </AnimatedPressable>
                   );
@@ -381,6 +433,8 @@ function ScheduleTypeCard({ type, isExpanded, isSelected, price, loadingPrice, o
     </FadeInUp>
   );
 }
+
+const IDLE_STATUS = { state: 'idle', reason: null };
 
 export default function ScheduleVisitScreen() {
   const navigation = useNavigation();
@@ -408,11 +462,29 @@ export default function ScheduleVisitScreen() {
   const [selectedSlotIndex, setSelectedSlotIndex] = useState(null);
 
   // Store the full quote (not just totalPatientFee) so the fee breakdown can
-// be passed downstream unchanged instead of being re-fetched later.
+  // be passed downstream unchanged instead of being re-fetched later.
   const [prices, setPrices] = useState({ flexible: null, fixed: null, urgent: null });
   const [priceDetails, setPriceDetails] = useState({ flexible: null, fixed: null, urgent: null });
-  const [loadingType, setLoadingType] = useState(null);
+
+  // Per-type fetch status — each of the 3 cards fetches independently and in
+  // parallel, so a single shared "loadingType" (as this screen used to have)
+  // meant only the last-started fetch ever showed a spinner while the other
+  // two silently sat at "$—". Tracking status per type fixes that and also
+  // lets each card show its own out-of-range / error state.
+  const [priceStatus, setPriceStatus] = useState({
+    flexible: IDLE_STATUS, fixed: IDLE_STATUS, urgent: IDLE_STATUS,
+  });
+
   const priceCache = useRef({});
+  const priceReasonCache = useRef({});
+  // Per-type monotonically increasing request counter. Every loadPrice(type)
+  // call bumps this before firing the network request, and only applies its
+  // result if it's still the most recent request for that type by the time
+  // it resolves. This is what stops an older, slower response (e.g. from a
+  // slot you tapped a second ago) from landing after a newer one and
+  // silently overwriting the correct price — the "need to tap 2-3 times"
+  // symptom.
+  const requestSeqRef = useRef({ flexible: 0, fixed: 0, urgent: 0 });
 
   const [dateScrollFraction, setDateScrollFraction] = useState(0);
   const trackWidth = SCREEN_WIDTH - DATE_ROW_H_PADDING * 2;
@@ -447,13 +519,30 @@ export default function ScheduleVisitScreen() {
   const loadPrice = async (typeKey) => {
     const slotPart = typeKey === 'fixed' ? (selectedSlotIndex ?? 'any') : 'na';
     const cacheKey = `${selectedDate.isoDate}|${selectedWindowKey}|${typeKey}|${slotPart}`;
-    if (priceCache.current[cacheKey] != null) {
+
+    const mySeq = ++requestSeqRef.current[typeKey];
+    const applyStatus = (status) => {
+      // A newer request for this same type has since been fired — this
+      // result is stale, drop it instead of letting it clobber the UI.
+      if (requestSeqRef.current[typeKey] !== mySeq) return;
+      setPriceStatus((p) => ({ ...p, [typeKey]: status }));
+    };
+
+    if (priceCache.current[cacheKey] !== undefined) {
       const cached = priceCache.current[cacheKey];
-      setPrices((p) => ({ ...p, [typeKey]: cached.totalPatientFee }));
-      setPriceDetails((p) => ({ ...p, [typeKey]: cached }));
+      if (cached === null) {
+        setPrices((p) => ({ ...p, [typeKey]: null }));
+        setPriceDetails((p) => ({ ...p, [typeKey]: null }));
+        applyStatus({ state: 'out_of_range', reason: priceReasonCache.current[cacheKey] || 'no_providers_in_range' });
+      } else {
+        setPrices((p) => ({ ...p, [typeKey]: cached.totalPatientFee }));
+        setPriceDetails((p) => ({ ...p, [typeKey]: cached }));
+        applyStatus({ state: 'ok', reason: null });
+      }
       return;
     }
-    setLoadingType(typeKey);
+
+    applyStatus({ state: 'loading', reason: null });
     try {
       const bookingTime = toClockLabel(selectedWindow.startHour);
       const res = await fetchPricing({
@@ -467,9 +556,14 @@ export default function ScheduleVisitScreen() {
       console.log('[pricing]', typeKey, res.totalPatientFee ?? res);
 
       if (res.serviceable === false) {
+        const reason = res.reason || 'no_providers_in_range';
         priceCache.current[cacheKey] = null;
+        priceReasonCache.current[cacheKey] = reason;
+        // Only apply to state if still current — but the price/detail reset
+        // is harmless even if stale (a later request will overwrite it).
         setPrices((p) => ({ ...p, [typeKey]: null }));
         setPriceDetails((p) => ({ ...p, [typeKey]: null }));
+        applyStatus({ state: 'out_of_range', reason });
         return;
       }
 
@@ -490,12 +584,14 @@ export default function ScheduleVisitScreen() {
       priceCache.current[cacheKey] = quote;
       setPrices((p) => ({ ...p, [typeKey]: quote.totalPatientFee }));
       setPriceDetails((p) => ({ ...p, [typeKey]: quote }));
+      applyStatus({ state: 'ok', reason: null });
     } catch (err) {
       console.error(`[ScheduleVisitScreen] pricing fetch failed for ${typeKey}:`, err);
+      // Deliberately NOT cached — a manual retry (or the next natural
+      // refetch) should hit the network again rather than being stuck.
       setPrices((p) => ({ ...p, [typeKey]: null }));
       setPriceDetails((p) => ({ ...p, [typeKey]: null }));
-    } finally {
-      setLoadingType(null);
+      applyStatus({ state: 'error', reason: null });
     }
   };
 
@@ -504,7 +600,9 @@ export default function ScheduleVisitScreen() {
   useEffect(() => {
     if (isInPersonSimple) return;
     setPrices({ flexible: null, fixed: null, urgent: null });
+    setPriceStatus({ flexible: IDLE_STATUS, fixed: IDLE_STATUS, urgent: IDLE_STATUS });
     priceCache.current = {};
+    priceReasonCache.current = {};
     ['flexible', 'fixed', 'urgent'].forEach(loadPrice);
   }, [selectedDate.id, selectedWindowKey, isInPersonSimple]);
 
@@ -546,9 +644,21 @@ export default function ScheduleVisitScreen() {
     setSelectedSlotIndex(slotIndex);
   };
 
+  const handleRetryPrice = (typeKey) => {
+    loadPrice(typeKey);
+  };
+
   const canConfirm = isInPersonSimple
     ? !!selectedDate
     : selectedType != null && (selectedType !== 'fixed' || selectedSlotIndex != null);
+
+  // If every option comes back unserviceable for this address, tell the
+  // patient plainly instead of leaving three identical "Out of range" cards
+  // to speak for themselves.
+  const allOutOfRange = !isInPersonSimple
+    && priceStatus.flexible.state === 'out_of_range'
+    && priceStatus.fixed.state === 'out_of_range'
+    && priceStatus.urgent.state === 'out_of_range';
 
   const handleConfirm = () => {
     // Echo back whatever test selection was passed through to us, so it
@@ -668,6 +778,23 @@ export default function ScheduleVisitScreen() {
           </FadeInUp>
         ) : (
           <>
+            {allOutOfRange && (
+              <FadeInUp delay={50}>
+                <View style={styles.globalOorBanner}>
+                  <View style={styles.globalOorIconRing}>
+                    <Ionicons name="alert-circle-outline" size={20} color={COLORS.red} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.globalOorTitle}>Not available at this address</Text>
+                    <Text style={styles.globalOorText}>
+                      {OUT_OF_RANGE_MESSAGES[priceStatus.flexible.reason] || DEFAULT_OUT_OF_RANGE_MESSAGE}
+                      {' '}Try an in-center visit instead, or double-check the address on the previous screen.
+                    </Text>
+                  </View>
+                </View>
+              </FadeInUp>
+            )}
+
             {/* Step 2: Time of day */}
             <FadeInUp delay={60}>
               <View style={[styles.stepHeaderRow, { justifyContent: 'space-between' }]}>
@@ -699,7 +826,7 @@ export default function ScheduleVisitScreen() {
               <View style={styles.stepHeaderRow}>
                 <View style={styles.stepBadge}><Text style={styles.stepBadgeText}>3</Text></View>
                 <Text style={styles.stepTitle}>How do you want to schedule?</Text>
-                <Text style={styles.stepHeaderTag}>Lowest price first</Text>
+                <Text style={styles.stepHeaderTag}></Text>
               </View>
             </FadeInUp>
 
@@ -718,9 +845,10 @@ export default function ScheduleVisitScreen() {
                   isExpanded={expandedType === type.key}
                   isSelected={selectedType === type.key}
                   price={prices[type.key]}
-                  loadingPrice={loadingType === type.key}
+                  status={priceStatus[type.key]}
                   onToggle={() => handleToggleType(type.key)}
                   onPickSlot={(idx) => handlePickSlot(type.key, idx)}
+                  onRetry={() => handleRetryPrice(type.key)}
                   selectedSlotIndex={selectedSlotIndex}
                   fixedSlots={fixedSlots}
                   isSlotDisabled={(slot) => isFixedSlotPast(slot, nowInZone.hour, nowInZone.minute, isSelectedDateToday)}
@@ -808,17 +936,26 @@ const styles = StyleSheet.create({
 
   typeScrollContent: { paddingRight: 20, paddingTop: 2 },
   typeCard: { backgroundColor: COLORS.white, borderRadius: 16, padding: 16, position: 'relative' },
+  typeCardLocked: { backgroundColor: COLORS.offWhite },
   typeSelectedTick: { position: 'absolute', top: 12, right: 12 },
   typeBadge: { alignSelf: 'flex-start', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1, marginBottom: 10 },
   typeBadgeText: { fontSize: 10, fontWeight: '900', letterSpacing: 0.4 },
   typeTitle: { fontSize: 16, fontWeight: '900', color: COLORS.navyDark, marginBottom: 4 },
   typeSubtitle: { fontSize: 12, color: COLORS.gray, lineHeight: 17, marginBottom: 12 },
-  typePriceRow: { flexDirection: 'row', alignItems: 'baseline', marginBottom: 12 },
+  typePriceRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12, minHeight: 24 },
   typePriceFrom: { fontSize: 12, color: COLORS.gray, marginRight: 4 },
   typePriceValue: { fontSize: 20, fontWeight: '900', color: COLORS.green },
   typePriceUnit: { fontSize: 12, color: COLORS.gray, marginLeft: 4 },
   typeToggleBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderWidth: 1.5, borderColor: COLORS.border, borderRadius: 12, paddingVertical: 12 },
   typeToggleText: { fontSize: 13, fontWeight: '800', color: COLORS.navyDark },
+
+  // ── Out-of-range / error states on a single schedule-type card ──
+  oorInlineRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  typePriceOOR: { fontSize: 14, fontWeight: '800', color: COLORS.red },
+  oorNote: { backgroundColor: COLORS.redLight, borderRadius: 10, padding: 10, borderWidth: 1, borderColor: COLORS.redBorder },
+  oorNoteText: { fontSize: 11.5, color: '#9F1239', lineHeight: 16, fontWeight: '600' },
+  retryRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  retryText: { fontSize: 12.5, fontWeight: '800', color: COLORS.amber },
 
   slotGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
   slotChip: { flexBasis: '47%', flexGrow: 1, borderWidth: 1.5, borderColor: COLORS.border, borderRadius: 12, paddingVertical: 10, paddingHorizontal: 10, backgroundColor: COLORS.offWhite },
@@ -835,6 +972,26 @@ const styles = StyleSheet.create({
   priceRuleBanner: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, backgroundColor: COLORS.offWhite, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: COLORS.border, marginTop: 8 },
   priceRuleDot: { width: 8, height: 8, borderRadius: 4 },
   priceRuleText: { fontSize: 11, color: COLORS.bodyText, fontWeight: '600', marginRight: 8 },
+
+  // ── Global "nothing serviceable at this address" banner ──
+  globalOorBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    backgroundColor: COLORS.redLight,
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: COLORS.redBorder,
+    marginBottom: 4,
+  },
+  globalOorIconRing: {
+    width: 36, height: 36, borderRadius: 12,
+    backgroundColor: COLORS.white, alignItems: 'center', justifyContent: 'center',
+    marginTop: 1,
+  },
+  globalOorTitle: { fontSize: 14, fontWeight: '800', color: '#9F1239', marginBottom: 4 },
+  globalOorText: { fontSize: 12.5, color: '#9F1239', lineHeight: 18 },
 
   // ── In-center walk-in hours notice ──
   hoursNoticeCard: {

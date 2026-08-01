@@ -1,6 +1,6 @@
 // utils/auth.js
 import * as SecureStore from 'expo-secure-store';
-import { AUTH_ENDPOINTS, PATIENT_ENDPOINTS, PHLEB_ENDPOINTS, CATALOG_ENDPOINTS, UPLOAD_ENDPOINTS } from '../config/api';
+import { AUTH_ENDPOINTS, PATIENT_ENDPOINTS, PHLEB_ENDPOINTS, CATALOG_ENDPOINTS, UPLOAD_ENDPOINTS, CMS_ENDPOINTS } from '../config/api';
 
 const PHLEB_TOKEN_KEY   = 'musb_phleb_token';
 const PHLEB_USER_KEY    = 'musb_phleb_user';
@@ -166,6 +166,20 @@ export async function applyPhleb({
   });
 }
 
+// ── Email availability check (signup step 1) ────────────────────────────
+// Reuses the send-email-otp endpoint with check_only:true so no OTP is sent —
+// it just runs the uniqueness check and returns { success: true } or throws.
+export async function checkPhlebEmailExists(email) {
+  try {
+    await postJson(PHLEB_ENDPOINTS.signupSendEmailOtp, { email, check_only: true });
+    return false; // no error thrown → email is available
+  } catch (err) {
+    if (err.message === 'NETWORK_ERROR' || err.message === 'BAD_RESPONSE') {
+      throw err; // let the caller distinguish real network failures
+    }
+    return true; // postJson throws on non-2xx → treat as "already registered"
+  }
+}
 // ── Application status polling (public, no auth) ─────────────────────────
 export async function getApplicationStatus(specialistId) {
   let response;
@@ -215,7 +229,10 @@ export async function loginWithGoogle({ idToken, email, name, picture, role = 'p
   const endpoint = role === 'phlebotomist' ? PHLEB_ENDPOINTS.googleLogin : PATIENT_ENDPOINTS.googleLogin;
   const data = await postJson(endpoint, { id_token: idToken, email, name, picture });
 
-  if (role === 'phlebotomist') {
+  
+  const actualRole = data.role || role;
+
+  if (actualRole === 'phlebotomist') {
     await SecureStore.deleteItemAsync(PATIENT_TOKEN_KEY);
     await SecureStore.deleteItemAsync(PATIENT_USER_KEY);
     if (data.token) await SecureStore.setItemAsync(PHLEB_TOKEN_KEY, data.token);
@@ -226,7 +243,7 @@ export async function loginWithGoogle({ idToken, email, name, picture, role = 'p
     if (data.token) await SecureStore.setItemAsync(PATIENT_TOKEN_KEY, data.token);
     if (data.user)  await SecureStore.setItemAsync(PATIENT_USER_KEY, JSON.stringify(data.user));
   }
-  return { ...data, role };
+  return { ...data, role: actualRole };
 }
 
 export async function requestPasswordResetOtp(email, role = 'patient') {
@@ -532,6 +549,33 @@ export async function fetchPatientHistory() {
     throw new Error(data?.message || data?.error || `Request failed (${response.status})`);
   }
   return data.past ?? [];
+}
+
+export async function fetchCmsDocuments(keys) {
+  let response;
+  try {
+    response = await fetch(CMS_ENDPOINTS.list, { method: 'GET' });
+  } catch {
+    throw new Error('NETWORK_ERROR');
+  }
+
+  let data;
+  try {
+    data = await response.json();
+  } catch {
+    throw new Error('BAD_RESPONSE');
+  }
+
+  if (!response.ok) {
+    throw new Error(data?.error || `Request failed (${response.status})`);
+  }
+
+  const list = Array.isArray(data) ? data : [];
+  const byKey = {};
+  keys.forEach((key) => {
+    byKey[key] = list.find((d) => d.key === key) || null;
+  });
+  return byKey; 
 }
 
 // ── Catalog (public, no auth) ────────────────────────────────────────────

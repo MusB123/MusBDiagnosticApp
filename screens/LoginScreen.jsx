@@ -289,6 +289,7 @@ export default function LoginScreen({ navigation }) {
           picture: userInfo.picture,
           role: 'patient',
         });
+        console.log('[GOOGLE LOGIN] role from backend:', data.role);
         routeAfterLogin(data.role);
       } catch (err) {
         console.log('Google sign-in error:', err);

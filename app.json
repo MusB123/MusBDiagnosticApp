@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "MusBDiagnostics",
+    "name": "MusB Diagnostics",
     "slug": "MusbDiagnostics",
     "scheme": "musbdiagnostics",
     "version": "1.0.0",
@@ -15,10 +15,15 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.musb.diagnostics",
+      "config": {
+        "googleMapsApiKey": "AIzaSyCBFk6FQn6TERV3kJhGDoqOXxX2FpczerM"
+      },
       "infoPlist": {
         "NSCameraUsageDescription": "MusB Diagnostics needs camera access so you can take photos of documents like prescriptions and insurance cards.",
         "NSPhotoLibraryUsageDescription": "MusB Diagnostics needs photo library access so you can upload documents like prescriptions and insurance cards.",
-        "NSPhotoLibraryAddUsageDescription": "MusB Diagnostics needs permission to save photos you take of your documents."
+        "NSPhotoLibraryAddUsageDescription": "MusB Diagnostics needs permission to save photos you take of your documents.",
+        "NSLocationWhenInUseUsageDescription": "MusB Diagnostics needs your location to show nearby phlebotomy requests and let patients see your live location.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "MusB Diagnostics needs your location to show nearby phlebotomy requests and let patients see your live location."
       }
     },
     "android": {
@@ -32,8 +37,15 @@
       "permissions": [
         "CAMERA",
         "READ_EXTERNAL_STORAGE",
-        "READ_MEDIA_IMAGES"
+        "READ_MEDIA_IMAGES",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION"
       ],
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyCBFk6FQn6TERV3kJhGDoqOXxX2FpczerM"
+        }
+      },
       "intentFilters": [
         {
           "action": "VIEW",
@@ -61,6 +73,12 @@
         {
           "photosPermission": "MusB Diagnostics needs photo library access so you can upload documents like prescriptions and insurance cards.",
           "cameraPermission": "MusB Diagnostics needs camera access so you can take photos of documents like prescriptions and insurance cards."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "MusB Diagnostics needs your location to show nearby phlebotomy requests and let patients see your live location."
         }
       ]
     ],

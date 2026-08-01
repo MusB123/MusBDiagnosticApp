@@ -16,7 +16,8 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons'; // swap for your icon lib if different
+import { Ionicons } from '@expo/vector-icons'; 
+import { checkPhlebEmailExists } from '../utils/auth';
 
 const COUNTRY_CODES = [
   { code: '+1', country: '🇺🇸 USA / Canada' },
@@ -85,6 +86,7 @@ export default function RegisterScreen({ navigation }) {
   const [addressSearchLoading, setAddressSearchLoading] = useState(false);
   const [addressSearchError, setAddressSearchError] = useState('');
   const sessionTokenRef = useRef(generateSessionToken());
+  const isValidEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
   const debounceRef = useRef(null);
   const abortRef = useRef(null);
   const [showPassword, setShowPassword] = useState(false);
@@ -92,6 +94,10 @@ export default function RegisterScreen({ navigation }) {
   const [countryCode, setCountryCode] = useState(USA_CODE);
   const [showPicker, setShowPicker] = useState(false);
   const [countrySearch, setCountrySearch] = useState('');
+  const [emailChecking, setEmailChecking] = useState(false);
+  const [emailTaken, setEmailTaken] = useState(false);
+  const [emailCheckError, setEmailCheckError] = useState('');
+  const emailCheckDebounceRef = useRef(null);
   const [form, setForm] = useState({
     firstName: '',
     middleName: '',
@@ -178,6 +184,33 @@ export default function RegisterScreen({ navigation }) {
     return () => clearTimeout(debounceRef.current);
   }, [form.address]);
 
+  useEffect(() => {
+    if (emailCheckDebounceRef.current) clearTimeout(emailCheckDebounceRef.current);
+    const trimmed = form.email.trim();
+
+    if (!trimmed || !isValidEmail(trimmed)) {
+      setEmailTaken(false);
+      setEmailCheckError('');
+      return;
+    }
+
+    emailCheckDebounceRef.current = setTimeout(async () => {
+      setEmailChecking(true);
+      setEmailCheckError('');
+      try {
+        const taken = await checkPhlebEmailExists(trimmed);
+        setEmailTaken(taken);
+      } catch (err) {
+        setEmailCheckError('Could not verify email right now.');
+        setEmailTaken(false);
+      } finally {
+        setEmailChecking(false);
+      }
+    }, DEBOUNCE_MS);
+
+    return () => clearTimeout(emailCheckDebounceRef.current);
+  }, [form.email]);
+
   const fetchAddressSuggestions = async (input) => {
     if (abortRef.current) abortRef.current.abort();
     const controller = new AbortController();
@@ -237,7 +270,6 @@ export default function RegisterScreen({ navigation }) {
     }
   };
 
-  const isValidEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 
   // Returns null if valid, or an error message string
   const validateDob = (value) => {
@@ -290,6 +322,15 @@ export default function RegisterScreen({ navigation }) {
       Alert.alert('Invalid email', 'Please enter a valid email address.');
       return;
     }
+
+    if (emailTaken) {
+      Alert.alert('Email already registered', emailCheckError || 'This email is already registered. Please log in instead.');
+    return;
+  }
+  if (emailChecking) {
+    Alert.alert('Please wait', 'Still verifying your email, try again in a second.');
+    return;
+  }
     const failedPasswordRule = PASSWORD_RULES.find((rule) => !rule.test(form.password));
     if (!form.password.trim()) {
       Alert.alert('Password required', 'Please choose a password to continue.');
@@ -468,15 +509,30 @@ export default function RegisterScreen({ navigation }) {
             <Text style={styles.label}>
               Email address <Text style={styles.required}>*</Text>
             </Text>
-            <TextInput
-              style={styles.input}
-              placeholder="you@example.com"
-              placeholderTextColor="#BBBDC4"
-              value={form.email}
-              onChangeText={(v) => handleChange('email', v)}
-              keyboardType="email-address"
-              autoCapitalize="none"
-            />
+            <View style={styles.inputWithIconWrap}>
+              <TextInput
+                style={styles.input}
+                placeholder="you@example.com"
+                placeholderTextColor="#BBBDC4"
+                value={form.email}
+                onChangeText={(v) => handleChange('email', v)}
+                keyboardType="email-address"
+                autoCapitalize="none"
+              />
+              {emailChecking && (
+                <ActivityIndicator color="#0D2156" size="small" style={styles.inputSpinner} />
+              )}
+            </View>
+            {emailTaken ? (
+              <Text style={{ color: '#E0453D', fontSize: 12, marginTop: 6, fontWeight: '500' }}>
+                ⚠ {emailCheckError || 'This email is already registered.'}
+              </Text>
+            ) : null}
+            {!emailTaken && emailCheckError ? (
+              <Text style={{ color: '#E0453D', fontSize: 12, marginTop: 6, fontWeight: '500' }}>
+                ⚠ {emailCheckError}
+              </Text>
+            ) : null}
 
             <Text style={styles.label}>
               Create a password <Text style={styles.required}>*</Text>

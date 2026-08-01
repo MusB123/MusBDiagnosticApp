@@ -159,12 +159,12 @@ function TagBadge({ label, icon, colors }) {
 
 export default function DropOffVerificationScreen({ route, navigation }) {
   const { job, patient } = route?.params || {};
+  console.log('DROPOFF job.has_insurance:', job?.has_insurance, 'job.hasInsurance:', job?.hasInsurance, 'job.is_self_paid:', job?.is_self_paid);
+  console.log('DROPOFF full job object:', JSON.stringify(job, null, 2));
   const isSelfPaid = job?.is_self_paid ?? job?.isSelfPaid ?? false; // "bought tests" - bonus messaging only
 
-  // Drop-off routing is driven by INSURANCE (not by whether tests were bought):
-  //  • uninsured  -> MusB labs only; if sample-collection-only, may hand to patient
-  //  • insured    -> any accredited (custom) lab; never hand to patient
-  const hasInsurance = job?.has_insurance ?? job?.hasInsurance ?? false;
+  
+  const hasInsurance = job?.has_insurance ?? job?.hasInsurance ?? job?.insurance ?? false;
   const isUninsured = !hasInsurance;
   const isSampleCollectionOnly =
     job?.is_sample_collection_only ??

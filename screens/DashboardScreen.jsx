@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Animated, Easing,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView,useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import { PHLEB_ENDPOINTS } from '../config/api';
 import { getActiveSession, authGet, getStoredPhlebUser } from '../utils/auth';
@@ -200,6 +200,7 @@ function CountUp({ value, prefix = '', style, duration = 700 }) {
 ──────────────────────────────────────────────────────────── */
 
 export default function DashboardScreen({ route, navigation }) {
+  const insets = useSafeAreaInsets();
   const [fullName, setFullName] = useState(route.params?.fullName || 'User');
 
   const initials = fullName
@@ -515,7 +516,7 @@ export default function DashboardScreen({ route, navigation }) {
       </ScrollView>
 
       {/* ── Bottom Navigation ── */}
-      <View style={styles.bottomNav}>
+      <View style={[styles.bottomNav, { paddingBottom: Math.max(insets.bottom, 10) }]}>
         <TouchableOpacity style={styles.navItem}>
           <Ionicons name="home" size={22} color={PRIMARY} />
           <Text style={[styles.navLabel, styles.navLabelActive]}>Home</Text>
@@ -678,7 +679,7 @@ const styles = StyleSheet.create({
 
   bottomNav: {
     flexDirection: 'row', backgroundColor: '#FFFFFF', borderTopWidth: 1, borderTopColor: '#E5E7EB',
-    paddingVertical: 10, position: 'absolute', left: 0, right: 0, bottom: 0,
+    paddingTop: 10, position: 'absolute', left: 0, right: 0, bottom: 0,
   },
   navItem: { flex: 1, alignItems: 'center', gap: 4 },
   navLabel: { fontSize: 11, color: GRAY, fontWeight: '500' },

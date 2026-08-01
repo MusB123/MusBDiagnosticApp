@@ -20,6 +20,10 @@ export const UPLOAD_ENDPOINTS = {
   document: `${BASE_URL}/api/uploads/document/`,
 };
 
+export const CMS_ENDPOINTS = {
+  list: `${BASE_URL}/api/superadmin/cms/`,
+};
+
 // ── Patient endpoints (unchanged from patient app) ──────────────────────────
 export const PATIENT_ENDPOINTS = {
   login: `${PATIENT_PREFIX}/login/`, // ⚠ legacy — kept in case still referenced elsewhere
@@ -46,6 +50,8 @@ export const PHLEB_ENDPOINTS = {
   login: `${PHLEB_BASE}/login/`, // ⚠ legacy — kept in case still referenced elsewhere
   googleLogin: `${PHLEB_BASE}/google-login/`,
   signup: `${PHLEB_BASE}/signup/`,
+  signupSendEmailOtp: `${PHLEB_BASE}/signup/send-email-otp/`,
+  signupVerifyEmailOtp: `${PHLEB_BASE}/signup/verify-email-otp/`,
   apply: `${PHLEB_BASE}/apply/`,
   applicationStatus: (specialistId) => `${PHLEB_BASE}/application-status/${specialistId}/`,
   changePassword: `${PHLEB_BASE}/change-password/`,
