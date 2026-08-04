@@ -122,6 +122,8 @@ const CATEGORY_ICONS = {
   cleanliness: 'sparkles-outline',
 };
 const OVERALL_RATING_LABELS = ['', 'Poor', 'Fair', 'Good', 'Very good', 'Excellent'];
+ 
+let hasAskedLocationThisSession = false;
 
 function isInPersonVisit(appt) {
   const vt = (appt.visit_type || appt.visitType || '').toLowerCase();
@@ -456,7 +458,17 @@ export default function HomeScreen({ navigation, route }) {
       if (locationData?.address) return; // already have one — don't clobber it
 
       try {
-        const { status } = await Location.getForegroundPermissionsAsync();
+        let status;
+
+        if (hasAskedLocationThisSession) {
+          // Already asked once this app session — just read current
+          // status, never show the OS dialog again until app reopen.
+          ({ status } = await Location.getForegroundPermissionsAsync());
+        } else {
+          hasAskedLocationThisSession = true;
+          ({ status } = await Location.requestForegroundPermissionsAsync());
+        }
+
         if (status !== 'granted') return; // don't pop the OS dialog on Home load
 
         const position = await Location.getCurrentPositionAsync({

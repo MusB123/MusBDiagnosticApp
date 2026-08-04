@@ -23,6 +23,9 @@ const COLORS = {
   slate: '#64748B', slateLight: '#F1F5F9',
 };
 
+// ── Feature flag: set to true when the Payment Method card should show again ──
+const SHOW_PAYMENT_METHOD = false;
+
 /** Springy press-scale wrapper, shared across the screen. */
 function AnimatedPressable({ style, onPress, disabled, children, scaleTo = 0.97, ...rest }) {
   const scale = useRef(new Animated.Value(1)).current;
@@ -639,29 +642,31 @@ export default function CheckoutScreen({ navigation, route }) {
           </View>
         </FadeInUp>
 
-        {/* ── Payment Method ── */}
-        <FadeInUp delay={140}>
-          <AnimatedPressable style={styles.paymentCard} scaleTo={0.99} onPress={() => { }}>
-            <View style={styles.paymentHeader}>
-              <Text style={styles.paymentTitle}>Payment Method</Text>
-              <View style={styles.paymentChangeBadge}>
-                <Text style={styles.paymentChange}>Change</Text>
+        {/* ── Payment Method — hidden for now, flip SHOW_PAYMENT_METHOD to re-enable ── */}
+        {SHOW_PAYMENT_METHOD && (
+          <FadeInUp delay={140}>
+            <AnimatedPressable style={styles.paymentCard} scaleTo={0.99} onPress={() => { }}>
+              <View style={styles.paymentHeader}>
+                <Text style={styles.paymentTitle}>Payment Method</Text>
+                <View style={styles.paymentChangeBadge}>
+                  <Text style={styles.paymentChange}>Change</Text>
+                </View>
               </View>
-            </View>
-            <View style={styles.paymentMethodRow}>
-              <View style={styles.cardIcon}>
-                <IconPop delay={200}>
-                  <Ionicons name="card" size={22} color={COLORS.navy} />
-                </IconPop>
+              <View style={styles.paymentMethodRow}>
+                <View style={styles.cardIcon}>
+                  <IconPop delay={200}>
+                    <Ionicons name="card" size={22} color={COLORS.navy} />
+                  </IconPop>
+                </View>
+                <View style={styles.paymentMethodInfo}>
+                  <Text style={styles.paymentMethodTitle}>Card / Apple Pay / Google Pay</Text>
+                  <Text style={styles.paymentMethodSub}>Secure payment powered by Stripe</Text>
+                </View>
+                <Feather name="chevron-right" size={20} color={COLORS.gray} />
               </View>
-              <View style={styles.paymentMethodInfo}>
-                <Text style={styles.paymentMethodTitle}>Card / Apple Pay / Google Pay</Text>
-                <Text style={styles.paymentMethodSub}>Secure payment powered by Stripe</Text>
-              </View>
-              <Feather name="chevron-right" size={20} color={COLORS.gray} />
-            </View>
-          </AnimatedPressable>
-        </FadeInUp>
+            </AnimatedPressable>
+          </FadeInUp>
+        )}
 
         {/* ── Stripe Banner ── */}
         <FadeInUp delay={180}>

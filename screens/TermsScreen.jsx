@@ -11,6 +11,7 @@ import {
   Easing,
   ActivityIndicator,
   Dimensions,
+  Platform,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -385,6 +386,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingVertical: 16,
+    paddingTop: Platform.OS === 'android' ? (StatusBar.currentHeight || 24) + 16 : 16,
   },
   backBtn: { flexDirection: 'row', alignItems: 'center', width: 70 },
   backText: { fontSize: 14, color: '#FFFFFF', fontWeight: '600', marginLeft: 2 },

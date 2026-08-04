@@ -292,7 +292,7 @@ export default function AddressBar({ value, onChange }) {
       >
         <KeyboardAvoidingView
           style={{ flex: 1 }}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           keyboardVerticalOffset={0}
         >
           <TouchableOpacity
@@ -421,6 +421,13 @@ export default function AddressBar({ value, onChange }) {
                       placeholderTextColor={COLORS.gray}
                       keyboardType="number-pad"
                       maxLength={10}
+                      onFocus={() => {
+                        // Zip sits near the bottom of the sheet — scroll it
+                        // fully into view above the keyboard on focus.
+                        requestAnimationFrame(() => {
+                          scrollRef.current?.scrollToEnd({ animated: true });
+                        });
+                      }}
                     />
                     {zipError ? <Text style={styles.errorText}>⚠ {zipError}</Text> : null}
                   </>

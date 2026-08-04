@@ -28,9 +28,9 @@
     },
     "android": {
       "package": "com.musb.diagnostics",
+      "softwareKeyboardLayoutMode": "resize",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "softwareKeyboardLayoutMode": "resize",
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,

@@ -371,16 +371,7 @@ export default function PhlebScorecardScreen({ navigation }) {
           <Text style={styles.screenTitle}>Your scorecard</Text>
         </FadeInUp>
 
-        {/* Privacy note banner */}
-        <FadeInUp delay={40}>
-          <View style={styles.noteBanner}>
-            <Ionicons name="shield-checkmark" size={16} color={PRIMARY} style={{ marginTop: 1 }} />
-            <Text style={styles.noteText}>
-              <Text style={{ fontWeight: '800' }}>Your view. </Text>
-              These are your aggregate numbers only — no patient names, no individual reviews, no written comments. Just where you stand and where to improve.
-            </Text>
-          </View>
-        </FadeInUp>
+       
 
         {/* Top stat cards */}
         <FadeInUp delay={90}>
@@ -513,15 +504,7 @@ export default function PhlebScorecardScreen({ navigation }) {
         )}
 
         {/* Privacy footer */}
-        <FadeInUp delay={380}>
-          <View style={styles.privacyFooter}>
-            <Ionicons name="lock-closed" size={15} color={GREEN} style={{ marginTop: 1 }} />
-            <Text style={styles.privacyFooterText}>
-              <Text style={{ fontWeight: '800' }}>What you can't see here, by design. </Text>
-              Patient names, individual ratings, written comments, and any personal information are never shown to you. You only see your aggregate scores and where to improve. Safety or conduct concerns are handled privately by a supervisor.
-            </Text>
-          </View>
-        </FadeInUp>
+        
       </ScrollView>
 
       {/* Bottom Navigation */}

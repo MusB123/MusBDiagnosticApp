@@ -186,6 +186,9 @@ function AnimatedField({ children, error }) {
   });
 }
 
+// ── Feature flag: set to true when Google/Apple sign-in are ready to launch ──
+const SHOW_SOCIAL_LOGIN = false;
+
 export default function LoginScreen({ navigation }) {
   const [email, setEmail]           = useState('');
   const [password, setPassword]     = useState('');
@@ -437,35 +440,40 @@ export default function LoginScreen({ navigation }) {
                 : <Text style={styles.signInBtnText}>Sign in</Text>}
             </AnimatedPressable>
 
-            {/* Divider */}
-            <View style={styles.dividerRow}>
-              <View style={styles.dividerLine} />
-              <Text style={styles.dividerText}>OR CONTINUE WITH</Text>
-              <View style={styles.dividerLine} />
-            </View>
+            {/* ── Google / Apple sign-in — hidden for now, flip SHOW_SOCIAL_LOGIN to re-enable ── */}
+            {SHOW_SOCIAL_LOGIN && (
+              <>
+                {/* Divider */}
+                <View style={styles.dividerRow}>
+                  <View style={styles.dividerLine} />
+                  <Text style={styles.dividerText}>OR CONTINUE WITH</Text>
+                  <View style={styles.dividerLine} />
+                </View>
 
-            {/* Google */}
-            <AnimatedPressable
-              style={[styles.socialBtn, googleLoading && { opacity: 0.6 }]}
-              onPress={handleGooglePress}
-              disabled={!request || googleLoading}
-              scaleTo={0.97}
-            >
-              {googleLoading
-                ? <ActivityIndicator color={COLORS.navyDark} size="small" />
-                : (
-                  <>
-                    <Text style={styles.googleG}>G</Text>
-                    <Text style={styles.socialBtnText}>Continue with Google</Text>
-                  </>
-                )}
-            </AnimatedPressable>
+                {/* Google */}
+                <AnimatedPressable
+                  style={[styles.socialBtn, googleLoading && { opacity: 0.6 }]}
+                  onPress={handleGooglePress}
+                  disabled={!request || googleLoading}
+                  scaleTo={0.97}
+                >
+                  {googleLoading
+                    ? <ActivityIndicator color={COLORS.navyDark} size="small" />
+                    : (
+                      <>
+                        <Text style={styles.googleG}>G</Text>
+                        <Text style={styles.socialBtnText}>Continue with Google</Text>
+                      </>
+                    )}
+                </AnimatedPressable>
 
-            {/* Apple */}
-            <AnimatedPressable style={[styles.socialBtn, { marginTop: 12 }]} scaleTo={0.97}>
-              <Text style={styles.appleIcon}></Text>
-              <Text style={styles.socialBtnText}>Continue with Apple</Text>
-            </AnimatedPressable>
+                {/* Apple */}
+                <AnimatedPressable style={[styles.socialBtn, { marginTop: 12 }]} scaleTo={0.97}>
+                  <Text style={styles.appleIcon}></Text>
+                  <Text style={styles.socialBtnText}>Continue with Apple</Text>
+                </AnimatedPressable>
+              </>
+            )}
           </FadeInUp>
 
           {/* Sign up */}

@@ -356,7 +356,13 @@ function TestDetailsModal({ test, visible, onClose, isSelected, onToggle }) {
 
   return (
     <Modal visible={visible} transparent animationType="none" onRequestClose={onClose}>
-      <Pressable style={styles.modalBackdrop} onPress={onClose}>
+      <View style={styles.modalBackdrop}>
+        {/* Backdrop tap-to-close now lives on its own layer behind the sheet,
+            instead of wrapping the scrollable content in a view that captures
+            the touch responder. That capture was fighting the ScrollView for
+            gesture ownership, which is what made scrolling feel sticky. */}
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+
         <Animated.View
           style={[
             styles.modalSheet,
@@ -372,8 +378,7 @@ function TestDetailsModal({ test, visible, onClose, isSelected, onToggle }) {
             },
           ]}
         >
-          {/* Stop backdrop press from closing when tapping inside the sheet */}
-          <View onStartShouldSetResponder={() => true}>
+          <View>
             <View style={styles.modalHandle} />
 
             <View style={styles.modalHeaderRow}>
@@ -483,7 +488,7 @@ function TestDetailsModal({ test, visible, onClose, isSelected, onToggle }) {
             </AnimatedPressable>
           </View>
         </Animated.View>
-      </Pressable>
+      </View>
     </Modal>
   );
 }
