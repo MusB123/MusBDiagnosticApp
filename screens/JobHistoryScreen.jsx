@@ -15,31 +15,6 @@ import { Ionicons, Feather } from '@expo/vector-icons';
 import { PHLEB_ENDPOINTS } from '../config/api';
 import { authGet, getStoredPhlebUser } from '../utils/auth';
 
-/* ────────────────────────────────────────────────────────────
-   NOTE ON BACKEND WIRING
-   Job history: comes from PHLEB_ENDPOINTS.phlebJobs(phlebId) —
-   GET /api/phlebotomists/<id>/jobs/ (views.phlebotomist_jobs). This is a
-   real, working endpoint. It needs the phlebotomist's own ID in the URL,
-   which we pull from getStoredPhlebUser() below (same pattern used on
-   NewRequestScreen / DashboardScreen).
-
-   Payout: THERE IS NO BACKEND ENDPOINT FOR THIS YET. A `payouts` Mongo
-   collection exists and gets written to when a dispatch job completes
-   (dispatch.py complete_dispatch_job), but nothing reads it back for a
-   given phlebotomist. Until a real endpoint exists, this screen simply
-   skips the payout card instead of pointing at a URL that doesn't exist.
-   To wire it up later: add a Django view that sums this phlebotomist's
-   `payout_status: 'pending'` records from the payouts collection, add a
-   URL for it, then set PAYOUT_ENDPOINT below to that URL.
-
-   Expected shape per job item from phlebJobs (see normalizeJob):
-     { id, patient_name, address, tests, earning, status, date }
-   status: 'completed' | 'assigned' | 'pending'
-     (there is no 'expired' status from this endpoint currently)
-──────────────────────────────────────────────────────────── */
-
-// Set this once a real payout endpoint exists, e.g. `${PHLEB_ENDPOINTS.dashboard}payout/`
-// or a dedicated PHLEB_ENDPOINTS.payout. Left null so the app doesn't call a dead URL.
 const PAYOUT_ENDPOINT = null;
 
 const PRIMARY   = '#18377D';
@@ -52,9 +27,6 @@ const BG        = '#F6F8FC';
 
 const FILTERS = ['This week', 'Last week', 'This month', 'All time'];
 
-/* ────────────────────────────────────────────────────────────
-   Animation primitives (consistent with DashboardScreen)
-──────────────────────────────────────────────────────────── */
 
 function FadeInUp({ delay = 0, distance = 16, children, style }) {
   const anim = useRef(new Animated.Value(0)).current;
@@ -127,9 +99,6 @@ function Shimmer({ style }) {
   );
 }
 
-/* ────────────────────────────────────────────────────────────
-   Presentational pieces
-──────────────────────────────────────────────────────────── */
 
 function StatusBadge({ status }) {
   const map = {
@@ -175,11 +144,6 @@ function JobCard({ item, onPress }) {
 
         <View style={{ alignItems: 'flex-end', gap: 6 }}>
           <StatusBadge status={item.status} />
-          {!isExpired && (
-            <View style={styles.chevronBtn}>
-              <Ionicons name="chevron-forward" size={16} color={PRIMARY} />
-            </View>
-          )}
         </View>
       </View>
 
@@ -228,14 +192,7 @@ function SkeletonCard() {
   );
 }
 
-/* ────────────────────────────────────────────────────────────
-   Helpers
-──────────────────────────────────────────────────────────── */
 
-// Maps a raw job from GET /api/phlebotomists/<id>/jobs/ (views.phlebotomist_jobs)
-// into the shape this screen renders. That endpoint returns:
-//   id, date, patient_name, patient_phone, address, tests, status,
-//   duration, earning, test_price, payment_method, has_order, has_insurance, ...
 function normalizeJob(raw) {
   return {
     id: String(raw.id ?? raw.job_id ?? Math.random()),

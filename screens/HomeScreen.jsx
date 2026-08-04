@@ -14,7 +14,9 @@ import {
   Easing,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import AddressBar from '../components/AddressBar';
 import * as Location from 'expo-location';
 import { setBookingDraft, getBookingDraft } from '../utils/bookingDraft';
@@ -39,6 +41,7 @@ const COLORS = {
   pink: '#EC4899',
   pinkLight: '#FCE7F3',
   star: '#FBBF24',
+  starEmpty: '#D9DEE8',
   unreadDot: '#EF4444',
   gold: '#D4AF37',
   goldLight: '#F5E7B8',
@@ -302,13 +305,49 @@ function BreathingBadge({ children, style, textStyle }) {
   );
 }
 
+
+function AnimatedStar({ filled, size = 32, onPress, color = COLORS.star, emptyColor = COLORS.starEmpty }) {
+  const scale = useRef(new Animated.Value(1)).current;
+  const wasFilled = useRef(filled);
+
+  useEffect(() => {
+    if (filled && !wasFilled.current) {
+      Animated.sequence([
+        Animated.spring(scale, { toValue: 1.3, useNativeDriver: true, speed: 50, bounciness: 14 }),
+        Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 22, bounciness: 8 }),
+      ]).start();
+    }
+    wasFilled.current = filled;
+  }, [filled]);
+
+  const pressIn = () => {
+    Animated.spring(scale, { toValue: 0.78, useNativeDriver: true, speed: 50, bounciness: 6 }).start();
+  };
+  const pressOut = () => {
+    Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 26, bounciness: 9 }).start();
+  };
+
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      onPressIn={pressIn}
+      onPressOut={pressOut}
+      activeOpacity={1}
+      hitSlop={{ top: 8, bottom: 8, left: 6, right: 6 }}
+    >
+      <Animated.View style={{ transform: [{ scale }] }}>
+        <Ionicons name={filled ? 'star' : 'star-outline'} size={size} color={filled ? color : emptyColor} />
+      </Animated.View>
+    </TouchableOpacity>
+  );
+}
+
 function formatTimeLeft(value) {
   if (!value) return null;
 
   const date = new Date(value);
   if (isNaN(date.getTime())) {
-    // Not a parseable date — show it as-is only if it's a short human string
-    // like "2 days", otherwise hide it entirely.
+   
     return /^\d+\s*\w+$/.test(value) ? value : null;
   }
 
@@ -327,13 +366,7 @@ function formatTimeLeft(value) {
   return `${days}d`;
 }
 
-/**
- * Classy, on-brand offer card.
- * Alternates between a solid navy card (gold accents) and a crisp white
- * card (navy accents) — matches the app's palette instead of loud,
- * mismatched gradients. Subtle shine sweep + spring entrance/press for
- * a premium, animated feel without being garish.
- */
+
 function OfferCard({ offer, index, onPress }) {
   const anim = useRef(new Animated.Value(0)).current;
   const shine = useRef(new Animated.Value(0)).current;
@@ -432,6 +465,7 @@ function OfferCard({ offer, index, onPress }) {
 }
 
 export default function HomeScreen({ navigation, route }) {
+  const insets = useSafeAreaInsets();
   const [isGuest, setIsGuest] = useState(false);
   useEffect(() => {
     (async () => {
@@ -1136,6 +1170,7 @@ export default function HomeScreen({ navigation, route }) {
           <Animated.View
             style={[
               styles.ratingCard,
+              { paddingBottom: 28 + insets.bottom },
               {
                 opacity: modalAnim,
                 transform: [
@@ -1160,13 +1195,12 @@ export default function HomeScreen({ navigation, route }) {
                 <Text style={styles.ratingHint}>Tap a star to rate</Text>
                 <View style={styles.starsRow}>
                   {[1, 2, 3, 4, 5].map((n) => (
-                    <AnimatedPressable key={n} scaleTo={0.8} onPress={() => setOverallRating(n)}>
-                      <Ionicons
-                        name={n <= overallRating ? 'star' : 'star-outline'}
-                        size={38}
-                        color={COLORS.star}
-                      />
-                    </AnimatedPressable>
+                    <AnimatedStar
+                      key={n}
+                      filled={n <= overallRating}
+                      size={40}
+                      onPress={() => setOverallRating(n)}
+                    />
                   ))}
                 </View>
                 <Text style={styles.overallRatingLabel}>
@@ -1187,13 +1221,12 @@ export default function HomeScreen({ navigation, route }) {
                   </View>
                   <View style={styles.catStarsRow}>
                     {[1, 2, 3, 4, 5].map((n) => (
-                      <TouchableOpacity key={n} onPress={() => setCategoryRating(key, n)} hitSlop={8}>
-                        <Ionicons
-                          name={n <= categoryRatings[key] ? 'star' : 'star-outline'}
-                          size={19}
-                          color={COLORS.star}
-                        />
-                      </TouchableOpacity>
+                      <AnimatedStar
+                        key={n}
+                        filled={n <= categoryRatings[key]}
+                        size={20}
+                        onPress={() => setCategoryRating(key, n)}
+                      />
                     ))}
                   </View>
                 </View>
@@ -1235,29 +1268,33 @@ export default function HomeScreen({ navigation, route }) {
             </ScrollView>
 
             <View style={styles.ratingButtonRow}>
-              <TouchableOpacity
-                style={styles.ratingCancelBtn}
-                onPress={() => setRatingAppt(null)}
-                disabled={submittingRating}
-              >
-                <Text style={styles.ratingCancelText}>Skip</Text>
-              </TouchableOpacity>
+              {!submittingRating && (
+                <TouchableOpacity
+                  style={styles.ratingCancelBtn}
+                  onPress={() => setRatingAppt(null)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.ratingCancelText}>Skip</Text>
+                </TouchableOpacity>
+              )}
               <AnimatedPressable
                 style={[styles.ratingSubmitBtn, submittingRating && styles.ratingSubmitBtnDisabled]}
-                scaleTo={0.95}
+                scaleTo={0.96}
                 onPress={handleSubmitRating}
                 disabled={submittingRating}
               >
-                {submittingRating ? (
-                  <ActivityIndicator color="#FFFFFF" size="small" />
-                ) : (
-                  <>
-                    <View style={styles.ratingSubmitIconBadge}>
-                      <Ionicons name="checkmark" size={15} color="#FFFFFF" />
-                    </View>
+                <LinearGradient
+                  colors={[COLORS.navyLight, COLORS.navy]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.ratingSubmitGradient}
+                >
+                  {submittingRating ? (
+                    <ActivityIndicator color="#FFFFFF" size="small" />
+                  ) : (
                     <Text style={styles.ratingSubmitText}>Submit rating</Text>
-                  </>
-                )}
+                  )}
+                </LinearGradient>
               </AnimatedPressable>
             </View>
           </Animated.View>
@@ -1426,11 +1463,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center', alignItems: 'center', padding: 24,
   },
   ratingCard: {
-    width: '100%', maxHeight: '90%', backgroundColor: COLORS.white,
-    borderRadius: 28, padding: 24, paddingTop: 36,
-    elevation: 12,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.28, shadowRadius: 24,
+   width: '100%', maxHeight: '90%', backgroundColor: COLORS.white,
+   borderRadius: 28, padding: 24, paddingTop: 36, paddingBottom: 28,
+   elevation: 12,
+   shadowColor: '#000', shadowOffset: { width: 0, height: 12 },
+   shadowOpacity: 0.28, shadowRadius: 24,
   },
   ratingHeaderIconWrap: {
     position: 'absolute', top: -28, alignSelf: 'center',
@@ -1489,22 +1526,41 @@ const styles = StyleSheet.create({
     marginTop: 8, marginBottom: 4, backgroundColor: COLORS.offWhite,
   },
 
-  ratingButtonRow: { flexDirection: 'row', gap: 12, marginTop: 24 },
+  ratingButtonRow: { flexDirection: 'row', gap: 12, marginTop: 24,marginBottom: 8},
   ratingCancelBtn: {
-    flex: 1, borderWidth: 1.5, borderColor: COLORS.border, borderRadius: 18,
-    paddingVertical: 16, alignItems: 'center', justifyContent: 'center',
+    flex: 1,
+    borderWidth: 1.5, borderColor: COLORS.border, borderRadius: 18,
+    paddingVertical: 18, alignItems: 'center', justifyContent: 'center',
     backgroundColor: COLORS.offWhite,
   },
-  ratingCancelText: { color: COLORS.gray, fontWeight: '700', fontSize: 14 },
+  ratingCancelText: { color: COLORS.gray, fontWeight: '700', fontSize: 13 },
   ratingSubmitBtn: {
-    flex: 1.6, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
-    backgroundColor: COLORS.navy, borderRadius: 18, paddingVertical: 16,
+    flex: 3,
+    borderRadius: 18,
+    overflow: 'hidden',
     elevation: 6,
-    shadowColor: COLORS.navy, shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.35, shadowRadius: 12,
+    shadowColor: COLORS.navy,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.35,
+    shadowRadius: 12,
+  },
+  ratingSubmitGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 18,
+    paddingHorizontal: 8,
+    minHeight: 54,
   },
   ratingSubmitBtnDisabled: { opacity: 0.6 },
-  ratingSubmitText: { color: '#FFFFFF', fontWeight: '800', fontSize: 15, letterSpacing: 0.2 },
+  ratingSubmitText: {
+    color: '#FFFFFF',
+    fontWeight: '800',
+    fontSize: 15,
+    lineHeight: 20,
+    letterSpacing: 0.2,
+    textAlign: 'center',
+  },
   ratingSubmitIconBadge: {
     width: 24, height: 24, borderRadius: 12,
     backgroundColor: 'rgba(255,255,255,0.2)',

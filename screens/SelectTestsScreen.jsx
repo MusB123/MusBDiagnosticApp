@@ -916,10 +916,14 @@ const handleSelectOffer = (offer) => {
           : {}),
       });
     } else {
-      navigation.navigate('Checkout', {
-        labTestsTotal: testsTotal,
-        labTestsNames: selectedTestsData.map(t => t.name).join(', '),
-        selectedTests: selectedTestsData,
+      // No returnTo means we landed here directly (e.g. from Home's offer
+      // card), not mid-way through an existing BookMobileVisit flow. Route
+      // through scheduling first — going straight to Checkout skips date/
+      // time/address selection entirely.
+      navigation.navigate('BookMobileVisit', {
+        isGuest: route?.params?.isGuest === true,
+        selectedTestsData,
+        testsTotal,
         appliedOffer,
         extraTestsData,
       });

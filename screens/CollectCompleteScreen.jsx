@@ -106,6 +106,17 @@ const STORAGE_OPTIONS = [
   { key: 'Frozen', label: 'Frozen', sub: '-20°C', icon: 'snow' },
 ];
 
+let tubeSeq = 0;
+const makeTube = () => {
+  tubeSeq += 1;
+  return {
+    id: `tube_${Date.now()}_${tubeSeq}`,
+    barcode: '',
+    photoUri: null,
+    photoS3Key: null,
+  };
+};
+
 /** Springy press-scale wrapper. */
 function AnimatedPressable({ style, onPress, disabled, children, scaleTo = 0.97, ...rest }) {
   const scale = useRef(new Animated.Value(1)).current;
@@ -318,31 +329,52 @@ function BarcodeVisual({ code }) {
   );
 }
 
-function TubeBarcodeCard({ tube, index, onScanToggle, onAddPhoto }) {
+/**
+ * One repeatable tube row: manual barcode/tube-number entry (optional)
+ * and a REQUIRED photo. Supports being removed if it isn't the last
+ * remaining tube.
+ */
+function TubeCard({ tube, index, onBarcodeChange, onAddPhoto, onRemove, canRemove }) {
+  const hasPhoto = !!tube.photoUri;
   return (
     <FadeInUp delay={60 + index * 40} style={styles.tubeCard}>
-      <View style={styles.tubeCardRow}>
-        <TouchableOpacity
-          style={[styles.tubeBarcodeBox, tube.scanned && styles.tubeBarcodeBoxScanned]}
-          activeOpacity={0.75}
-          onPress={onScanToggle}
-        >
-          <BarcodeVisual code={tube.barcode} />
-          <Text style={styles.tubeBarcodeText}>{tube.barcode}</Text>
-          {tube.scanned && (
-            <View style={styles.tubeScannedBadge}>
-              <Ionicons name="checkmark-circle" size={14} color={GREEN_LIGHT} />
-            </View>
-          )}
-        </TouchableOpacity>
+      <View style={styles.tubeCardTopRow}>
+        <Text style={styles.tubeCardIndexLabel}>Tube {index + 1}</Text>
+        {canRemove && (
+          <TouchableOpacity
+            onPress={onRemove}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            style={styles.tubeRemoveBtn}
+          >
+            <Ionicons name="trash-outline" size={15} color="#9CA3AF" />
+          </TouchableOpacity>
+        )}
+      </View>
 
-        <TouchableOpacity style={styles.tubePhotoBox} activeOpacity={0.75} onPress={onAddPhoto}>
-          {tube.photoUri ? (
-            <Image source={{ uri: tube.photoUri }} style={styles.tubePhotoThumb} />
+      <View style={styles.tubeCardRow}>
+        <View style={styles.tubeBarcodeInputWrap}>
+          <BarcodeVisual code={tube.id} />
+          <TextInput
+            style={styles.tubeBarcodeInput}
+            placeholder="Bar Code"
+            placeholderTextColor="#9CA3AF"
+            value={tube.barcode}
+            onChangeText={onBarcodeChange}
+            returnKeyType="done"
+          />
+        </View>
+
+        <TouchableOpacity
+          style={[styles.tubePhotoBox, !hasPhoto && styles.tubePhotoBoxRequired]}
+          activeOpacity={0.75}
+          onPress={onAddPhoto}
+        >
+          {hasPhoto ? (
+            <Image source={{ uri: tube.photoUri }} style={styles.tubePhotoThumb} resizeMode="cover" />
           ) : (
             <>
               <Ionicons name="camera-outline" size={18} color="#9CA3AF" />
-              <Text style={styles.tubePhotoText}>Add photo{'\n'}(optional)</Text>
+              <Text style={styles.tubePhotoText}>Add photo{'\n'}(required)</Text>
             </>
           )}
         </TouchableOpacity>
@@ -382,20 +414,14 @@ export default function CollectCompleteScreen({ route, navigation }) {
   const [unableReason, setUnableReason] = useState('');
   const [submittingUnable, setSubmittingUnable] = useState(false);
 
-  // --- Tube barcode + photo state ---
-  // TODO backend: barcode should come from the order/test payload once
-  // the backend exposes it. Stubbed for now.
-  const [tubeBarcode] = useState(
-    `MB-${472}-LAV-${String(1).padStart(4, '0')}`
-  );
-  const [tubeScanned, setTubeScanned] = useState(false);
-  const [tubePhotoUri, setTubePhotoUri] = useState(null);
-  const [tubePhotoS3Key, setTubePhotoS3Key] = useState(null);
-
+  // --- Tube state: a list so phlebotomists can add one entry per tube ---
+  const [tubes, setTubes] = useState(() => [makeTube()]);
+  // { tubeId, fileName, uri, base64 } while a photo is staged awaiting confirm
   const [pendingTubeUpload, setPendingTubeUpload] = useState(null);
-  const [uploadingTubePhoto, setUploadingTubePhoto] = useState(false);
+  const [uploadingTubeId, setUploadingTubeId] = useState(null);
+
   const headerAnim = useRef(new Animated.Value(0)).current;
-  
+
   useEffect(() => {
     Animated.timing(headerAnim, {
       toValue: 1,
@@ -412,11 +438,6 @@ export default function CollectCompleteScreen({ route, navigation }) {
     setChecklist((prev) =>
       prev.map((item) => (item.id === id ? { ...item, done: !item.done } : item))
     );
-  };
-// TODO: replace with real barcode scan (expo-camera / expo-barcode-scanner)
-  // once wired to the backend. Tap-to-toggle stub for now.
-  const handleScanTube = () => {
-    setTubeScanned((prev) => !prev);
   };
 
   const shortName = (uri = '') => {
@@ -435,7 +456,20 @@ export default function CollectCompleteScreen({ route, navigation }) {
     return { uri: resized.uri, base64 };
   };
 
-  const stageTubePhoto = async (source) => {
+  // --- Tube list management ---
+  const addTube = () => {
+    setTubes((prev) => [...prev, makeTube()]);
+  };
+
+  const removeTube = (tubeId) => {
+    setTubes((prev) => (prev.length > 1 ? prev.filter((t) => t.id !== tubeId) : prev));
+  };
+
+  const updateTubeBarcode = (tubeId, text) => {
+    setTubes((prev) => prev.map((t) => (t.id === tubeId ? { ...t, barcode: text } : t)));
+  };
+
+  const stageTubePhoto = async (tubeId, source) => {
     try {
       const permission =
         source === 'camera'
@@ -450,12 +484,14 @@ export default function CollectCompleteScreen({ route, navigation }) {
       }
       const launch =
         source === 'camera' ? ImagePicker.launchCameraAsync : ImagePicker.launchImageLibraryAsync;
-      const result = await launch({ quality: 0.7, allowsEditing: true, base64: false });
+      // allowsEditing: false — no forced crop screen, take the photo as-is.
+      const result = await launch({ quality: 0.7, allowsEditing: false, base64: false });
       if (result.canceled || !result.assets?.length) return;
 
       const asset = result.assets[0];
       const compressed = await compressImage(asset.uri);
       setPendingTubeUpload({
+        tubeId,
         fileName: asset.fileName || shortName(asset.uri),
         uri: compressed.uri,
         base64: compressed.base64,
@@ -466,20 +502,21 @@ export default function CollectCompleteScreen({ route, navigation }) {
     }
   };
 
-  const handleAddTubePhoto = () => {
+  const handleAddTubePhoto = (tubeId) => {
     Alert.alert('Add photo', 'Choose a source', [
-      { text: 'Camera', onPress: () => stageTubePhoto('camera') },
-      { text: 'Gallery', onPress: () => stageTubePhoto('gallery') },
+      { text: 'Camera', onPress: () => stageTubePhoto(tubeId, 'camera') },
+      { text: 'Gallery', onPress: () => stageTubePhoto(tubeId, 'gallery') },
       { text: 'Cancel', style: 'cancel' },
     ]);
   };
 
-  // TODO backend: confirm 'tube-photos' is an accepted `kind`, or swap to
-  // a dedicated PHLEB_ENDPOINTS.tubePhoto(job.id) route.
+  // Uploads to S3 via uploadDocument, then stores the returned key on the
+  // tube itself. That key rides along in the checklist submission below,
+  // so it actually reaches the backend instead of only living in S3.
   const confirmTubePhotoUpload = async () => {
-    if (!pendingTubeUpload || uploadingTubePhoto) return;
-    const { fileName, uri, base64 } = pendingTubeUpload;
-    setUploadingTubePhoto(true);
+    if (!pendingTubeUpload || uploadingTubeId) return;
+    const { tubeId, fileName, uri, base64 } = pendingTubeUpload;
+    setUploadingTubeId(tubeId);
     try {
       const { key: s3key } = await uploadDocument({
         uri,
@@ -487,8 +524,9 @@ export default function CollectCompleteScreen({ route, navigation }) {
         kind: 'tube-photos',
         filename: fileName,
       });
-      setTubePhotoUri(uri);
-      setTubePhotoS3Key(s3key);
+      setTubes((prev) =>
+        prev.map((t) => (t.id === tubeId ? { ...t, photoUri: uri, photoS3Key: s3key } : t))
+      );
       setPendingTubeUpload(null);
     } catch (err) {
       Alert.alert(
@@ -498,7 +536,7 @@ export default function CollectCompleteScreen({ route, navigation }) {
           : (err.message || 'Could not upload the photo.')
       );
     } finally {
-      setUploadingTubePhoto(false);
+      setUploadingTubeId(null);
     }
   };
 
@@ -507,12 +545,21 @@ export default function CollectCompleteScreen({ route, navigation }) {
   };
 
   const allChecked = checklist.every((item) => item.done);
+  const missingPhotoCount = tubes.filter((t) => !t.photoS3Key).length;
+  const canSubmit = allChecked && missingPhotoCount === 0;
 
   const handleMarkCollected = async () => {
     if (!allChecked) {
       Alert.alert(
         'Collection incomplete',
         'Please complete the checklist before marking the sample collected.'
+      );
+      return;
+    }
+    if (missingPhotoCount > 0) {
+      Alert.alert(
+        'Tube photo required',
+        `Please add a photo for every tube (${missingPhotoCount} still missing) before proceeding.`
       );
       return;
     }
@@ -525,6 +572,14 @@ export default function CollectCompleteScreen({ route, navigation }) {
       const checklistPayload = {};
       checklist.forEach((item) => { checklistPayload[item.id] = item.done; });
 
+      // Tube data (barcode/tube-number and the S3 key for the required
+      // photo) now travels with the checklist submission so it's
+      // persisted on the backend, not just sitting in S3.
+      const tubesPayload = tubes.map((t) => ({
+        barcode: t.barcode?.trim() || null,
+        photo_s3_key: t.photoS3Key,
+      }));
+
       const res = await fetch(PHLEB_ENDPOINTS.testChecklist(job.id), {
         method: 'POST',
         headers: {
@@ -534,6 +589,7 @@ export default function CollectCompleteScreen({ route, navigation }) {
         body: JSON.stringify({
           checklist: checklistPayload,
           storage_condition: storageCondition,
+          tubes: tubesPayload,
         }),
       });
       const data = await res.json();
@@ -755,43 +811,29 @@ export default function CollectCompleteScreen({ route, navigation }) {
           </AnimatedPressable>
         </FadeInUp>
 
-        {/* Tube barcode scanning */}
-        <FadeInUp delay={140}>
-          <Text style={[styles.sectionLabel, { marginTop: 24, marginBottom: 4 }]}>
-            Tube Barcode Scanning
-          </Text>
-          <Text style={[styles.sectionSubLabel, { marginBottom: 12 }]}>
-            {tubeScanned ? 'Tube scanned and matched to order.' : 'Scan the tube to match it to the order.'}
-          </Text>
-          <View style={styles.tubeCard}>
-            <View style={styles.tubeCardRow}>
-              <TouchableOpacity
-                style={[styles.tubeBarcodeBox, tubeScanned && styles.tubeBarcodeBoxScanned]}
-                activeOpacity={0.75}
-                onPress={handleScanTube}
-              >
-                <BarcodeVisual code={tubeBarcode} />
-                <Text style={styles.tubeBarcodeText}>{tubeBarcode}</Text>
-                {tubeScanned && (
-                  <View style={styles.tubeScannedBadge}>
-                    <Ionicons name="checkmark-circle" size={14} color={GREEN_LIGHT} />
-                  </View>
-                )}
-              </TouchableOpacity>
-
-              <TouchableOpacity style={styles.tubePhotoBox} activeOpacity={0.75} onPress={handleAddTubePhoto}>
-                {tubePhotoUri ? (
-                  <Image source={{ uri: tubePhotoUri }} style={styles.tubePhotoThumb} />
-                ) : (
-                  <>
-                    <Ionicons name="camera-outline" size={18} color="#9CA3AF" />
-                    <Text style={styles.tubePhotoText}>Add photo{'\n'}(optional)</Text>
-                  </>
-                )}
-              </TouchableOpacity>
-            </View>
+        {/* Tube photos + barcode/tube numbers — one card per tube */}
+        <FadeInUp delay={140} style={{ marginTop: 26 }}>
+          <View style={styles.sectionHeadingRow}>
+            <Text style={styles.sectionLabel}>Tubes Collected</Text>
           </View>
         </FadeInUp>
+
+        {tubes.map((tube, index) => (
+          <TubeCard
+            key={tube.id}
+            tube={tube}
+            index={index}
+            canRemove={tubes.length > 1}
+            onBarcodeChange={(text) => updateTubeBarcode(tube.id, text)}
+            onAddPhoto={() => handleAddTubePhoto(tube.id)}
+            onRemove={() => removeTube(tube.id)}
+          />
+        ))}
+
+        <AnimatedPressable style={styles.addTubeButton} scaleTo={0.97} onPress={addTube}>
+          <Ionicons name="add-circle-outline" size={18} color={PRIMARY} />
+          <Text style={styles.addTubeButtonText}>Add another tube</Text>
+        </AnimatedPressable>
 
         {/* Unable to Collect / Contact Support — redesigned as colorful cards */}
         <FadeInUp delay={170}>
@@ -827,18 +869,26 @@ export default function CollectCompleteScreen({ route, navigation }) {
           <View style={styles.incompleteNotice}>
             <PulseDot color={AMBER_LIGHT} size={7} />
             <Text style={styles.incompleteNoticeText}>
-              {`${checklist.length - doneCount} item${checklist.length - doneCount === 1 ? '' : 's'} remaining`}
+              {`${checklist.length - doneCount} checklist item${checklist.length - doneCount === 1 ? '' : 's'} remaining`}
+            </Text>
+          </View>
+        )}
+        {allChecked && missingPhotoCount > 0 && (
+          <View style={styles.incompleteNotice}>
+            <PulseDot color={AMBER_LIGHT} size={7} />
+            <Text style={styles.incompleteNoticeText}>
+              {`${missingPhotoCount} tube photo${missingPhotoCount === 1 ? '' : 's'} still needed`}
             </Text>
           </View>
         )}
         <AnimatedPressable
           scaleTo={0.97}
           onPress={handleMarkCollected}
-          disabled={!allChecked || submitting}
+          disabled={!canSubmit || submitting}
         >
           <LinearGradient
             colors={
-              !allChecked || submitting
+              !canSubmit || submitting
                 ? ['#B0B7C3', '#9CA3AF']
                 : [GREEN_LIGHT, GREEN]
             }
@@ -851,7 +901,7 @@ export default function CollectCompleteScreen({ route, navigation }) {
             ) : (
               <>
                 <Ionicons
-                  name={allChecked ? 'checkmark-circle' : 'lock-closed-outline'}
+                  name={canSubmit ? 'checkmark-circle' : 'lock-closed-outline'}
                   size={18}
                   color="#FFFFFF"
                   style={{ marginRight: 8 }}
@@ -978,7 +1028,7 @@ export default function CollectCompleteScreen({ route, navigation }) {
             <Image
               source={{ uri: pendingTubeUpload?.uri }}
               style={styles.tubePhotoPreview}
-              resizeMode="cover"
+              resizeMode="contain"
             />
             <Text style={styles.tubePhotoModalFileName} numberOfLines={1}>
               {pendingTubeUpload?.fileName}
@@ -987,14 +1037,14 @@ export default function CollectCompleteScreen({ route, navigation }) {
               <TouchableOpacity
                 style={styles.reasonCancelBtn}
                 onPress={cancelTubePhotoUpload}
-                disabled={uploadingTubePhoto}
+                disabled={!!uploadingTubeId}
               >
                 <Text style={styles.reasonCancelText}>Retake / Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.reasonSendBtnWrap}
                 onPress={confirmTubePhotoUpload}
-                disabled={uploadingTubePhoto}
+                disabled={!!uploadingTubeId}
                 activeOpacity={0.85}
               >
                 <LinearGradient
@@ -1003,7 +1053,7 @@ export default function CollectCompleteScreen({ route, navigation }) {
                   end={{ x: 1, y: 1 }}
                   style={styles.reasonSendBtn}
                 >
-                  {uploadingTubePhoto ? (
+                  {uploadingTubeId ? (
                     <ActivityIndicator color="#FFFFFF" size="small" />
                   ) : (
                     <Text style={styles.reasonSendText}>Upload</Text>
@@ -1553,6 +1603,8 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: '#F1F5F9',
   },
+
+  // --- Tube cards ---
   tubeCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
@@ -1566,43 +1618,48 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 3 },
     elevation: 1,
   },
+  tubeCardTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  tubeCardIndexLabel: {
+    fontSize: 12.5,
+    fontWeight: '800',
+    color: '#374151',
+  },
+  tubeRemoveBtn: {
+    padding: 4,
+  },
   tubeCardRow: {
     flexDirection: 'row',
     gap: 10,
   },
-  tubeBarcodeBox: {
+  tubeBarcodeInputWrap: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1.5,
-    borderColor: CARD_BORDER,
-    borderRadius: 12,
-    paddingVertical: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  tubeBarcodeBoxScanned: {
-    borderColor: GREEN_LIGHT,
-    backgroundColor: '#F0FDF4',
+    justifyContent: 'flex-start',
   },
   barcodeVisual: {
     flexDirection: 'row',
-    height: 36,
-    marginBottom: 8,
+    height: 28,
+    marginBottom: 6,
     alignItems: 'center',
   },
-  tubeBarcodeText: {
-    fontSize: 12,
-    fontWeight: '700',
+  tubeBarcodeInput: {
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    fontSize: 13,
+    fontWeight: '600',
     color: '#111827',
-    letterSpacing: 0.5,
-  },
-  tubeScannedBadge: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
+    backgroundColor: '#FAFBFF',
   },
   tubePhotoBox: {
     width: 88,
+    height: 88,
     borderWidth: 1.5,
     borderColor: '#D1D5DB',
     borderStyle: 'dashed',
@@ -1610,17 +1667,39 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
+    backgroundColor: '#FAFBFF',
+  },
+  tubePhotoBoxRequired: {
+    borderColor: AMBER,
   },
   tubePhotoThumb: {
     width: '100%',
     height: '100%',
   },
   tubePhotoText: {
-    fontSize: 10.5,
+    fontSize: 10,
     fontWeight: '700',
     color: '#9CA3AF',
     textAlign: 'center',
     marginTop: 4,
+  },
+  addTubeButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    borderWidth: 1.5,
+    borderColor: PRIMARY,
+    borderStyle: 'dashed',
+    borderRadius: 14,
+    paddingVertical: 12,
+    marginTop: 2,
+    marginBottom: 4,
+  },
+  addTubeButtonText: {
+    fontSize: 13.5,
+    fontWeight: '800',
+    color: PRIMARY,
   },
   tubePhotoModalCard: {
     width: '100%',
@@ -1631,7 +1710,7 @@ const styles = StyleSheet.create({
   },
   tubePhotoPreview: {
     width: '100%',
-    height: 220,
+    height: 260,
     borderRadius: 12,
     backgroundColor: '#F1F4FA',
   },
