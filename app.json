@@ -13,6 +13,7 @@
       "backgroundColor": "#0A1F5C"
     },
     "ios": {
+      "buildNumber": "1",
       "supportsTablet": true,
       "bundleIdentifier": "com.musb.diagnostics",
       "config": {
@@ -23,7 +24,8 @@
         "NSPhotoLibraryUsageDescription": "MusB Diagnostics needs photo library access so you can upload documents like prescriptions and insurance cards.",
         "NSPhotoLibraryAddUsageDescription": "MusB Diagnostics needs permission to save photos you take of your documents.",
         "NSLocationWhenInUseUsageDescription": "MusB Diagnostics needs your location to show nearby phlebotomy requests and let patients see your live location.",
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "MusB Diagnostics needs your location to show nearby phlebotomy requests and let patients see your live location."
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "MusB Diagnostics needs your location to show nearby phlebotomy requests and let patients see your live location.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
@@ -35,11 +37,12 @@
       },
       "edgeToEdgeEnabled": true,
       "permissions": [
-        "CAMERA",
-        "READ_EXTERNAL_STORAGE",
-        "READ_MEDIA_IMAGES",
-        "ACCESS_FINE_LOCATION",
-        "ACCESS_COARSE_LOCATION"
+        "android.permission.CAMERA",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.READ_MEDIA_IMAGES",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.RECORD_AUDIO"
       ],
       "config": {
         "googleMaps": {
@@ -50,9 +53,14 @@
         {
           "action": "VIEW",
           "data": [
-            { "scheme": "com.googleusercontent.apps.419738471832-8bmiolhcc8tpbo12gi8vlktvd27mpu9a" }
+            {
+              "scheme": "com.googleusercontent.apps.419738471832-8bmiolhcc8tpbo12gi8vlktvd27mpu9a"
+            }
           ],
-          "category": ["BROWSABLE", "DEFAULT"]
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
         }
       ]
     },

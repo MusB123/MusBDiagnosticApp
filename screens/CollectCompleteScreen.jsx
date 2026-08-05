@@ -523,6 +523,7 @@ export default function CollectCompleteScreen({ route, navigation }) {
         base64,
         kind: 'tube-photos',
         filename: fileName,
+        contentType: 'image/jpeg',
       });
       setTubes((prev) =>
         prev.map((t) => (t.id === tubeId ? { ...t, photoUri: uri, photoS3Key: s3key } : t))
