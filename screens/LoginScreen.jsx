@@ -51,20 +51,32 @@ const EyeOffIcon = ({ color = '#8A9BB0', size = 20 }) => (
   </Svg>
 );
 
+const BackArrowIcon = ({ color = '#0A1F5C', size = 20 }) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+    <Path
+      d="M15 19L8 12L15 5"
+      stroke={color} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"
+    />
+  </Svg>
+);
+
+// ── Theme — matched to the Splash screen's navy-blue palette ──
+// (keys kept the same as before so every usage below still works; only the
+// hex values changed, so this is a drop-in re-theme rather than a rewrite.)
 const COLORS = {
-  navy: '#1B3A8C',
-  navyDark: '#0D1F3C',
-  navyLight: '#2C4FA8',
+  navy: '#0A1F5C',        // Splash brand blue — focus borders, links, accents
+  navyDark: '#0A1F5C',    // brand navy — buttons, headings (same as Splash bg)
+  navyLight: '#3E5CA3',
   white: '#FFFFFF',
-  offWhite: '#F4F7FB',
-  lightGray: '#E8EEF5',
-  gray: '#8A9BB0',
-  bodyText: '#4A5568',
-  border: '#D1DBE8',
+  offWhite: '#F2F4FA',    // soft blue-tinted off-white background
+  lightGray: '#DDE3F0',
+  gray: '#8992A8',
+  bodyText: '#2B3350',
+  border: 'rgba(10,31,92,0.16)',
   inputBg: '#FFFFFF',
-  error: '#E63946',
-  errorBorder: '#E63946',
-  success: '#22C55E',
+  error: '#C0392B',
+  errorBorder: '#C0392B',
+  success: '#16A34A',     // same green family as Splash's accreditation dot
 };
 
 // ── Reusable animated primitives ────────────────────────────────────────────
@@ -115,40 +127,99 @@ function AnimatedPressable({ style, onPress, children, scaleTo = 0.96, disabled,
   );
 }
 
-/** Logo card that pops in with a soft overshoot + gentle floating glow ring. */
+/** Small bounce-pop used on the eye icon whenever visibility is toggled. */
+function usePopOnChange(dep) {
+  const scale = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    scale.setValue(0.6);
+    Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 30, bounciness: 14 }).start();
+  }, [dep]);
+  return scale;
+}
+
+// Sizing for the logo mark — every layer is positioned with explicit
+// top/left math (not flex auto-centering) so the glow, ring, and card are
+// guaranteed to sit perfectly concentric, on every platform.
+const RING_SIZE = 122;
+const GLOW_SIZE = 104;
+const CARD_SIZE = 92;
+const centerOffset = (outer, inner) => (outer - inner) / 2;
+
+/**
+ * Compact, modern logo mark: a soft pulsing glow, one slow-rotating dashed
+ * ring, and the logo card gently bobbing in the middle. Deliberately simple —
+ * a busier version (extra ring + orbiting dot) looked cluttered at this size.
+ */
 function LogoCard() {
   const pop = useRef(new Animated.Value(0)).current;
   const glow = useRef(new Animated.Value(0)).current;
+  const spin = useRef(new Animated.Value(0)).current;
+  const bob = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    Animated.spring(pop, { toValue: 1, useNativeDriver: true, speed: 10, bounciness: 12 }).start();
-    const loop = Animated.loop(
+    Animated.spring(pop, { toValue: 1, useNativeDriver: true, speed: 10, bounciness: 10 }).start();
+
+    const glowLoop = Animated.loop(
       Animated.sequence([
-        Animated.timing(glow, { toValue: 1, duration: 1600, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-        Animated.timing(glow, { toValue: 0, duration: 1600, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(glow, { toValue: 1, duration: 1700, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(glow, { toValue: 0, duration: 1700, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
       ])
     );
-    loop.start();
-    return () => loop.stop();
+    const spinLoop = Animated.loop(
+      Animated.timing(spin, { toValue: 1, duration: 11000, easing: Easing.linear, useNativeDriver: true })
+    );
+    const bobLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(bob, { toValue: 1, duration: 1800, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(bob, { toValue: 0, duration: 1800, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      ])
+    );
+
+    glowLoop.start();
+    spinLoop.start();
+    bobLoop.start();
+    return () => { glowLoop.stop(); spinLoop.stop(); bobLoop.stop(); };
   }, []);
+
+  const spinDeg = spin.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
+  const bobTranslate = bob.interpolate({ inputRange: [0, 1], outputRange: [0, -4] });
 
   return (
     <View style={styles.logoWrap}>
+      {/* soft ambient glow, centered behind everything */}
       <Animated.View
         style={[
           styles.logoGlow,
           {
-            opacity: glow.interpolate({ inputRange: [0, 1], outputRange: [0.15, 0.35] }),
-            transform: [{ scale: glow.interpolate({ inputRange: [0, 1], outputRange: [1, 1.12] }) }],
+            opacity: glow.interpolate({ inputRange: [0, 1], outputRange: [0.10, 0.22] }),
+            transform: [{ scale: glow.interpolate({ inputRange: [0, 1], outputRange: [1, 1.08] }) }],
           },
         ]}
       />
+
+      {/* single thin dashed ring, slow rotation */}
+      <Animated.View style={[styles.ringLayer, { transform: [{ rotate: spinDeg }] }]}>
+        <Svg width={RING_SIZE} height={RING_SIZE} viewBox={`0 0 ${RING_SIZE} ${RING_SIZE}`}>
+          <Circle
+            cx={RING_SIZE / 2}
+            cy={RING_SIZE / 2}
+            r={RING_SIZE / 2 - 3}
+            stroke={COLORS.navy}
+            strokeWidth={1.75}
+            strokeDasharray="7 11"
+            strokeLinecap="round"
+            fill="none"
+            opacity={0.45}
+          />
+        </Svg>
+      </Animated.View>
+
       <Animated.View
         style={[
           styles.logoCard,
           {
             opacity: pop,
-            transform: [{ scale: pop }],
+            transform: [{ scale: pop }, { translateY: bobTranslate }],
           },
         ]}
       >
@@ -162,32 +233,33 @@ function LogoCard() {
   );
 }
 
-/** Text input wrapper that animates its border color / elevation on focus. */
-function AnimatedField({ children, error }) {
-  const focusAnim = useRef(new Animated.Value(0)).current;
-  const [focused, setFocused] = useState(false);
-
-  const animateTo = (v) => {
-    Animated.timing(focusAnim, { toValue: v, duration: 180, useNativeDriver: false }).start();
-  };
-
-  const borderColor = error
-    ? COLORS.errorBorder
-    : focusAnim.interpolate({ inputRange: [0, 1], outputRange: [COLORS.border, COLORS.navy] });
-
-  return React.cloneElement(children, {
-    wrapStyle: [
-      styles.fieldBox,
-      { borderColor },
-      error && { backgroundColor: '#FFF5F5' },
-    ],
-    onWrapFocus: () => { setFocused(true); animateTo(1); },
-    onWrapBlur: () => { setFocused(false); animateTo(0); },
-  });
+/** Error text that pops/shakes in instead of just appearing. */
+function ErrorText({ children }) {
+  const anim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    anim.setValue(0);
+    Animated.sequence([
+      Animated.timing(anim, { toValue: 1, duration: 90, useNativeDriver: true }),
+      Animated.spring(anim, { toValue: 1, useNativeDriver: true, speed: 40, bounciness: 18 }),
+    ]).start();
+  }, [children]);
+  return (
+    <Animated.Text
+      style={[
+        styles.errorText,
+        {
+          opacity: anim,
+          transform: [{ translateY: anim.interpolate({ inputRange: [0, 1], outputRange: [-4, 0] }) }],
+        },
+      ]}
+    >
+      ⚠ {children}
+    </Animated.Text>
+  );
 }
 
-// ── Feature flag: set to true when Google/Apple sign-in are ready to launch ──
-const SHOW_SOCIAL_LOGIN = false;
+// ── Feature flag: Google/Apple sign-in are now enabled ──
+const SHOW_SOCIAL_LOGIN = true;
 
 export default function LoginScreen({ navigation }) {
   const [email, setEmail]           = useState('');
@@ -201,7 +273,25 @@ export default function LoginScreen({ navigation }) {
 
   const emailBorder = useRef(new Animated.Value(0)).current;
   const passwordBorder = useRef(new Animated.Value(0)).current;
+  const eyeScale = usePopOnChange(showPassword);
 
+  // ── Keyboard-safe scrolling ──
+  const scrollRef = useRef(null);
+  const emailFieldRef = useRef(null);
+  const passwordFieldRef = useRef(null);
+  const currentScrollY = useRef(0);
+
+  const scrollFieldIntoView = (fieldRef, extraOffset = 0) => {
+    setTimeout(() => {
+      if (!fieldRef.current || !scrollRef.current) return;
+      fieldRef.current.measure((fx, fy, fw, fh, fPageX, fPageY) => {
+        scrollRef.current?.measure?.((sx, sy, sw, sh, sPageX, sPageY) => {
+          const targetY = currentScrollY.current + (fPageY - sPageY) - 24 - extraOffset;
+          scrollRef.current?.scrollTo({ y: Math.max(targetY, 0), animated: true });
+        });
+      });
+    }, 50);
+  };
 
   const focusIn = (anim) => Animated.timing(anim, { toValue: 1, duration: 180, useNativeDriver: false }).start();
   const focusOut = (anim) => Animated.timing(anim, { toValue: 0, duration: 180, useNativeDriver: false }).start();
@@ -320,15 +410,32 @@ export default function LoginScreen({ navigation }) {
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="dark-content" backgroundColor={COLORS.offWhite} />
+
+      {/* Fixed top back button — always reachable, doesn't scroll away */}
+      <FadeInUp distance={-8} style={styles.topHeader}>
+        <AnimatedPressable
+          style={styles.backCircle}
+          onPress={() => navigation.navigate('Splash')}
+          scaleTo={0.9}
+        >
+          <BackArrowIcon color={COLORS.navyDark} size={19} />
+        </AnimatedPressable>
+      </FadeInUp>
+
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
       >
         <ScrollView
+          ref={scrollRef}
           style={styles.scroll}
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
+          onScroll={(e) => { currentScrollY.current = e.nativeEvent.contentOffset.y; }}
+          scrollEventThrottle={16}
         >
           {/* ── Logo + heading ── */}
           <View style={styles.headerArea}>
@@ -346,29 +453,32 @@ export default function LoginScreen({ navigation }) {
               <Text style={styles.label}>
                 Email <Text style={styles.required}>*</Text>
               </Text>
-              <Animated.View
-                style={[
-                  styles.inputBoxWrap,
-                  { borderColor: emailBorderColor },
-                  errors.email && styles.inputErrorBg,
-                ]}
-              >
-                <TextInput
-                  style={styles.input}
-                  value={email}
-                  onChangeText={(t) => {
-                    setEmail(t);
-                    if (errors.email) setErrors({ ...errors, email: '' });
-                  }}
-                  onFocus={() => focusIn(emailBorder)}
-                  onBlur={() => focusOut(emailBorder)}
-                  placeholder="your@email.com"
-                  placeholderTextColor={COLORS.gray}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                />
-              </Animated.View>
-              {errors.email ? <Text style={styles.errorText}>⚠ {errors.email}</Text> : null}
+              <View ref={emailFieldRef} collapsable={false}>
+                <Animated.View
+                  style={[
+                    styles.inputBoxWrap,
+                    { borderColor: emailBorderColor },
+                    errors.email && styles.inputErrorBg,
+                  ]}
+                >
+                  <TextInput
+                    style={styles.input}
+                    value={email}
+                    onChangeText={(t) => {
+                      setEmail(t);
+                      if (errors.email) setErrors({ ...errors, email: '' });
+                    }}
+                    onFocus={() => { focusIn(emailBorder); scrollFieldIntoView(emailFieldRef); }}
+                    onBlur={() => focusOut(emailBorder)}
+                    placeholder="your@email.com"
+                    placeholderTextColor={COLORS.gray}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    returnKeyType="next"
+                  />
+                </Animated.View>
+              </View>
+              {errors.email ? <ErrorText>{errors.email}</ErrorText> : null}
             </View>
 
             {/* Password */}
@@ -376,39 +486,45 @@ export default function LoginScreen({ navigation }) {
               <Text style={styles.label}>
                 Password <Text style={styles.required}>*</Text>
               </Text>
-              <Animated.View
-                style={[
-                  styles.passwordWrap,
-                  { borderColor: passwordBorderColor },
-                  errors.password && styles.inputErrorBg,
-                ]}
-              >
-                <TextInput
-                  style={styles.passwordInput}
-                  value={password}
-                  onChangeText={(t) => {
-                    setPassword(t);
-                    if (errors.password) setErrors({ ...errors, password: '' });
-                  }}
-                  onFocus={() => focusIn(passwordBorder)}
-                  onBlur={() => focusOut(passwordBorder)}
-                  placeholder="Enter your password"
-                  placeholderTextColor={COLORS.gray}
-                  secureTextEntry={!showPassword}
-                  autoCapitalize="none"
-                />
-                <TouchableOpacity
-                  onPress={() => setShowPassword(!showPassword)}
-                  style={styles.eyeBtn}
-                  activeOpacity={0.6}
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              <View ref={passwordFieldRef} collapsable={false}>
+                <Animated.View
+                  style={[
+                    styles.passwordWrap,
+                    { borderColor: passwordBorderColor },
+                    errors.password && styles.inputErrorBg,
+                  ]}
                 >
-                  {showPassword
-                    ? <EyeOffIcon color={COLORS.gray} size={20} />
-                    : <EyeIcon    color={COLORS.gray} size={20} />}
-                </TouchableOpacity>
-              </Animated.View>
-              {errors.password ? <Text style={styles.errorText}>⚠ {errors.password}</Text> : null}
+                  <TextInput
+                    style={styles.passwordInput}
+                    value={password}
+                    onChangeText={(t) => {
+                      setPassword(t);
+                      if (errors.password) setErrors({ ...errors, password: '' });
+                    }}
+                    onFocus={() => { focusIn(passwordBorder); scrollFieldIntoView(passwordFieldRef, 140); }}
+                    onBlur={() => focusOut(passwordBorder)}
+                    placeholder="Enter your password"
+                    placeholderTextColor={COLORS.gray}
+                    secureTextEntry={!showPassword}
+                    autoCapitalize="none"
+                    returnKeyType="done"
+                    onSubmitEditing={handleSignIn}
+                  />
+                  <TouchableOpacity
+                    onPress={() => setShowPassword(!showPassword)}
+                    style={styles.eyeBtn}
+                    activeOpacity={0.6}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  >
+                    <Animated.View style={{ transform: [{ scale: eyeScale }] }}>
+                      {showPassword
+                        ? <EyeOffIcon color={COLORS.gray} size={20} />
+                        : <EyeIcon    color={COLORS.gray} size={20} />}
+                    </Animated.View>
+                  </TouchableOpacity>
+                </Animated.View>
+              </View>
+              {errors.password ? <ErrorText>{errors.password}</ErrorText> : null}
             </View>
 
             {/* Remember + forgot */}
@@ -440,7 +556,7 @@ export default function LoginScreen({ navigation }) {
                 : <Text style={styles.signInBtnText}>Sign in</Text>}
             </AnimatedPressable>
 
-            {/* ── Google / Apple sign-in — hidden for now, flip SHOW_SOCIAL_LOGIN to re-enable ── */}
+            {/* ── Google / Apple sign-in ── */}
             {SHOW_SOCIAL_LOGIN && (
               <>
                 {/* Divider */}
@@ -488,15 +604,19 @@ export default function LoginScreen({ navigation }) {
           </FadeInUp>
 
           {/* Back to splash */}
-          <FadeInUp delay={320}>
-            <TouchableOpacity
+          <FadeInUp delay={320} style={{ alignItems: 'center' }}>
+            <AnimatedPressable
               style={styles.backBtn}
               onPress={() => navigation.navigate('Splash')}
-              activeOpacity={0.7}
+              scaleTo={0.95}
             >
-              <Text style={styles.backBtnText}>← Back to home</Text>
-            </TouchableOpacity>
+              <BackArrowIcon color={COLORS.bodyText} size={15} />
+              <Text style={styles.backBtnText}>Back to home</Text>
+            </AnimatedPressable>
           </FadeInUp>
+
+          {/* Spacer so the last fields have room to scroll clear of the keyboard */}
+          <View style={{ height: 160 }} />
         </ScrollView>
       </KeyboardAvoidingView>
 
@@ -564,118 +684,126 @@ function ForgotPasswordModal({ visible, onClose }) {
 
   return (
     <Modal visible={visible} animationType="fade" transparent onRequestClose={handleClose}>
-      <View style={fpStyles.overlay}>
-        <Animated.View
-          style={[
-            fpStyles.card,
-            {
-              opacity: cardAnim,
-              transform: [{ scale: cardAnim.interpolate({ inputRange: [0, 1], outputRange: [0.92, 1] }) }],
-            },
-          ]}
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
+        <ScrollView
+          contentContainerStyle={fpStyles.overlay}
+          keyboardShouldPersistTaps="handled"
         >
-          <View style={fpStyles.headerRow}>
-            <Text style={fpStyles.title}>Reset your password</Text>
-            <TouchableOpacity onPress={handleClose} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-              <Text style={fpStyles.closeX}>✕</Text>
-            </TouchableOpacity>
-          </View>
+          <Animated.View
+            style={[
+              fpStyles.card,
+              {
+                opacity: cardAnim,
+                transform: [{ scale: cardAnim.interpolate({ inputRange: [0, 1], outputRange: [0.92, 1] }) }],
+              },
+            ]}
+          >
+            <View style={fpStyles.headerRow}>
+              <Text style={fpStyles.title}>Reset your password</Text>
+              <TouchableOpacity onPress={handleClose} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                <Text style={fpStyles.closeX}>✕</Text>
+              </TouchableOpacity>
+            </View>
 
-          {step === 1 && (
-            <>
-              <Text style={fpStyles.label}>I am a</Text>
-              <View style={fpStyles.roleRow}>
-                <TouchableOpacity
-                  style={[fpStyles.roleBtn, role === 'patient' && fpStyles.roleBtnActive]}
-                  onPress={() => setRole('patient')}
-                >
-                  <Text style={[fpStyles.roleBtnText, role === 'patient' && fpStyles.roleBtnTextActive]}>Patient</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[fpStyles.roleBtn, role === 'phlebotomist' && fpStyles.roleBtnActive]}
-                  onPress={() => setRole('phlebotomist')}
-                >
-                  <Text style={[fpStyles.roleBtnText, role === 'phlebotomist' && fpStyles.roleBtnTextActive]}>Specialist</Text>
-                </TouchableOpacity>
-              </View>
+            {step === 1 && (
+              <>
+                <Text style={fpStyles.label}>I am a</Text>
+                <View style={fpStyles.roleRow}>
+                  <TouchableOpacity
+                    style={[fpStyles.roleBtn, role === 'patient' && fpStyles.roleBtnActive]}
+                    onPress={() => setRole('patient')}
+                  >
+                    <Text style={[fpStyles.roleBtnText, role === 'patient' && fpStyles.roleBtnTextActive]}>Patient</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[fpStyles.roleBtn, role === 'phlebotomist' && fpStyles.roleBtnActive]}
+                    onPress={() => setRole('phlebotomist')}
+                  >
+                    <Text style={[fpStyles.roleBtnText, role === 'phlebotomist' && fpStyles.roleBtnTextActive]}>Specialist</Text>
+                  </TouchableOpacity>
+                </View>
 
-              <Text style={[fpStyles.label, { marginTop: 16 }]}>Email</Text>
-              <TextInput
-                style={fpStyles.input}
-                value={email}
-                onChangeText={setEmail}
-                placeholder="your@email.com"
-                placeholderTextColor={COLORS.gray}
-                keyboardType="email-address"
-                autoCapitalize="none"
-              />
-
-              {!!error && <Text style={fpStyles.errorText}>⚠ {error}</Text>}
-
-              <AnimatedPressable
-                style={[fpStyles.primaryBtn, loading && { opacity: 0.7 }]}
-                onPress={handleRequestCode}
-                disabled={loading}
-                scaleTo={0.97}
-              >
-                {loading
-                  ? <ActivityIndicator color="#FFF" size="small" />
-                  : <Text style={fpStyles.primaryBtnText}>Send reset code</Text>}
-              </AnimatedPressable>
-            </>
-          )}
-
-          {step === 2 && (
-            <>
-              {!!info && <Text style={fpStyles.infoText}>{info}</Text>}
-
-              <Text style={fpStyles.label}>6-digit code</Text>
-              <TextInput
-                style={fpStyles.input}
-                value={code}
-                onChangeText={setCode}
-                placeholder="123456"
-                placeholderTextColor={COLORS.gray}
-                keyboardType="number-pad"
-                maxLength={6}
-              />
-
-              <Text style={[fpStyles.label, { marginTop: 16 }]}>New password</Text>
-              <View style={fpStyles.passwordWrap}>
+                <Text style={[fpStyles.label, { marginTop: 16 }]}>Email</Text>
                 <TextInput
-                  style={fpStyles.passwordInput}
-                  value={newPassword}
-                  onChangeText={setNewPassword}
-                  placeholder="Enter a new password"
+                  style={fpStyles.input}
+                  value={email}
+                  onChangeText={setEmail}
+                  placeholder="your@email.com"
                   placeholderTextColor={COLORS.gray}
-                  secureTextEntry={!showPwd}
+                  keyboardType="email-address"
                   autoCapitalize="none"
                 />
-                <TouchableOpacity onPress={() => setShowPwd(!showPwd)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-                  {showPwd ? <EyeOffIcon color={COLORS.gray} size={18} /> : <EyeIcon color={COLORS.gray} size={18} />}
+
+                {!!error && <ErrorText>{error}</ErrorText>}
+
+                <AnimatedPressable
+                  style={[fpStyles.primaryBtn, loading && { opacity: 0.7 }]}
+                  onPress={handleRequestCode}
+                  disabled={loading}
+                  scaleTo={0.97}
+                >
+                  {loading
+                    ? <ActivityIndicator color="#FFF" size="small" />
+                    : <Text style={fpStyles.primaryBtnText}>Send reset code</Text>}
+                </AnimatedPressable>
+              </>
+            )}
+
+            {step === 2 && (
+              <>
+                {!!info && <Text style={fpStyles.infoText}>{info}</Text>}
+
+                <Text style={fpStyles.label}>6-digit code</Text>
+                <TextInput
+                  style={fpStyles.input}
+                  value={code}
+                  onChangeText={setCode}
+                  placeholder="123456"
+                  placeholderTextColor={COLORS.gray}
+                  keyboardType="number-pad"
+                  maxLength={6}
+                />
+
+                <Text style={[fpStyles.label, { marginTop: 16 }]}>New password</Text>
+                <View style={fpStyles.passwordWrap}>
+                  <TextInput
+                    style={fpStyles.passwordInput}
+                    value={newPassword}
+                    onChangeText={setNewPassword}
+                    placeholder="Enter a new password"
+                    placeholderTextColor={COLORS.gray}
+                    secureTextEntry={!showPwd}
+                    autoCapitalize="none"
+                  />
+                  <TouchableOpacity onPress={() => setShowPwd(!showPwd)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                    {showPwd ? <EyeOffIcon color={COLORS.gray} size={18} /> : <EyeIcon color={COLORS.gray} size={18} />}
+                  </TouchableOpacity>
+                </View>
+
+                {!!error && <ErrorText>{error}</ErrorText>}
+
+                <AnimatedPressable
+                  style={[fpStyles.primaryBtn, loading && { opacity: 0.7 }]}
+                  onPress={handleResetPassword}
+                  disabled={loading}
+                  scaleTo={0.97}
+                >
+                  {loading
+                    ? <ActivityIndicator color="#FFF" size="small" />
+                    : <Text style={fpStyles.primaryBtnText}>Reset password</Text>}
+                </AnimatedPressable>
+
+                <TouchableOpacity style={{ marginTop: 12, alignItems: 'center' }} onPress={() => setStep(1)}>
+                  <Text style={fpStyles.linkText}>← Use a different email</Text>
                 </TouchableOpacity>
-              </View>
-
-              {!!error && <Text style={fpStyles.errorText}>⚠ {error}</Text>}
-
-              <AnimatedPressable
-                style={[fpStyles.primaryBtn, loading && { opacity: 0.7 }]}
-                onPress={handleResetPassword}
-                disabled={loading}
-                scaleTo={0.97}
-              >
-                {loading
-                  ? <ActivityIndicator color="#FFF" size="small" />
-                  : <Text style={fpStyles.primaryBtnText}>Reset password</Text>}
-              </AnimatedPressable>
-
-              <TouchableOpacity style={{ marginTop: 12, alignItems: 'center' }} onPress={() => setStep(1)}>
-                <Text style={fpStyles.linkText}>← Use a different email</Text>
-              </TouchableOpacity>
-            </>
-          )}
-        </Animated.View>
-      </View>
+              </>
+            )}
+          </Animated.View>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -683,8 +811,8 @@ function ForgotPasswordModal({ visible, onClose }) {
 // ── Forgot-password modal styles ────────────────────────────────────────────
 const fpStyles = StyleSheet.create({
   overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(13,31,60,0.55)',
+    flexGrow: 1,
+    backgroundColor: 'rgba(10,31,92,0.55)',
     justifyContent: 'center',
     padding: 24,
   },
@@ -693,7 +821,7 @@ const fpStyles = StyleSheet.create({
     borderRadius: 24,
     padding: 22,
     elevation: 10,
-    shadowColor: '#0D1F3C',
+    shadowColor: '#0A1F5C',
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.2,
     shadowRadius: 24,
@@ -704,53 +832,84 @@ const fpStyles = StyleSheet.create({
   label: { fontSize: 12, fontWeight: '700', color: COLORS.bodyText, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 },
   roleRow: { flexDirection: 'row', gap: 10 },
   roleBtn: { flex: 1, borderWidth: 1.5, borderColor: COLORS.border, borderRadius: 14, paddingVertical: 12, alignItems: 'center' },
-  roleBtnActive: { backgroundColor: COLORS.navy, borderColor: COLORS.navy },
+  roleBtnActive: { backgroundColor: COLORS.navyDark, borderColor: COLORS.navyDark },
   roleBtnText: { fontSize: 13, fontWeight: '700', color: COLORS.bodyText },
   roleBtnTextActive: { color: '#FFFFFF' },
   input: {
     backgroundColor: COLORS.inputBg, borderWidth: 1.5, borderColor: COLORS.border, borderRadius: 14,
-    paddingHorizontal: 16, paddingVertical: 13, fontSize: 15, color: COLORS.navyDark,
+    paddingHorizontal: 16, paddingVertical: 13, fontSize: 15, color: COLORS.bodyText,
   },
   passwordWrap: {
     flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.white,
     borderWidth: 1.5, borderColor: COLORS.border, borderRadius: 14, paddingHorizontal: 16,
   },
-  passwordInput: { flex: 1, paddingVertical: 13, fontSize: 15, color: COLORS.navyDark },
+  passwordInput: { flex: 1, paddingVertical: 13, fontSize: 15, color: COLORS.bodyText },
   errorText: { color: COLORS.error, fontSize: 12, marginTop: 8, fontWeight: '500' },
   infoText: { color: COLORS.success, fontSize: 12, marginBottom: 14, fontWeight: '600' },
   primaryBtn: {
     backgroundColor: COLORS.navyDark, borderRadius: 16, paddingVertical: 15, alignItems: 'center', marginTop: 18,
   },
   primaryBtnText: { color: '#FFFFFF', fontSize: 15, fontWeight: '800' },
-  linkText: { fontSize: 13, color: COLORS.navy, fontWeight: '700' },
+  linkText: { fontSize: 13, color: COLORS.navyDark, fontWeight: '700' },
 });
 
 // ── Main styles ──────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: COLORS.offWhite },
+  topHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 6,
+    paddingBottom: 2,
+  },
+  backCircle: {
+    width: 38, height: 38, borderRadius: 19,
+    backgroundColor: COLORS.white,
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: COLORS.lightGray,
+    elevation: 2,
+    shadowColor: '#0A1F5C',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+  },
+
   scroll: { flex: 1 },
-  scrollContent: { padding: 24, paddingBottom: 40 },
+  scrollContent: { padding: 24, paddingTop: 12, paddingBottom: 40 },
 
   headerArea: { alignItems: 'center', marginBottom: 28, marginTop: 8 },
 
-  logoWrap: { alignItems: 'center', justifyContent: 'center', marginBottom: 18, width: 132, height: 132 },
+  logoWrap: {
+    width: RING_SIZE, height: RING_SIZE,
+    alignSelf: 'center',
+    marginBottom: 16,
+  },
   logoGlow: {
-    position: 'absolute', width: 146, height: 146, borderRadius: 73,
-    backgroundColor: COLORS.navy,
+    position: 'absolute',
+    top: centerOffset(RING_SIZE, GLOW_SIZE), left: centerOffset(RING_SIZE, GLOW_SIZE),
+    width: GLOW_SIZE, height: GLOW_SIZE, borderRadius: GLOW_SIZE / 2,
+    backgroundColor: COLORS.navyDark,
+  },
+  ringLayer: {
+    position: 'absolute', top: 0, left: 0,
+    width: RING_SIZE, height: RING_SIZE,
   },
   logoCard: {
-    width: 122, height: 122, borderRadius: 32,
+    position: 'absolute',
+    top: centerOffset(RING_SIZE, CARD_SIZE), left: centerOffset(RING_SIZE, CARD_SIZE),
+    width: CARD_SIZE, height: CARD_SIZE, borderRadius: 24,
     backgroundColor: COLORS.white,
     alignItems: 'center', justifyContent: 'center',
     elevation: 8,
-    shadowColor: '#0D1F3C',
-    shadowOffset: { width: 0, height: 8 },
+    shadowColor: '#0A1F5C',
+    shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.15,
-    shadowRadius: 16,
+    shadowRadius: 12,
   },
-  logoImage: { width: 115, height: 115 },
+  logoImage: { width: 76, height: 76 },
 
-  headerTitle: { fontSize: 24, fontWeight: '900', color: COLORS.navyDark, textAlign: 'center' },
+  headerTitle: { fontSize: 24, fontWeight: '900', color: '#151B3D', textAlign: 'center' },
   headerSub: { fontSize: 13, color: COLORS.gray, textAlign: 'center', marginTop: 6 },
 
   formCard: {
@@ -758,7 +917,7 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     padding: 22,
     elevation: 4,
-    shadowColor: '#0D1F3C',
+    shadowColor: '#0A1F5C',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.06,
     shadowRadius: 16,
@@ -777,9 +936,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 14,
     fontSize: 16,
-    color: COLORS.navyDark,
+    color: '#151B3D',
   },
-  inputErrorBg: { backgroundColor: '#FFF0F1' },
+  inputErrorBg: { backgroundColor: '#FDF0EF' },
 
   errorText: { color: COLORS.error, fontSize: 12, marginTop: 6, fontWeight: '500' },
 
@@ -791,7 +950,7 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     paddingHorizontal: 16,
   },
-  passwordInput: { flex: 1, paddingVertical: 14, fontSize: 16, color: COLORS.navyDark },
+  passwordInput: { flex: 1, paddingVertical: 14, fontSize: 16, color: '#151B3D' },
   eyeBtn: { padding: 6, borderRadius: 6 },
 
   optRow: {
@@ -802,7 +961,7 @@ const styles = StyleSheet.create({
     width: 20, height: 20, borderRadius: 6, borderWidth: 1.5, borderColor: COLORS.border,
     backgroundColor: COLORS.white, alignItems: 'center', justifyContent: 'center',
   },
-  checkboxActive: { backgroundColor: COLORS.navy, borderColor: COLORS.navy },
+  checkboxActive: { backgroundColor: COLORS.navyDark, borderColor: COLORS.navyDark },
   checkmark: { color: COLORS.white, fontSize: 12, fontWeight: '800' },
   rememberText: { fontSize: 13, color: COLORS.bodyText },
   forgotText: { fontSize: 13, color: COLORS.error, fontWeight: '600' },
@@ -837,15 +996,27 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   googleG: { fontSize: 15, fontWeight: '800', color: '#4285F4' },
-  appleIcon: { fontSize: 16, color: COLORS.navyDark },
-  socialBtnText: { fontSize: 14, fontWeight: '600', color: COLORS.navyDark },
+  appleIcon: { fontSize: 16, color: '#151B3D' },
+  socialBtnText: { fontSize: 14, fontWeight: '600', color: '#151B3D' },
 
   signupRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: 28,
   },
   signupText: { fontSize: 13, color: COLORS.gray },
-  signupLink: { fontSize: 13, color: COLORS.navy, fontWeight: '700' },
+  signupLink: { fontSize: 13, color: COLORS.navyDark, fontWeight: '700' },
 
-  backBtn: { alignItems: 'center', marginTop: 16 },
-  backBtnText: { fontSize: 13, color: COLORS.gray, fontWeight: '500' },
+  backBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+    marginTop: 20,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 999,
+    backgroundColor: COLORS.white,
+    borderWidth: 1.5,
+    borderColor: COLORS.lightGray,
+  },
+  backBtnText: { fontSize: 13.5, color: COLORS.bodyText, fontWeight: '700' },
 });

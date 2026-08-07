@@ -1003,7 +1003,7 @@ export default function HomeScreen({ navigation, route }) {
                     <Ionicons name="storefront" size={16} color={COLORS.white} />
                   </View>
                   <Text style={styles.detailInfoText}>
-                    This is a walk-in visit. <Text style={styles.detailInfoBold}>No phlebotomist will be dispatched</Text> — please pay and complete your test at the center.
+                    This is a walk-in visit. <Text style={styles.detailInfoBold}>No phlebotomist will be dispatched</Text>-please pay and complete your test at the center.
                   </Text>
                 </View>
               )}

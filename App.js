@@ -2,6 +2,7 @@ import React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { StripeProvider } from '@stripe/stripe-react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 // Shared
 import SplashScreen from './screens/SplashScreen';
@@ -52,55 +53,60 @@ const STRIPE_PUBLISHABLE_KEY =
 
 export default function App() {
   return (
-    <StripeProvider publishableKey={STRIPE_PUBLISHABLE_KEY}>
-      <NavigationContainer>
-        <Stack.Navigator
-          initialRouteName="Splash"
-          screenOptions={{ headerShown: false }}
-        >
-          {/* Shared */}
-          <Stack.Screen name="Splash" component={SplashScreen} />
-          <Stack.Screen name="Terms" component={TermsScreen} />
-          <Stack.Screen name="Login" component={LoginScreen} />
-          <Stack.Screen name="RoleSelect" component={RoleSelectScreen} />
+    // SafeAreaProvider must wrap the whole app — without it, SafeAreaView
+    // (used in SplashScreen and elsewhere) can't compute real device insets,
+    // which is what was causing content to render under the status bar/notch.
+    <SafeAreaProvider>
+      <StripeProvider publishableKey={STRIPE_PUBLISHABLE_KEY}>
+        <NavigationContainer>
+          <Stack.Navigator
+            initialRouteName="Splash"
+            screenOptions={{ headerShown: false }}
+          >
+            {/* Shared */}
+            <Stack.Screen name="Splash" component={SplashScreen} />
+            <Stack.Screen name="Terms" component={TermsScreen} />
+            <Stack.Screen name="Login" component={LoginScreen} />
+            <Stack.Screen name="RoleSelect" component={RoleSelectScreen} />
 
-          {/* Patient */}
-          <Stack.Screen name="PatientCreateAccount" component={CreateAccountScreen} />
-          <Stack.Screen name="PatientVerifyOtp" component={VerifyOtpScreen} />
-          <Stack.Screen name="HealthProfile" component={HealthProfileScreen} />
-          <Stack.Screen name="PatientHome" component={HomeScreen} />
-          <Stack.Screen name="BookMobileVisit" component={BookMobileVisitScreen} />
-          <Stack.Screen name="ScheduleVisit" component={ScheduleVisitScreen} />
-          <Stack.Screen name="SelectTests" component={SelectTestsScreen} />
-          <Stack.Screen name="InPersonTests" component={InPersonTestsScreen} />
-          <Stack.Screen name="Checkout" component={CheckoutScreen} />
-          <Stack.Screen name="LiveTracking" component={LiveTrackingScreen} />
-          <Stack.Screen name="Schedule" component={ScheduleScreen} />
-          <Stack.Screen name="PatientNotifications" component={NotificationsScreen} />
-          <Stack.Screen name="PatientHistory" component={HistoryScreen} />
-          <Stack.Screen name="PatientProfile" component={ProfileScreen} />
-          <Stack.Screen name="GuestInfo" component={GuestInfoScreen} />
-          <Stack.Screen name="CreateAccountPrompt" component={CreateAccountPromptScreen} />
+            {/* Patient */}
+            <Stack.Screen name="PatientCreateAccount" component={CreateAccountScreen} />
+            <Stack.Screen name="PatientVerifyOtp" component={VerifyOtpScreen} />
+            <Stack.Screen name="HealthProfile" component={HealthProfileScreen} />
+            <Stack.Screen name="PatientHome" component={HomeScreen} />
+            <Stack.Screen name="BookMobileVisit" component={BookMobileVisitScreen} />
+            <Stack.Screen name="ScheduleVisit" component={ScheduleVisitScreen} />
+            <Stack.Screen name="SelectTests" component={SelectTestsScreen} />
+            <Stack.Screen name="InPersonTests" component={InPersonTestsScreen} />
+            <Stack.Screen name="Checkout" component={CheckoutScreen} />
+            <Stack.Screen name="LiveTracking" component={LiveTrackingScreen} />
+            <Stack.Screen name="Schedule" component={ScheduleScreen} />
+            <Stack.Screen name="PatientNotifications" component={NotificationsScreen} />
+            <Stack.Screen name="PatientHistory" component={HistoryScreen} />
+            <Stack.Screen name="PatientProfile" component={ProfileScreen} />
+            <Stack.Screen name="GuestInfo" component={GuestInfoScreen} />
+            <Stack.Screen name="CreateAccountPrompt" component={CreateAccountPromptScreen} />
 
-          {/* Phlebotomist */}
-          <Stack.Screen name="PhlebDashboard" component={DashboardScreen} />
-          <Stack.Screen name="PhlebScorecard" component={PhlebScorecardScreen} />
-          <Stack.Screen name="Register" component={RegisterScreen} />
-          <Stack.Screen name="RegisterScreen2" component={RegisterScreen2} />
-          <Stack.Screen name="RegisterScreen3" component={RegisterScreen3} />
-          <Stack.Screen name="AwaitingApproval" component={AwaitingApproval} />
-          <Stack.Screen name="PatientMap" component={MapScreen} />
-          <Stack.Screen name="NewRequest" component={NewRequestScreen} />
-          <Stack.Screen name="JobAccepted" component={JobAcceptedScreen} />
-          <Stack.Screen name="TripInProgress" component={TripInProgressScreen} />
-          <Stack.Screen name="VerifyArrival" component={VerifyArrivalScreen} />
-          <Stack.Screen name="CollectComplete" component={CollectCompleteScreen} />
-          <Stack.Screen name="PhlebHistory" component={JobHistoryScreen} />
-          <Stack.Screen name="PhlebProfile" component={PhlebProfileScreen} />
-          <Stack.Screen name="DropOffVerification" component={DropOffVerificationScreen} />
-          <Stack.Screen name="JobCompleted" component={JobCompletedScreen} />
-        </Stack.Navigator>
-      </NavigationContainer>
-    </StripeProvider>
+            {/* Phlebotomist */}
+            <Stack.Screen name="PhlebDashboard" component={DashboardScreen} />
+            <Stack.Screen name="PhlebScorecard" component={PhlebScorecardScreen} />
+            <Stack.Screen name="Register" component={RegisterScreen} />
+            <Stack.Screen name="RegisterScreen2" component={RegisterScreen2} />
+            <Stack.Screen name="RegisterScreen3" component={RegisterScreen3} />
+            <Stack.Screen name="AwaitingApproval" component={AwaitingApproval} />
+            <Stack.Screen name="PatientMap" component={MapScreen} />
+            <Stack.Screen name="NewRequest" component={NewRequestScreen} />
+            <Stack.Screen name="JobAccepted" component={JobAcceptedScreen} />
+            <Stack.Screen name="TripInProgress" component={TripInProgressScreen} />
+            <Stack.Screen name="VerifyArrival" component={VerifyArrivalScreen} />
+            <Stack.Screen name="CollectComplete" component={CollectCompleteScreen} />
+            <Stack.Screen name="PhlebHistory" component={JobHistoryScreen} />
+            <Stack.Screen name="PhlebProfile" component={PhlebProfileScreen} />
+            <Stack.Screen name="DropOffVerification" component={DropOffVerificationScreen} />
+            <Stack.Screen name="JobCompleted" component={JobCompletedScreen} />
+          </Stack.Navigator>
+        </NavigationContainer>
+      </StripeProvider>
+    </SafeAreaProvider>
   );
 }

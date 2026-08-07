@@ -18,6 +18,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { getBookingDraft, setBookingDraft } from '../utils/bookingDraft';
 import { fetchPricing, getStoredPatientToken } from '../utils/auth';
 
+
 const COLORS = {
   navy: '#1B3A8C',
   navyDark: '#0D1F3C',
@@ -530,10 +531,40 @@ export default function BookMobileVisitScreen() {
         };
         setSchedule(newSchedule);
         setBookingDraft({ schedule: newSchedule });
+      } else {
+        const currentDraft = getBookingDraft();
+        const existingSchedule = currentDraft.schedule;
+        if (existingSchedule?.scheduledDate && address) {
+          fetchPricing({
+            address,
+            zipCode,
+            bookingDate: existingSchedule.scheduledDate,
+            bookingTime: existingSchedule.quotedBookingTime || existingSchedule.preferredTime,
+            slotType: existingSchedule.slotType,
+            testTotal: currentDraft.testsTotal ?? 0,
+            slotIndex: existingSchedule.slotIndex,
+          })
+            .then((fresh) => {
+              const refreshed = {
+                ...existingSchedule,
+                baseFee: fresh.baseFee,
+                distanceFee: fresh.distanceFee,
+                driversReserveFee: fresh.driversReserveFee,
+                surchargesTotal: fresh.surchargesTotal,
+                serviceFee: fresh.serviceFee,
+                totalPatientFee: fresh.totalPatientFee,
+              };
+              setSchedule(refreshed);
+              setBookingDraft({ schedule: refreshed });
+            })
+            .catch((err) => {
+              console.log('Schedule pricing refresh failed:', err.message);
+            });
+        }
       }
-      });
-      return unsubscribe;
-    }, [navigation, route]);
+    });
+    return unsubscribe;
+  }, [navigation, route]);
 
 
   // ── Generic upload flow: Choose File (Image/PDF) or Take Photo ──

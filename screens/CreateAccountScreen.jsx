@@ -104,6 +104,7 @@ const MIN_DOB_YEAR = CURRENT_YEAR - 100;
 const MAX_DOB_YEAR = CURRENT_YEAR;
 
 const USA_CODE = COUNTRY_CODES.find((c) => c.code === '+1');
+const NAME_REGEX = /^[A-Za-z\s]+$/;
 
 export default function CreateAccountScreen({ navigation }) {
 
@@ -258,8 +259,21 @@ export default function CreateAccountScreen({ navigation }) {
     const phoneDigits = form.phone.replace(/\D/g, '');
     const emergencyPhoneDigits = form.emergencyContactPhone.replace(/\D/g, '');
 
-    if (!form.firstName.trim()) newErrors.firstName = 'First name is required';
-    if (!form.lastName.trim()) newErrors.lastName = 'Last name is required';
+    if (!form.firstName.trim()) {
+      newErrors.firstName = 'First name is required';
+    } else if (!NAME_REGEX.test(form.firstName.trim())) {
+      newErrors.firstName = 'First name can only contain letters and spaces';
+    }
+
+    if (form.middleName.trim() && !NAME_REGEX.test(form.middleName.trim())) {
+      newErrors.middleName = 'Middle name can only contain letters and spaces';
+    }
+
+    if (!form.lastName.trim()) {
+      newErrors.lastName = 'Last name is required';
+    } else if (!NAME_REGEX.test(form.lastName.trim())) {
+      newErrors.lastName = 'Last name can only contain letters and spaces';
+    }
 
     if (!form.dob.trim() || dobClean.length < 8) {
       newErrors.dob = 'Enter a valid date of birth';
@@ -287,7 +301,12 @@ export default function CreateAccountScreen({ navigation }) {
       newErrors.email = 'Enter a valid email address';
     }
 
-    if (!form.emergencyContactName.trim()) newErrors.emergencyContactName = 'Emergency contact name is required';
+    if (!form.emergencyContactName.trim()) {
+      newErrors.emergencyContactName = 'Emergency contact name is required';
+    } else if (!NAME_REGEX.test(form.emergencyContactName.trim())) {
+      newErrors.emergencyContactName = 'Emergency contact name can only contain letters and spaces';
+    }
+
     if (!emergencyPhoneDigits || emergencyPhoneDigits.length < 7) {
       newErrors.emergencyContactPhone = 'Enter a valid emergency contact number';
     } else if (
@@ -391,12 +410,12 @@ export default function CreateAccountScreen({ navigation }) {
             error={errors.firstName}
           /> 
 
-          {/*Middle name*/}
           <InputField
             label="Middle name"
             value={form.middleName}
-            onChangeText={(t) => setForm({ ...form, middleName: t })}
+            onChangeText={(t) => { setForm({ ...form, middleName: t }); if (errors.middleName) setErrors({ ...errors, middleName: '' }); }}
             placeholder="Middle name (optional)"
+            error={errors.middleName}
           />
 
           {/* Last Name */}

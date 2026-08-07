@@ -383,7 +383,6 @@ export default function CheckoutScreen({ navigation, route }) {
           console.log("===== BOOKING PAYLOAD =====");
         } catch (bookErr) {
           console.log("===== BOOKING ERROR =====");
-          console.log("bookErr:", JSON.stringify(bookErr, null, 2));
           console.log("message:", bookErr?.message);
           console.log("status:", bookErr?.status);
           console.log("data:", bookErr?.data);
@@ -391,7 +390,9 @@ export default function CheckoutScreen({ navigation, route }) {
           // caught here, BEFORE Stripe is ever shown. No money moved.
           Alert.alert(
             "Booking Error",
-            JSON.stringify(bookErr?.data || bookErr, null, 2)
+            bookErr?.data?.message ||
+            bookErr?.message ||
+            'Something went wrong while booking. Please try again.'
           );
           setLoading(false);
           return;
