@@ -88,7 +88,8 @@
         {
           "locationWhenInUsePermission": "MusB Diagnostics needs your location to show nearby phlebotomy requests and let patients see your live location."
         }
-      ]
+      ],
+      "@react-native-google-signin/google-signin"    
     ],
     "extra": {
       "eas": {

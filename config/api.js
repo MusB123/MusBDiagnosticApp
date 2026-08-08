@@ -41,6 +41,7 @@ export const PATIENT_ENDPOINTS = {
   rateAppointment: (appointmentId) => `${PATIENT_PREFIX}/appointments/${appointmentId}/rate/`,
   markAppointmentPaid: (appointmentId) => `${BASE_URL}/api/patients/appointments/${appointmentId}/mark-paid/`,
   guestCheckout: `${PATIENT_PREFIX}/guest-checkout/`,
+  sendGuestAccountOtp: `${PATIENT_PREFIX}/guest-account/send-otp/`,
   setPassword: `${PATIENT_PREFIX}/set-password/`,
 };
 

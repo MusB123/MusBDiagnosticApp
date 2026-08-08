@@ -18,11 +18,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Path, Circle, Line } from 'react-native-svg';
-import * as AuthSession from 'expo-auth-session';
-import * as WebBrowser from 'expo-web-browser';
-import * as Google from 'expo-auth-session/providers/google';
-
-WebBrowser.maybeCompleteAuthSession();
+import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
 
 import {
   login,
@@ -334,69 +330,31 @@ export default function LoginScreen({ navigation }) {
   };
 
   useEffect(() => {
-    console.log('Redirect URI:', AuthSession.makeRedirectUri(
-      Platform.OS === 'ios'
-        ? { scheme: 'com.googleusercontent.apps.419738471832-ll0vcr4ing5mqja61808thjetfvs14br' }
-        : {}
-    ));
+    GoogleSignin.configure({
+      webClientId: '419738471832-nsodach0uujc8anp8p76i3nfeei9f8c4.apps.googleusercontent.com',
+    });
   }, []);
 
-  const [request, response, promptAsync] = Google.useAuthRequest({
-    webClientId: '419738471832-nsodach0uujc8anp8p76i3nfeei9f8c4.apps.googleusercontent.com',
-    androidClientId: '419738471832-8bmiolhcc8tpbo12gi8vlktvd27mpu9a.apps.googleusercontent.com',
-    iosClientId: '419738471832-ll0vcr4ing5mqja61808thjetfvs14br.apps.googleusercontent.com',
-    redirectUri: `com.googleusercontent.apps.419738471832-8bmiolhcc8tpbo12gi8vlktvd27mpu9a:/oauth2redirect`,
-  });
-  useEffect(() => {
-    const handleGoogleResponse = async () => {
-      if (!response) return;
-
-      if (response.type === 'error') {
-        console.log('Google auth error:', response.error);
-        Alert.alert('Google sign-in failed', response.error?.message || 'Please try again.');
-        return;
-      }
-      if (response.type !== 'success') {
-        console.log('Google auth response type:', response.type);
-        return;
-      }
-
-      setGoogleLoading(true);
-      try {
-        const { authentication } = response;
-        if (!authentication?.accessToken) {
-          throw new Error('No access token returned from Google.');
-        }
-        const userInfoRes = await fetch('https://www.googleapis.com/userinfo/v2/me', {
-          headers: { Authorization: `Bearer ${authentication.accessToken}` },
-        });
-        if (!userInfoRes.ok) {
-          throw new Error(`Failed to fetch Google profile (${userInfoRes.status})`);
-        }
-        const userInfo = await userInfoRes.json();
-
-        const data = await loginWithGoogle({
-          idToken: authentication.idToken,
-          email: userInfo.email,
-          name: userInfo.name,
-          picture: userInfo.picture,
-          role: 'patient',
-        });
-        console.log('[GOOGLE LOGIN] role from backend:', data.role);
-        routeAfterLogin(data.role);
-      } catch (err) {
-        console.log('Google sign-in error:', err);
+  const handleGooglePress = async () => {
+    setGoogleLoading(true);
+    try {
+      await GoogleSignin.hasPlayServices();
+      const result = await GoogleSignin.signIn();
+      const { idToken, user } = result.data ?? result;
+      const data = await loginWithGoogle({
+        idToken,
+        email: user.email,
+        name: user.name,
+        picture: user.photo,
+      });
+      routeAfterLogin(data.role);
+    } catch (err) {
+      if (err.code !== statusCodes.SIGN_IN_CANCELLED) {
         Alert.alert('Google sign-in failed', err.message || 'Please try again.');
-      } finally {
-        setGoogleLoading(false);
       }
-    };
-    handleGoogleResponse();
-  }, [response]);
-
-  const handleGooglePress = () => {
-    if (!request) return;
-    promptAsync();
+    } finally {
+      setGoogleLoading(false);
+    }
   };
 
   const emailBorderColor = errors.email
@@ -570,7 +528,7 @@ export default function LoginScreen({ navigation }) {
                 <AnimatedPressable
                   style={[styles.socialBtn, googleLoading && { opacity: 0.6 }]}
                   onPress={handleGooglePress}
-                  disabled={!request || googleLoading}
+                  disabled={googleLoading}
                   scaleTo={0.97}
                 >
                   {googleLoading

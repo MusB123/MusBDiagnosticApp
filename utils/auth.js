@@ -225,12 +225,9 @@ export async function login(email, password) {
   return data;
 }
 
-export async function loginWithGoogle({ idToken, email, name, picture, role = 'patient' }) {
-  const endpoint = role === 'phlebotomist' ? PHLEB_ENDPOINTS.googleLogin : PATIENT_ENDPOINTS.googleLogin;
-  const data = await postJson(endpoint, { id_token: idToken, email, name, picture });
-
-  
-  const actualRole = data.role || role;
+export async function loginWithGoogle({ idToken, email, name, picture }) {
+  const data = await postJson(PATIENT_ENDPOINTS.googleLogin, { id_token: idToken, email, name, picture });
+  const actualRole = data.role || 'patient';
 
   if (actualRole === 'phlebotomist') {
     await SecureStore.deleteItemAsync(PATIENT_TOKEN_KEY);
@@ -323,8 +320,29 @@ export async function authFetch(url, options = {}, role = 'phleb') {
   const data = await response.json().catch(() => null);
 
   if (!response.ok) {
-    throw { status: response.status, data };
+    const err = new Error(data?.message || data?.error || `Request failed (${response.status})`);
+    err.status = response.status;
+    err.data = data;
+    throw err;
   }
+  return data;
+}
+
+// ── Guest → real account (two-step: send code, then set password) ──────
+export async function sendGuestAccountOtp() {
+  return authPost(PATIENT_ENDPOINTS.sendGuestAccountOtp, {}, 'patient');
+}
+
+export async function setPasswordFromGuest(password, otp) {
+  const data = await authPost(PATIENT_ENDPOINTS.setPassword, { password, otp }, 'patient');
+
+  const raw = await SecureStore.getItemAsync(PATIENT_USER_KEY);
+  if (raw) {
+    const user = JSON.parse(raw);
+    const updatedUser = { ...user, isGuest: false, is_guest: false };
+    await SecureStore.setItemAsync(PATIENT_USER_KEY, JSON.stringify(updatedUser));
+  }
+
   return data;
 }
 
@@ -746,19 +764,6 @@ export async function guestCheckout({ name, email, phone }) {
   return data.user;
 }
 
-export async function setPasswordFromGuest(password) {
-  const data = await authPost(PATIENT_ENDPOINTS.setPassword, { password }, 'patient');
-
-  // Sync the stored user so the app stops treating them as a guest
-  const raw = await SecureStore.getItemAsync(PATIENT_USER_KEY);
-  if (raw) {
-    const user = JSON.parse(raw);
-    const updatedUser = { ...user, isGuest: false, is_guest: false };
-    await SecureStore.setItemAsync(PATIENT_USER_KEY, JSON.stringify(updatedUser));
-  }
-
-  return data;
-}
 
 export async function fetchOffers(hasInsurance = false) {
   const url = hasInsurance
