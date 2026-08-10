@@ -34,6 +34,26 @@ const COLORS = {
   error: '#E63946',
 };
 
+// Backend rich-text fields (description, preparation) sometimes come back
+// as HTML from a WYSIWYG editor (e.g. `<p class="isSelectedEnd">...</p>`).
+// RN's <Text> doesn't parse HTML, so we strip tags/decode entities here,
+// once, at normalization time — not at render time.
+function stripHtml(html) {
+  if (!html || typeof html !== 'string') return '';
+  return html
+    .replace(/<\/p>\s*<p[^>]*>/gi, '\n\n')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/?(p|div)[^>]*>/gi, '')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .trim();
+}
+
 // Rotating accent palette so offer cards read as distinct, colorful bundles
 // rather than a flat repeated list.
 const OFFER_PALETTE = [
@@ -665,8 +685,8 @@ export default function SelectTestsScreen({ navigation, route }) {
           return {
             id: String(t.id ?? t._id ?? ''),
             name: t.title || 'Untitled Test',
-            desc: t.description || '',
-            preparation: t.preparation || '',
+            desc: stripHtml(t.description || ''),
+            preparation: stripHtml(t.preparation || ''),
             price,
             discountPrice: hasDiscount ? discountPrice : null,
             hidePrice,
