@@ -33,6 +33,8 @@ export const PATIENT_ENDPOINTS = {
   walkinFeePreview: `${PATIENT_PREFIX}/walkin-fee-preview/`,
   requestOtp: `${PATIENT_PREFIX}/request-otp/`,
   verifyOtp: `${PATIENT_PREFIX}/verify-otp/`,
+  requestResetCode: `${PATIENT_PREFIX}/reset-password/send-code/`,   // NEW
+  resetPasswordOtp: `${PATIENT_PREFIX}/reset-password-otp/`,
   addPaymentMethod: `${PATIENT_PREFIX}/add-payment-method/`,
   tracking: `${PATIENT_PREFIX}/tracking/`,
   trackingFor: (appointmentId) => `${PATIENT_PREFIX}/tracking/${appointmentId}/`,
@@ -59,6 +61,8 @@ export const PHLEB_ENDPOINTS = {
   // Forgot-password (unauthenticated) — request an OTP by email, then reset with it.
   requestOtp: `${PHLEB_BASE}/request-otp/`,
   verifyOtp: `${PHLEB_BASE}/verify-otp/`,
+  requestResetCode: `${PHLEB_BASE}/reset-password/send-code/`,      // NEW
+  confirmReset: `${PHLEB_BASE}/reset-password/confirm-code/`,
   scorecard: `${PHLEB_BASE}/scorecard/`,
 
   // ── Dashboard / Profile ─────────────────────────────────────────────────

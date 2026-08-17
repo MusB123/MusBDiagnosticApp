@@ -20,8 +20,10 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons'; // swap for your icon lib if different
 import { applyPhleb, uploadDocument } from '../utils/auth'; // adjust path if your folder structure differs
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const W9_FORM_URL = 'https://www.irs.gov/pub/irs-pdf/fw9.pdf';
+const SAF_DIR_KEY = 'musb_saf_download_dir';
 
 export default function RegisterStep3({ navigation, route }) {
   // Everything collected across Step 1 (personal info) and Step 2 (licence /
@@ -54,7 +56,9 @@ export default function RegisterStep3({ navigation, route }) {
   const [bankStatement, setBankStatement] = useState(null);
   const [pendingBankUpload, setPendingBankUpload] = useState(null); // staged file awaiting confirm
 
-  const [w9File, setW9File] = useState(null); // { name, uri, key, busy } | null
+  // W9 upload — { name, uri, key, busy } | null
+  const [w9File, setW9File] = useState(null);
+  const [pendingW9Upload, setPendingW9Upload] = useState(null); // staged file awaiting confirm
   const [downloadingW9, setDownloadingW9] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
@@ -64,7 +68,7 @@ export default function RegisterStep3({ navigation, route }) {
     return parts[parts.length - 1] || 'document';
   };
 
-  // ---------- W9: actually download the file to the device ----------
+
   const handleDownloadW9 = async () => {
     if (downloadingW9) return;
     setDownloadingW9(true);
@@ -72,20 +76,40 @@ export default function RegisterStep3({ navigation, route }) {
       const localUri = FileSystem.cacheDirectory + 'MusB_W9_Form.pdf';
       const { uri } = await FileSystem.downloadAsync(W9_FORM_URL, localUri);
 
-      const canShare = await Sharing.isAvailableAsync();
-      if (canShare) {
-        // Opens the native "Save to Files / Share" sheet so the user can
-        // actually save the PDF to their device (Files app, Drive, etc.)
-        await Sharing.shareAsync(uri, {
-          mimeType: 'application/pdf',
-          dialogTitle: 'Save W9 form',
-          UTI: 'com.adobe.pdf',
+      if (Platform.OS === 'android') {
+        let dirUri = await AsyncStorage.getItem(SAF_DIR_KEY);
+
+        if (!dirUri) {
+          const perm = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
+          if (!perm.granted) {
+            await Sharing.shareAsync(uri, {
+              mimeType: 'application/pdf',
+              dialogTitle: 'Save W9 form',
+            });
+            return;
+          }
+          dirUri = perm.directoryUri;
+          await AsyncStorage.setItem(SAF_DIR_KEY, dirUri);
+        }
+
+        const base64 = await FileSystem.readAsStringAsync(uri, {
+          encoding: FileSystem.EncodingType.Base64,
         });
-      } else {
-        Alert.alert(
-          'Downloaded',
-          `The W9 form was saved to: ${uri}`
+
+        const destUri = await FileSystem.StorageAccessFramework.createFileAsync(
+          dirUri,
+          'MusB_W9_Form',
+          'application/pdf'
         );
+        await FileSystem.writeAsStringAsync(destUri, base64, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+
+        Alert.alert('Downloaded', 'The W9 form was saved to your chosen folder.');
+      } else {
+        const destUri = FileSystem.documentDirectory + 'MusB_W9_Form.pdf';
+        await FileSystem.copyAsync({ from: uri, to: destUri });
+        Alert.alert('Downloaded', 'The W9 form was saved and is available in the Files app under this app\'s folder.');
       }
     } catch (err) {
       console.log(err);
@@ -95,37 +119,7 @@ export default function RegisterStep3({ navigation, route }) {
     }
   };
 
-  // ---------- W9: upload the filled form back ----------
-  const handleUploadW9 = async () => {
-    try {
-      const result = await DocumentPicker.getDocumentAsync({
-        type: ['application/pdf', 'image/png', 'image/jpeg'],
-        copyToCacheDirectory: true,
-      });
-      if (result.canceled) return;
-      const asset = result.assets ? result.assets[0] : result;
-      const name = asset.name || shortName(asset.uri);
-      // Upload immediately to S3 and keep the returned storage key.
-      setW9File({ name, uri: asset.uri, key: null, busy: true });
-      try {
-        const { key } = await uploadDocument({
-          uri: asset.uri,
-          filename: name,
-          kind: 'phleb-docs',
-        });
-        setW9File({ name, uri: asset.uri, key, busy: false });
-      } catch (uploadErr) {
-        setW9File(null);
-        Alert.alert('Upload failed', uploadErr.message === 'NETWORK_ERROR'
-          ? 'Network error while uploading the W9. Please try again.'
-          : (uploadErr.message || 'Could not upload the W9 form.'));
-      }
-    } catch (err) {
-      Alert.alert('Something went wrong', 'Could not open the file picker. Please try again.');
-    }
-  };
-
-  // ---------- Bank statement: pick + stage (pdf / gallery / camera) ----------
+  // ---------- Shared: compress a picked image before upload ----------
   const compressImage = async (uri) => {
     const result = await ImageManipulator.manipulateAsync(
       uri,
@@ -135,6 +129,7 @@ export default function RegisterStep3({ navigation, route }) {
     return result; // { uri, width, height }
   };
 
+  // ---------- Bank statement: pick + stage (pdf / gallery / camera) ----------
   const pickBankPdf = async () => {
     try {
       const result = await DocumentPicker.getDocumentAsync({
@@ -154,7 +149,7 @@ export default function RegisterStep3({ navigation, route }) {
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ['images'],
-        allowsEditing: true,
+        allowsEditing: false,
         quality: 0.8,
         base64: false,
       });
@@ -184,7 +179,7 @@ export default function RegisterStep3({ navigation, route }) {
       }
       const result = await ImagePicker.launchCameraAsync({
         quality: 0.8,
-        allowsEditing: true,
+        allowsEditing: false,
         base64: false,
       });
       if (!result.canceled && result.assets?.length) {
@@ -245,6 +240,118 @@ export default function RegisterStep3({ navigation, route }) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingBankUpload]);
+
+  // ---------- W9 filled form: pick + stage (pdf / gallery / camera) ----------
+  const pickW9Pdf = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: 'application/pdf',
+        copyToCacheDirectory: true,
+      });
+      if (result.canceled) return;
+      const asset = result.assets[0];
+      setPendingW9Upload({ fileName: asset.name, uri: asset.uri, isPdf: true });
+    } catch (err) {
+      console.log(err);
+      Alert.alert('Error', 'Could not open PDF.');
+    }
+  };
+
+  const pickW9Image = async () => {
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: false,
+        quality: 0.8,
+        base64: false,
+      });
+      if (result.canceled) return;
+      const asset = result.assets[0];
+      const compressed = await compressImage(asset.uri);
+      setPendingW9Upload({
+        fileName: asset.fileName || shortName(asset.uri),
+        uri: compressed.uri,
+        isPdf: false,
+      });
+    } catch (err) {
+      console.log(err);
+      Alert.alert('Could not open photo library', 'Please try picking the photo again.');
+    }
+  };
+
+  const captureW9Photo = async () => {
+    try {
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert(
+          'Camera access needed',
+          'Please enable camera permissions in your device settings to take a photo.'
+        );
+        return;
+      }
+      const result = await ImagePicker.launchCameraAsync({
+        quality: 0.8,
+        allowsEditing: false,
+        base64: false,
+      });
+      if (!result.canceled && result.assets?.length) {
+        const asset = result.assets[0];
+        const compressed = await compressImage(asset.uri);
+        setPendingW9Upload({
+          fileName: asset.fileName || shortName(asset.uri),
+          uri: compressed.uri,
+          isPdf: false,
+        });
+      }
+    } catch (err) {
+      console.log(err);
+      Alert.alert('Camera error', 'Could not open the camera or process the photo. Please try again.');
+    }
+  };
+
+  // This is what the "Upload filled form" / "Replace upload" button calls
+  const handleUploadW9 = () => {
+    Alert.alert(
+      'Upload W9 form',
+      'Choose how you would like to add this document',
+      [
+        { text: 'Choose PDF', onPress: pickW9Pdf },
+        { text: 'Choose Image', onPress: pickW9Image },
+        { text: 'Take Photo', onPress: captureW9Photo },
+        { text: 'Cancel', style: 'cancel' },
+      ],
+      { cancelable: true }
+    );
+  };
+
+  // Actually upload the staged W9 file to S3
+  const confirmW9Upload = async () => {
+    if (!pendingW9Upload) return;
+    const { fileName, uri } = pendingW9Upload;
+    setW9File({ name: fileName, uri, key: null, busy: true });
+    setPendingW9Upload(null);
+    try {
+      const { key } = await uploadDocument({
+        uri,
+        filename: fileName,
+        kind: 'phleb-docs',
+      });
+      setW9File({ name: fileName, uri, key, busy: false });
+    } catch (err) {
+      setW9File(null);
+      Alert.alert('Upload failed', err.message === 'NETWORK_ERROR'
+        ? 'Network error while uploading. Please try again.'
+        : (err.message || 'Could not upload the W9 form.'));
+    }
+  };
+
+  // Auto-confirm as soon as a file is staged, same pattern as bank statement.
+  React.useEffect(() => {
+    if (pendingW9Upload) {
+      confirmW9Upload();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingW9Upload]);
 
   const handleFinish = async () => {
     if (!bankName.trim() || !holderName.trim() || !routingNumber.trim() || !accountNumber.trim()) {

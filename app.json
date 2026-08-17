@@ -25,7 +25,9 @@
         "NSPhotoLibraryAddUsageDescription": "MusB Diagnostics needs permission to save photos you take of your documents.",
         "NSLocationWhenInUseUsageDescription": "MusB Diagnostics needs your location to show nearby phlebotomy requests and let patients see your live location.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "MusB Diagnostics needs your location to show nearby phlebotomy requests and let patients see your live location.",
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "UIFileSharingEnabled": true,
+        "LSSupportsOpeningDocumentsInPlace": true
       }
     },
     "android": {

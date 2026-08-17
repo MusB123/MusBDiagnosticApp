@@ -35,8 +35,9 @@ export default function RoleSelectScreen({ navigation }) {
           <Text style={styles.eyebrow}>GET STARTED</Text>
           <Text style={styles.title}>How will you{'\n'}use MusB?</Text>
           <Text style={styles.subtitle}>
-            Choose an option below — you can always switch later.
+            Choose an option below.
           </Text>
+          
         </View>
 
         {/* Patient card */}

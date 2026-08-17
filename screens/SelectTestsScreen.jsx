@@ -18,6 +18,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather, Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { fetchAvailableTests, fetchOffers } from '../utils/auth';
 
 const COLORS = {
@@ -513,14 +514,29 @@ function TestDetailsModal({ test, visible, onClose, isSelected, onToggle }) {
   );
 }
 
-/** Colorful offer bundle card with an explicit Select/Applied action button. */
-function OfferCard({ offer, palette, isApplied,hasFasting, delay, onSelect, hidePrice }) {
+/** Modern gradient offer card — floating badge, gradient icon header, pulsing urgency chip. */
+function OfferCard({ offer, palette, isApplied, hasFasting, delay, onSelect, hidePrice }) {
   const scale = useRef(new Animated.Value(1)).current;
   const glow = useRef(new Animated.Value(isApplied ? 1 : 0)).current;
+  const pulse = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     Animated.spring(glow, { toValue: isApplied ? 1 : 0, useNativeDriver: false, speed: 18, bounciness: 8 }).start();
   }, [isApplied]);
+
+  // Gentle breathing pulse on the "time left" chip so urgency reads as alive,
+  // not a static label. Only runs while the offer actually has a countdown.
+  useEffect(() => {
+    if (!offer.time_left) return;
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1.06, duration: 900, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 1, duration: 900, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [offer.time_left]);
 
   const animatePress = (toValue) => {
     Animated.spring(scale, { toValue, speed: 40, bounciness: 6, useNativeDriver: true }).start();
@@ -530,7 +546,7 @@ function OfferCard({ offer, palette, isApplied,hasFasting, delay, onSelect, hide
     inputRange: [0, 1],
     outputRange: [COLORS.border, palette.accent],
   });
-  const shadowOpacity = glow.interpolate({ inputRange: [0, 1], outputRange: [0.06, 0.18] });
+  const shadowOpacity = glow.interpolate({ inputRange: [0, 1], outputRange: [0.08, 0.22] });
 
   const savings = hidePrice ? 0 : (parseFloat(offer.original_price) || 0) - (parseFloat(offer.discounted_price) || 0);
   const savingsPct = hidePrice || !offer.original_price
@@ -550,32 +566,36 @@ function OfferCard({ offer, palette, isApplied,hasFasting, delay, onSelect, hide
             { borderColor, shadowOpacity, shadowColor: palette.accent },
           ]}
         >
-          <View style={[styles.offerAccentBar, { backgroundColor: palette.accent }]} />
-
-          <View style={styles.offerCardBody}>
-            <View style={styles.offerCardTop}>
-              <View style={{ flex: 1, marginRight: 10 }}>
-                <Text style={styles.offerCardTitle} numberOfLines={2}>{offer.title}</Text>
-                {!!offer.offer_type && (
-                  <View style={[styles.offerTypeBadge, { backgroundColor: palette.chipBg }]}>
-                    <Text style={[styles.offerTypeBadgeText, { color: palette.chipFg }]}>
-                      {offer.offer_type.toUpperCase()}
-                    </Text>
-                  </View>
-                )}
+          {/* Gradient header wash — replaces the old flat 5px accent bar */}
+          <LinearGradient
+            colors={[palette.accent, palette.accentBg]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.offerGradientHeader}
+          >
+            <View style={styles.offerHeaderRow}>
+              <View style={styles.offerIconCircle}>
+                <Feather name="gift" size={16} color={palette.accent} />
               </View>
               {!hidePrice && savingsPct > 0 && (
-                <View style={[styles.savingsBadge, { backgroundColor: palette.accent }]}>
-                  <Text style={styles.savingsBadgeText}>SAVE {savingsPct}%</Text>
+                <View style={styles.floatingBadge}>
+                  <Text style={styles.floatingBadgeText}>SAVE {savingsPct}%</Text>
                 </View>
               )}
             </View>
+            {!!offer.offer_type && (
+              <Text style={styles.offerTypeOnGradient}>{offer.offer_type.toUpperCase()}</Text>
+            )}
+          </LinearGradient>
+
+          <View style={styles.offerCardBody}>
+            <Text style={styles.offerCardTitle} numberOfLines={2}>{offer.title}</Text>
 
             {!!offer.time_left && (
-              <View style={styles.offerTimeLeftRow}>
-                <Feather name="clock" size={11} color={COLORS.error} />
+              <Animated.View style={[styles.offerTimeLeftPill, { transform: [{ scale: pulse }] }]}>
+                <View style={styles.offerTimeDot} />
                 <Text style={styles.offerTimeLeft}>{offer.time_left}</Text>
-              </View>
+              </Animated.View>
             )}
 
             {!hidePrice && (
@@ -587,12 +607,13 @@ function OfferCard({ offer, palette, isApplied,hasFasting, delay, onSelect, hide
               </View>
             )}
 
-            <Text style={styles.offerIncludes} numberOfLines={2}>
-              <Text style={styles.offerIncludesLabel}>Includes  </Text>
-              {(offer.includes || []).join('  ·  ')}
-            </Text>
+            <View style={styles.offerIncludesWrap}>
+              <Text style={styles.offerIncludesLabel}>INCLUDES</Text>
+              <Text style={styles.offerIncludes} numberOfLines={2}>
+                {(offer.includes || []).join('  ·  ')}
+              </Text>
+            </View>
 
-            
             {hasFasting && (
               <View style={styles.fastingBadge}>
                 <Feather name="clock" size={10} color="#B45309" />
@@ -1223,48 +1244,81 @@ const styles = StyleSheet.create({
   offerBannerText: { flex: 1, fontSize: 13, fontWeight: '700', color: COLORS.navyDark },
   offerBannerClear: { fontSize: 12, fontWeight: '800', color: COLORS.error },
 
-  // ── Offer card (colorful, animated, "select & checkout" style) ──────
+  // ── Offer card (modern gradient header, floating badge, pulsing chip) ──
   offerCard: {
     backgroundColor: COLORS.white,
-    borderRadius: 18,
-    marginBottom: 14,
+    borderRadius: 20,
+    marginBottom: 16,
     borderWidth: 2,
     overflow: 'hidden',
-    shadowOffset: { width: 0, height: 4 },
-    shadowRadius: 10,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 6 },
+    shadowRadius: 14,
+    elevation: 4,
   },
-  offerAccentBar: { height: 5, width: '100%' },
-  offerCardBody: { padding: 16, gap: 4 },
-  offerCardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
+  offerGradientHeader: {
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 18,
+  },
+  offerHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  offerIconCircle: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: 'rgba(255,255,255,0.9)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  floatingBadge: {
+    backgroundColor: 'rgba(255,255,255,0.95)',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  floatingBadgeText: { fontSize: 10.5, fontWeight: '900', color: COLORS.navyDark, letterSpacing: 0.3 },
+  offerTypeOnGradient: {
+    fontSize: 10.5,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: 0.6,
+    marginTop: 10,
+    opacity: 0.9,
+  },
+  offerCardBody: { padding: 16, paddingTop: 14, gap: 4 },
   offerCardTitle: {
     fontSize: 16.5,
     fontWeight: '800',
     color: COLORS.navyDark,
     letterSpacing: 0.1,
     lineHeight: 21,
+    marginBottom: 8,
+  },
+  offerTimeLeftPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 6,
+    backgroundColor: '#FEF2F2',
+    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
     marginBottom: 6,
   },
-  offerTypeBadge: {
-    alignSelf: 'flex-start',
-    borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
+  offerTimeDot: {
+    width: 6, height: 6, borderRadius: 3,
+    backgroundColor: COLORS.error,
   },
-  offerTypeBadgeText: { fontSize: 10.5, fontWeight: '800', letterSpacing: 0.5 },
-  savingsBadge: {
-    borderRadius: 10,
-    paddingHorizontal: 9,
-    paddingVertical: 5,
-  },
-  savingsBadgeText: { fontSize: 10.5, fontWeight: '900', color: COLORS.white, letterSpacing: 0.3 },
-  offerTimeLeftRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 2, marginBottom: 4 },
-  offerTimeLeft: { fontSize: 12, color: COLORS.error, fontWeight: '700' },
+  offerTimeLeft: { fontSize: 11.5, color: COLORS.error, fontWeight: '700' },
   offerPriceRow: { flexDirection: 'row', alignItems: 'baseline', gap: 8, marginTop: 4 },
   offerStrike: { fontSize: 13.5, color: COLORS.gray, textDecorationLine: 'line-through', fontWeight: '600' },
   offerDiscounted: { fontSize: 21, fontWeight: '900', letterSpacing: 0.2 },
-  offerIncludes: { fontSize: 12.5, color: COLORS.bodyText, marginTop: 6, lineHeight: 18 },
-  offerIncludesLabel: { fontSize: 11, fontWeight: '800', color: COLORS.gray, letterSpacing: 0.4 },
+  offerIncludesWrap: { marginTop: 8, marginBottom: 4 },
+  offerIncludesLabel: { fontSize: 10.5, fontWeight: '800', color: COLORS.gray, letterSpacing: 0.5, marginBottom: 3 },
+  offerIncludes: { fontSize: 12.5, color: COLORS.bodyText, lineHeight: 18 },
   offerWarningRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 6 },
   offerWarningText: { fontSize: 11, color: COLORS.error, fontWeight: '600' },
   offerSelectBtn: {

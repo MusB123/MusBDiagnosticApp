@@ -18,7 +18,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Path, Circle, Line } from 'react-native-svg';
-import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
+//import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
 
 import {
   login,
@@ -255,7 +255,7 @@ function ErrorText({ children }) {
 }
 
 // ── Feature flag: Google/Apple sign-in are now enabled ──
-const SHOW_SOCIAL_LOGIN = true;
+const SHOW_SOCIAL_LOGIN = false ;
 
 export default function LoginScreen({ navigation }) {
   const [email, setEmail]           = useState('');
@@ -329,32 +329,33 @@ export default function LoginScreen({ navigation }) {
     }
   };
 
-  useEffect(() => {
-    GoogleSignin.configure({
-      webClientId: '419738471832-nsodach0uujc8anp8p76i3nfeei9f8c4.apps.googleusercontent.com',
-    });
-  }, []);
+ // useEffect(() => {
+  //  GoogleSignin.configure({
+   //   webClientId: '419738471832-nsodach0uujc8anp8p76i3nfeei9f8c4.apps.googleusercontent.com',
+  //  });
+// }, []);
 
   const handleGooglePress = async () => {
-    setGoogleLoading(true);
-    try {
-      await GoogleSignin.hasPlayServices();
-      const result = await GoogleSignin.signIn();
-      const { idToken, user } = result.data ?? result;
-      const data = await loginWithGoogle({
-        idToken,
-        email: user.email,
-        name: user.name,
-        picture: user.photo,
-      });
-      routeAfterLogin(data.role);
-    } catch (err) {
-      if (err.code !== statusCodes.SIGN_IN_CANCELLED) {
+   // setGoogleLoading(true);
+    //try {
+      //await GoogleSignin.hasPlayServices();
+      //const result = await GoogleSignin.signIn();
+      //const { idToken, user } = result.data ?? result;
+      //const data = await loginWithGoogle({
+        //idToken,
+        //email: user.email,
+        //name: user.name,
+        //picture: user.photo,
+      //});
+      //routeAfterLogin(data.role);
+    //} catch (err) {
+      //if (err.code !== statusCodes.SIGN_IN_CANCELLED) {
         Alert.alert('Google sign-in failed', err.message || 'Please try again.');
-      }
-    } finally {
-      setGoogleLoading(false);
-    }
+      //}
+    //} finally {
+    //  setGoogleLoading(false);
+    //}
+    Alert.alert('Coming soon', 'Google sign-in will be available soon.'); //remove after comming
   };
 
   const emailBorderColor = errors.email
@@ -680,7 +681,7 @@ function ForgotPasswordModal({ visible, onClose }) {
                     style={[fpStyles.roleBtn, role === 'phlebotomist' && fpStyles.roleBtnActive]}
                     onPress={() => setRole('phlebotomist')}
                   >
-                    <Text style={[fpStyles.roleBtnText, role === 'phlebotomist' && fpStyles.roleBtnTextActive]}>Specialist</Text>
+                    <Text style={[fpStyles.roleBtnText, role === 'phlebotomist' && fpStyles.roleBtnTextActive]}>Phlebotomist</Text>
                   </TouchableOpacity>
                 </View>
 

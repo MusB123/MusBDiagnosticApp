@@ -244,23 +244,22 @@ export async function loginWithGoogle({ idToken, email, name, picture }) {
 }
 
 export async function requestPasswordResetOtp(email, role = 'patient') {
-  const endpoint = role === 'phlebotomist' ? PHLEB_ENDPOINTS.requestOtp : PATIENT_ENDPOINTS.requestOtp;
-
+  const endpoint = role === 'phlebotomist' ? PHLEB_ENDPOINTS.requestResetCode : PATIENT_ENDPOINTS.requestResetCode;
   return postJson(endpoint, { email });
 }
 
 export async function confirmPasswordReset({ email, code, newPassword, role = 'patient' }) {
   if (role === 'phlebotomist') {
-    return postJson(PHLEB_ENDPOINTS.verifyOtp, {
+    return postJson(PHLEB_ENDPOINTS.confirmReset, {
       email,
       token: code,
       new_password: newPassword,
     });
   }
-  return postJson(PATIENT_ENDPOINTS.verifyOtp, {
+  return postJson(PATIENT_ENDPOINTS.resetPasswordOtp, {
     email,
     token: code,
-    password: newPassword,
+    new_password: newPassword,
   });
 }
 
