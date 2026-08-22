@@ -22,6 +22,7 @@ import {
   logoutPatient,
   changePatientPassword,
   fetchPatientDashboard,
+  deletePatientAccount,
 } from '../utils/auth';
 
 const COLORS = {
@@ -167,7 +168,7 @@ export default function ProfileScreen({ navigation }) {
   const [docsLoading, setDocsLoading] = useState(true);
   const [showAllDocs, setShowAllDocs] = useState(false);
 
-  const [email, setEmail] = useState(''); // read-only
+  const [email, setEmail] = useState(''); 
   const [isGuest, setIsGuest] = useState(false);
   const [form, setForm] = useState({
     name: '',
@@ -188,12 +189,18 @@ export default function ProfileScreen({ navigation }) {
     confirmPassword: '',
   });
 
+  const [hasPassword, setHasPassword] = useState(true);
+  const [deletingAccount, setDeletingAccount] = useState(false);
+  const [submittingDelete, setSubmittingDelete] = useState(false);
+  const [deleteForm, setDeleteForm] = useState({ password: '', reason: '' });
+
   const loadProfile = async (isMountedRef) => {
     try {
       const profile = await fetchPatientProfile();
       if (!isMountedRef.current) return;
       setEmail(profile.email || '');
       setIsGuest(!!profile.is_guest); // set server-side in guest_checkout
+      setHasPassword(profile.has_password !== false);
       setForm({
         name: profile.name || '',
         phone: profile.phone || '',
@@ -279,6 +286,30 @@ export default function ProfileScreen({ navigation }) {
       Alert.alert('Could not save', err.message || 'Something went wrong. Please try again.');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    if (hasPassword && !deleteForm.password) {
+      Alert.alert('Password required', 'Please enter your current password to confirm.');
+      return;
+    }
+    setSubmittingDelete(true);
+    try {
+      const res = await deletePatientAccount({
+        password: deleteForm.password,
+        reason: deleteForm.reason,
+      });
+      Alert.alert(
+        'Account scheduled for deletion',
+        res.message ||
+          "Your account will be permanently deleted in 45 days. If you log back in before then, your account will be automatically restored — nothing will be deleted."
+      );
+      navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
+    } catch (err) {
+      Alert.alert('Could not delete account', err.message || 'Something went wrong. Please try again.');
+    } finally {
+      setSubmittingDelete(false);
     }
   };
 
@@ -637,6 +668,75 @@ export default function ProfileScreen({ navigation }) {
             )}
           </>
         )}
+        
+        {!editing && !isGuest && (
+          <>
+            <Text style={styles.sectionLabel}>DANGER ZONE</Text>
+
+            {!deletingAccount ? (
+              <TouchableOpacity
+                style={styles.deleteAccountBtn}
+                onPress={() => setDeletingAccount(true)}
+              >
+                <Ionicons name="trash-outline" size={16} color={COLORS.error} style={{ marginRight: 6 }} />
+                <Text style={styles.deleteAccountBtnText}>Delete account</Text>
+              </TouchableOpacity>
+            ) : (
+              <View style={styles.deleteCard}>
+                <Text style={styles.deleteWarningText}>
+                  Your account will be scheduled for deletion. You'll have 45 days to
+                  change your mind — just log back in during that time and your
+                  account will be automatically restored. If you don't log in within
+                  45 days, your account and data will be permanently deleted.
+                </Text>
+
+                {hasPassword && (
+                  <Field
+                    label="Current password"
+                    value={deleteForm.password}
+                    editable
+                    onChangeText={(t) => setDeleteForm((p) => ({ ...p, password: t }))}
+                    placeholder="Enter your password"
+                    secureTextEntry
+                  />
+                )}
+                <Field
+                  label="Reason (optional)"
+                  value={deleteForm.reason}
+                  editable
+                  onChangeText={(t) => setDeleteForm((p) => ({ ...p, reason: t }))}
+                  placeholder="Tell us why you're leaving"
+                  multiline
+                />
+
+                <View style={styles.passwordBtnRow}>
+                  <TouchableOpacity
+                    style={[styles.cancelBtn, styles.passwordCancelBtn]}
+                    onPress={() => {
+                      setDeletingAccount(false);
+                      setDeleteForm({ password: '', reason: '' });
+                    }}
+                    disabled={submittingDelete}
+                  >
+                    <Text style={styles.cancelBtnText}>Cancel</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.confirmDeleteBtn}
+                    onPress={handleDeleteAccount}
+                    disabled={submittingDelete}
+                  >
+                    {submittingDelete ? (
+                      <ActivityIndicator color={COLORS.white} size="small" />
+                    ) : (
+                      <Text style={styles.confirmDeleteBtnText}>Delete my account</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+          </>
+        )}
 
         {/* Guest account upsell — replaces Security section for guests */}
         {!editing && isGuest && (
@@ -948,4 +1048,39 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: COLORS.navyDark,
   },
+  deleteAccountBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FDECEC',
+    borderRadius: 12,
+    paddingVertical: 14,
+    borderWidth: 1,
+    borderColor: '#F5C2C2',
+    marginBottom: 8,
+  },
+  deleteAccountBtnText: { fontSize: 14, fontWeight: '700', color: COLORS.error },
+  deleteCard: {
+    backgroundColor: '#FFF7F7',
+    borderRadius: 14,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#F5C2C2',
+    marginBottom: 8,
+  },
+  deleteWarningText: {
+    fontSize: 12.5,
+    color: COLORS.bodyText,
+    lineHeight: 18,
+    marginBottom: 14,
+  },
+  confirmDeleteBtn: {
+    flex: 1,
+    backgroundColor: COLORS.error,
+    borderRadius: 12,
+    paddingVertical: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  confirmDeleteBtnText: { color: COLORS.white, fontSize: 14, fontWeight: '700' },
 });

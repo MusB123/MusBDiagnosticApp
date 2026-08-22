@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { fetchPatientDashboard } from '../utils/auth';
+import { getReadIds, markIdsRead } from '../utils/notificationStorage';
 
 const COLORS = {
   navy: '#1B3A8C',
@@ -176,8 +177,14 @@ export default function NotificationsScreen({ navigation }) {
   const load = () => {
     setLoading(true);
     setError('');
-    fetchPatientDashboard()
-      .then((data) => setNotifications(deriveNotifications(data)))
+    Promise.all([fetchPatientDashboard(), getReadIds()])
+      .then(([data, readIds]) => {
+        const notifs = deriveNotifications(data).map((n) => ({
+          ...n,
+          read: n.read || readIds.has(n.id),
+        }));
+        setNotifications(notifs);
+      })
       .catch((err) => setError(
         err.message === 'NETWORK_ERROR' ? "Can't reach the server." :
         err.message === 'NOT_LOGGED_IN' ? 'Please log in again.' :
@@ -188,11 +195,18 @@ export default function NotificationsScreen({ navigation }) {
 
   useEffect(() => { load(); }, []);
 
-  const markRead = (id) =>
+  const markRead = (id) => {
     setNotifications((prev) => prev.map((n) => n.id === id ? { ...n, read: true } : n));
+    markIdsRead([id]);
+  };
 
-  const markAllRead = () =>
-    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+  const markAllRead = () => {
+    setNotifications((prev) => {
+      const ids = prev.map((n) => n.id);
+      markIdsRead(ids);
+      return prev.map((n) => ({ ...n, read: true }));
+    });
+  };
 
   const filtered = notifications.filter((n) =>
     filterMap[activeFilter] ? n.type === filterMap[activeFilter] : true

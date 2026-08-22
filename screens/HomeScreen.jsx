@@ -21,6 +21,8 @@ import AddressBar from '../components/AddressBar';
 import * as Location from 'expo-location';
 import { setBookingDraft, getBookingDraft } from '../utils/bookingDraft';
 import { fetchPatientDashboard, getStoredPatientUser, rateAppointment, fetchOffers } from '../utils/auth';
+import { getReadIds } from '../utils/notificationStorage';
+
 
 const COLORS = {
   navy: '#1B3A8C',
@@ -542,7 +544,7 @@ export default function HomeScreen({ navigation, route }) {
   const [dashboard, setDashboard] = useState(null);
   const [loadingDashboard, setLoadingDashboard] = useState(true);
   const [dashboardError, setDashboardError] = useState('');
-  const [hasUnreadNotifs] = useState(true);
+  const [hasUnreadNotifs, setHasUnreadNotifs] = useState(false);
 
   const [offers, setOffers] = useState([]);
   const [offersLoading, setOffersLoading] = useState(true);
@@ -634,6 +636,24 @@ export default function HomeScreen({ navigation, route }) {
       if (isMountedRef.current) setLoadingDashboard(false);
     }
   };
+
+  // Recompute unread state whenever the dashboard changes, and again every
+  // time the screen regains focus (e.g. coming back from Notifications).
+  useEffect(() => {
+    const checkUnread = async () => {
+      if (!dashboard?.upcoming) return;
+      const readIds = await getReadIds();
+      const anyUnread = dashboard.upcoming.some((appt) => {
+        const id = `appt-${appt.id ?? appt._id}`;
+        return !readIds.has(id);
+      });
+      setHasUnreadNotifs(anyUnread);
+    };
+
+    checkUnread();
+    const unsubscribe = navigation.addListener('focus', checkUnread);
+    return unsubscribe;
+  }, [navigation, dashboard]);
 
   // Auto-prompt for a rating on completed, unrated visits. Completed
   // appointments live in dashboard.past (not dashboard.upcoming), which is

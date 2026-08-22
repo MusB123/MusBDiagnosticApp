@@ -721,6 +721,39 @@ export async function changePatientPassword({ currentPassword, newPassword }) {
   return data;
 }
 
+export async function deletePatientAccount({ password, reason }) {
+  const token = await getStoredPatientToken();
+  if (!token) throw new Error('NOT_LOGGED_IN');
+
+  let response;
+  try {
+    response = await fetch(PATIENT_ENDPOINTS.deleteAccount, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ password, reason }),
+    });
+  } catch {
+    throw new Error('NETWORK_ERROR');
+  }
+
+  let data;
+  try {
+    data = await response.json();
+  } catch {
+    throw new Error('BAD_RESPONSE');
+  }
+
+  if (!response.ok) {
+    throw new Error(data?.message || data?.error || `Request failed (${response.status})`);
+  }
+
+  // Server invalidates the cookie; clear the locally stored session too.
+  await SecureStore.deleteItemAsync(PATIENT_TOKEN_KEY);
+  await SecureStore.deleteItemAsync(PATIENT_USER_KEY);
+
+  return data;
+}
+
 export async function rateAppointment(appointmentId, rating, comment = '', options = {}) {
   const token = await getStoredPatientToken();
   if (!token) throw new Error('NOT_LOGGED_IN');

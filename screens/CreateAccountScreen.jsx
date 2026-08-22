@@ -12,6 +12,7 @@ import {
   FlatList,
   Image,
   ActivityIndicator,
+  ScrollView,
 } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -161,14 +162,16 @@ export default function CreateAccountScreen({ navigation }) {
 
   const handlePhone = (text) => {
     const clean = text.replace(/\D/g, '');
-    const formatted = countryCode.code === '+1' ? formatUsPhoneNumber(clean) : clean;
+    const digits = countryCode.code === '+1' ? clean.slice(0, 10) : clean;
+    const formatted = countryCode.code === '+1' ? formatUsPhoneNumber(digits) : digits;
     setForm({ ...form, phone: formatted });
     if (errors.phone) setErrors({ ...errors, phone: '' });
   };
 
   const handleEmergencyPhone = (text) => {
     const clean = text.replace(/\D/g, '');
-    const formatted = emergencyCountryCode.code === '+1' ? formatUsPhoneNumber(clean) : clean;
+    const digits = emergencyCountryCode.code === '+1' ? clean.slice(0, 10) : clean;
+    const formatted = emergencyCountryCode.code === '+1' ? formatUsPhoneNumber(digits) : digits;
     setForm({ ...form, emergencyContactPhone: formatted });
     if (errors.emergencyContactPhone) setErrors({ ...errors, emergencyContactPhone: '' });
   };
@@ -294,7 +297,14 @@ export default function CreateAccountScreen({ navigation }) {
       }
     }
 
-    if (!phoneDigits || phoneDigits.length < 7) newErrors.phone = 'Enter a valid phone number';
+    if (countryCode.code === '+1') {
+      if (phoneDigits.length !== 10) {
+        newErrors.phone = 'Please enter a valid 10-digit US phone number';
+      }
+    } else if (!phoneDigits || phoneDigits.length < 7) {
+      newErrors.phone = 'Enter a valid phone number';
+    }
+
     if (!form.email.trim()) {
       newErrors.email = 'Email is required';
     } else if (!emailRegex.test(form.email)) {
@@ -307,7 +317,11 @@ export default function CreateAccountScreen({ navigation }) {
       newErrors.emergencyContactName = 'Emergency contact name can only contain letters and spaces';
     }
 
-    if (!emergencyPhoneDigits || emergencyPhoneDigits.length < 7) {
+    if (emergencyCountryCode.code === '+1') {
+      if (emergencyPhoneDigits.length !== 10) {
+        newErrors.emergencyContactPhone = 'Please enter a valid 10-digit US phone number';
+      }
+    } else if (!emergencyPhoneDigits || emergencyPhoneDigits.length < 7) {
       newErrors.emergencyContactPhone = 'Enter a valid emergency contact number';
     } else if (
       emergencyCountryCode.code === countryCode.code &&
@@ -315,6 +329,7 @@ export default function CreateAccountScreen({ navigation }) {
     ) {
       newErrors.emergencyContactPhone = 'Emergency contact number must be different from your own';
     }
+
 
     const failedRule = PASSWORD_RULES.find((rule) => !rule.test(form.password));
     if (!form.password.trim()) {
@@ -353,7 +368,9 @@ export default function CreateAccountScreen({ navigation }) {
         : err.message === 'BAD_RESPONSE'
         ? 'Unexpected server response. Try again.'
         : err.message;
-      setErrors({ email: msg });
+
+      const isPhoneError = /phone/i.test(msg);
+      setErrors(isPhoneError ? { phone: msg } : { general: msg });
     } finally {
       setLoading(false);
     }
@@ -495,26 +512,32 @@ export default function CreateAccountScreen({ navigation }) {
             </View>
             {addressSuggestions.length > 0 && (
               <View style={styles.suggestionsBox}>
-                {addressSuggestions.map((item) => (
-                  <TouchableOpacity
-                    key={item.place_id}
-                    style={styles.suggestionRow}
-                    onPress={() => handleSelectAddressSuggestion(item)}
-                    activeOpacity={0.7}
-                  >
-                    <Ionicons name="location-outline" size={16} color={COLORS.gray} />
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.suggestionMain} numberOfLines={1}>
-                        {item.structured_formatting?.main_text || item.description}
-                      </Text>
-                      {item.structured_formatting?.secondary_text ? (
-                        <Text style={styles.suggestionSecondary} numberOfLines={1}>
-                          {item.structured_formatting.secondary_text}
+                <ScrollView
+                  nestedScrollEnabled={true}
+                  keyboardShouldPersistTaps="handled"
+                  showsVerticalScrollIndicator={true}
+                >
+                  {addressSuggestions.map((item) => (
+                    <TouchableOpacity
+                      key={item.place_id}
+                      style={styles.suggestionRow}
+                      onPress={() => handleSelectAddressSuggestion(item)}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons name="location-outline" size={16} color={COLORS.gray} />
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.suggestionMain} numberOfLines={1}>
+                          {item.structured_formatting?.main_text || item.description}
                         </Text>
-                      ) : null}
-                    </View>
-                  </TouchableOpacity>
-                ))}
+                        {item.structured_formatting?.secondary_text ? (
+                          <Text style={styles.suggestionSecondary} numberOfLines={1}>
+                            {item.structured_formatting.secondary_text}
+                          </Text>
+                        ) : null}
+                      </View>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
               </View>
             )}
             {addressSearchError ? <Text style={styles.errorText}>⚠ {addressSearchError}</Text> : null}
@@ -612,6 +635,12 @@ export default function CreateAccountScreen({ navigation }) {
 
             {errors.password ? <Text style={styles.errorText}>⚠ {errors.password}</Text> : null}
           </View>
+
+        {errors.general ? (
+          <Text style={[styles.errorText, { textAlign: 'center', marginBottom: 12 }]}>
+            ⚠ {errors.general}
+          </Text>
+        ) : null}  
 
         <TouchableOpacity
             style={[styles.continueBtn, loading && { opacity: 0.6 }]}
@@ -1034,7 +1063,7 @@ suggestionsBox: {
   marginTop: 6,
   backgroundColor: COLORS.white,
   overflow: 'hidden',
-  maxHeight: 220,
+  height: 220,
 },
 suggestionRow: {
   flexDirection: 'row',

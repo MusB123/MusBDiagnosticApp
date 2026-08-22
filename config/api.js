@@ -45,6 +45,7 @@ export const PATIENT_ENDPOINTS = {
   guestCheckout: `${PATIENT_PREFIX}/guest-checkout/`,
   sendGuestAccountOtp: `${PATIENT_PREFIX}/guest-account/send-otp/`,
   setPassword: `${PATIENT_PREFIX}/set-password/`,
+  deleteAccount: `${PATIENT_PREFIX}/delete-account/`,
 };
 
 // ── Phlebotomist endpoints (full version, from phleb app) ───────────────────
