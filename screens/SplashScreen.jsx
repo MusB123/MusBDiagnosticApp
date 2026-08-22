@@ -12,10 +12,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { getActiveSession } from '../utils/auth';
 
-
-export default function SplashScreen({ navigation, route }) {
+export default function SplashScreen({ navigation }) {
   const [checking, setChecking] = useState(true);
-  const [agreed, setAgreed] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -32,13 +30,6 @@ export default function SplashScreen({ navigation, route }) {
     })();
   }, []);
 
-  // Sync agreement flag when returning from TermsScreen
-  useEffect(() => {
-    if (route?.params?.agreedTerms) {
-      setAgreed(true);
-    }
-  }, [route?.params?.agreedTerms]);
-
   if (checking) {
     return (
       <View style={[styles.bg, { backgroundColor: '#0A1F5C', alignItems: 'center', justifyContent: 'center' }]}>
@@ -46,14 +37,6 @@ export default function SplashScreen({ navigation, route }) {
       </View>
     );
   }
-
-  const requireAgreement = (action) => {
-    if (!agreed) {
-      // simple visual nudge — could also show a toast/alert
-      return;
-    }
-    action();
-  };
 
   return (
     <ImageBackground
@@ -90,25 +73,19 @@ export default function SplashScreen({ navigation, route }) {
           {/* Buttons */}
           <View style={styles.buttons}>
             <TouchableOpacity
-              style={[styles.createBtn, !agreed && styles.disabledBtn]}
+              style={styles.createBtn}
               activeOpacity={0.85}
-              disabled={!agreed}
-              onPress={() => requireAgreement(() => navigation?.navigate('RoleSelect'))}
+              onPress={() => navigation?.navigate('RoleSelect')}
             >
-              <Text style={[styles.createBtnText, !agreed && styles.disabledText]}>
-                Create account
-              </Text>
+              <Text style={styles.createBtnText}>Create account</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[styles.signInBtn, !agreed && styles.disabledBtnOutline]}
+              style={styles.signInBtn}
               activeOpacity={0.85}
-              disabled={!agreed}
-              onPress={() => requireAgreement(() => navigation?.navigate('Login'))}
+              onPress={() => navigation?.navigate('Login')}
             >
-              <Text style={[styles.signInBtnText, !agreed && styles.disabledTextOutline]}>
-                Sign in
-              </Text>
+              <Text style={styles.signInBtnText}>Sign in</Text>
             </TouchableOpacity>
 
             <View style={styles.dividerRow}>
@@ -119,41 +96,11 @@ export default function SplashScreen({ navigation, route }) {
 
             <TouchableOpacity
               activeOpacity={0.7}
-              disabled={!agreed}
-              onPress={() => requireAgreement(() => navigation?.navigate('PatientHome', { isGuest: true }))}
+              onPress={() => navigation?.navigate('PatientHome', { isGuest: true })}
             >
-              <Text style={[styles.guestText, !agreed && styles.disabledTextGuest]}>
-                Continue as guest ›
-              </Text>
+              <Text style={styles.guestText}>Continue as guest ›</Text>
             </TouchableOpacity>
           </View>
-
-          {/* Agreement checkbox */}
-          <View style={styles.agreeRow}>
-            <TouchableOpacity
-              style={[styles.checkbox, agreed && styles.checkboxChecked]}
-              onPress={() => setAgreed((prev) => !prev)}
-              activeOpacity={0.7}
-            >
-              {agreed && <Text style={styles.checkboxTick}>✓</Text>}
-            </TouchableOpacity>
-
-            <Text style={styles.agreeText}>
-              I agree to the{' '}
-              <Text
-                style={styles.agreeLink}
-                onPress={() => navigation?.navigate('Terms')}
-              >
-                Terms & Privacy Policy
-              </Text>
-            </Text>
-          </View>
-
-          {!agreed && (
-            <Text style={styles.warnText}>
-              Please accept the Terms & Privacy Policy to continue
-            </Text>
-          )}
 
         </View>
       </SafeAreaView>
@@ -197,31 +144,8 @@ const styles = StyleSheet.create({
   },
   signInBtnText: { fontSize: 15, fontWeight: '600', color: '#FFFFFF', letterSpacing: 0.1 },
 
-  // Disabled states
-  disabledBtn: { backgroundColor: 'rgba(255,255,255,0.35)' },
-  disabledText: { color: 'rgba(17,36,114,0.55)' },
-  disabledBtnOutline: { borderColor: 'rgba(255,255,255,0.15)', backgroundColor: 'rgba(255,255,255,0.04)' },
-  disabledTextOutline: { color: 'rgba(255,255,255,0.35)' },
-  disabledTextGuest: { color: 'rgba(255,255,255,0.25)' },
-
   dividerRow: { flexDirection: 'row', alignItems: 'center', width: '100%', gap: 10, marginVertical: 2 },
   dividerLine: { flex: 1, height: 0.5, backgroundColor: 'rgba(255,255,255,0.18)' },
   dividerText: { fontSize: 11, color: 'rgba(255,255,255,0.35)' },
   guestText: { fontSize: 13, color: 'rgba(255,255,255,0.55)', marginTop: 2 },
-
-  // Checkbox
-  agreeRow: {
-    flexDirection: 'row', alignItems: 'center', marginTop: 22,
-    paddingHorizontal: 8, justifyContent: 'center',
-  },
-  checkbox: {
-    width: 20, height: 20, borderRadius: 5, borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.5)', marginRight: 8,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  checkboxChecked: { backgroundColor: '#4ade80', borderColor: '#4ade80' },
-  checkboxTick: { color: '#0A1F5C', fontSize: 13, fontWeight: '900' },
-  agreeText: { fontSize: 12.5, color: 'rgba(255,255,255,0.75)', flexShrink: 1 },
-  agreeLink: { color: '#FFFFFF', fontWeight: '700', textDecorationLine: 'underline' },
-  warnText: { fontSize: 11, color: '#fca5a5', marginTop: 8, textAlign: 'center' },
 });

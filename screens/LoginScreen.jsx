@@ -134,7 +134,7 @@ function usePopOnChange(dep) {
 }
 
 // Sizing for the logo mark — every layer is positioned with explicit
-// top/left math (not flex auto-centering) so the glow, ring, and card are
+// top/left math (not flex auto-centering) so the glow, pulses, and card are
 // guaranteed to sit perfectly concentric, on every platform.
 const RING_SIZE = 122;
 const GLOW_SIZE = 104;
@@ -142,14 +142,17 @@ const CARD_SIZE = 92;
 const centerOffset = (outer, inner) => (outer - inner) / 2;
 
 /**
- * Compact, modern logo mark: a soft pulsing glow, one slow-rotating dashed
- * ring, and the logo card gently bobbing in the middle. Deliberately simple —
- * a busier version (extra ring + orbiting dot) looked cluttered at this size.
+ * Compact, medical-feeling logo mark: a soft ambient glow, two staggered
+ * sonar/heartbeat-monitor pulse rings expanding outward from the card, and
+ * the logo card gently bobbing in the middle. Reads like a vitals monitor
+ * "ping" rather than a generic spinning ring — fits the diagnostics/
+ * phlebotomy theme.
  */
 function LogoCard() {
   const pop = useRef(new Animated.Value(0)).current;
   const glow = useRef(new Animated.Value(0)).current;
-  const spin = useRef(new Animated.Value(0)).current;
+  const pulse1 = useRef(new Animated.Value(0)).current;
+  const pulse2 = useRef(new Animated.Value(0)).current;
   const bob = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -161,9 +164,24 @@ function LogoCard() {
         Animated.timing(glow, { toValue: 0, duration: 1700, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
       ])
     );
-    const spinLoop = Animated.loop(
-      Animated.timing(spin, { toValue: 1, duration: 11000, easing: Easing.linear, useNativeDriver: true })
-    );
+
+    const makePulse = (anim, delay) =>
+      Animated.loop(
+        Animated.sequence([
+          Animated.delay(delay),
+          Animated.timing(anim, {
+            toValue: 1,
+            duration: 2000,
+            easing: Easing.out(Easing.ease),
+            useNativeDriver: true,
+          }),
+          Animated.timing(anim, { toValue: 0, duration: 0, useNativeDriver: true }),
+        ])
+      );
+
+    const pulseLoop1 = makePulse(pulse1, 0);
+    const pulseLoop2 = makePulse(pulse2, 1000);
+
     const bobLoop = Animated.loop(
       Animated.sequence([
         Animated.timing(bob, { toValue: 1, duration: 1800, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
@@ -172,13 +190,18 @@ function LogoCard() {
     );
 
     glowLoop.start();
-    spinLoop.start();
+    pulseLoop1.start();
+    pulseLoop2.start();
     bobLoop.start();
-    return () => { glowLoop.stop(); spinLoop.stop(); bobLoop.stop(); };
+    return () => { glowLoop.stop(); pulseLoop1.stop(); pulseLoop2.stop(); bobLoop.stop(); };
   }, []);
 
-  const spinDeg = spin.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
   const bobTranslate = bob.interpolate({ inputRange: [0, 1], outputRange: [0, -4] });
+
+  const pulseStyle = (anim) => ({
+    opacity: anim.interpolate({ inputRange: [0, 1], outputRange: [0.32, 0] }),
+    transform: [{ scale: anim.interpolate({ inputRange: [0, 1], outputRange: [1, 1.55] }) }],
+  });
 
   return (
     <View style={styles.logoWrap}>
@@ -193,22 +216,9 @@ function LogoCard() {
         ]}
       />
 
-      {/* single thin dashed ring, slow rotation */}
-      <Animated.View style={[styles.ringLayer, { transform: [{ rotate: spinDeg }] }]}>
-        <Svg width={RING_SIZE} height={RING_SIZE} viewBox={`0 0 ${RING_SIZE} ${RING_SIZE}`}>
-          <Circle
-            cx={RING_SIZE / 2}
-            cy={RING_SIZE / 2}
-            r={RING_SIZE / 2 - 3}
-            stroke={COLORS.navy}
-            strokeWidth={1.75}
-            strokeDasharray="7 11"
-            strokeLinecap="round"
-            fill="none"
-            opacity={0.45}
-          />
-        </Svg>
-      </Animated.View>
+      {/* sonar-style pulse rings — like a heartbeat monitor ping */}
+      <Animated.View style={[styles.pulseRing, pulseStyle(pulse1)]} />
+      <Animated.View style={[styles.pulseRing, pulseStyle(pulse2)]} />
 
       <Animated.View
         style={[
@@ -225,6 +235,43 @@ function LogoCard() {
           resizeMode="contain"
         />
       </Animated.View>
+    </View>
+  );
+}
+
+/**
+ * Thin ECG/heartbeat trace with a glowing dot that travels left-to-right
+ * along the spike, looping continuously. Purely decorative — sits above
+ * the logo to reinforce the vitals-monitor feel without being loud.
+ */
+function HeartbeatLine() {
+  const dot = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.timing(dot, { toValue: 1, duration: 2600, easing: Easing.linear, useNativeDriver: true })
+    );
+    loop.start();
+    return () => loop.stop();
+  }, []);
+
+  const translateX = dot.interpolate({ inputRange: [0, 1], outputRange: [-140, 140] });
+  const opacity = dot.interpolate({ inputRange: [0, 0.05, 0.95, 1], outputRange: [0, 1, 1, 0] });
+
+  return (
+    <View style={styles.ecgWrap}>
+      <Svg width="100%" height={36} viewBox="0 0 280 36">
+        <Path
+          d="M0 18 L95 18 L108 4 L120 32 L132 18 L280 18"
+          stroke={COLORS.navy}
+          strokeWidth={1.75}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          fill="none"
+          opacity={0.18}
+        />
+      </Svg>
+      <Animated.View style={[styles.ecgDot, { opacity, transform: [{ translateX }] }]} />
     </View>
   );
 }
@@ -398,6 +445,7 @@ export default function LoginScreen({ navigation }) {
         >
           {/* ── Logo + heading ── */}
           <View style={styles.headerArea}>
+            <HeartbeatLine />
             <LogoCard />
             <FadeInUp delay={120}>
               <Text style={styles.headerTitle}>Welcome back</Text>
@@ -839,6 +887,30 @@ const styles = StyleSheet.create({
 
   headerArea: { alignItems: 'center', marginBottom: 28, marginTop: 8 },
 
+  // ECG / heartbeat trace above the logo
+  ecgWrap: {
+    width: '100%',
+    height: 36,
+    marginBottom: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  ecgDot: {
+    position: 'absolute',
+    top: 13,
+    width: 9,
+    height: 9,
+    borderRadius: 4.5,
+    backgroundColor: COLORS.navyDark,
+    shadowColor: COLORS.navyDark,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.6,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+
   logoWrap: {
     width: RING_SIZE, height: RING_SIZE,
     alignSelf: 'center',
@@ -850,9 +922,17 @@ const styles = StyleSheet.create({
     width: GLOW_SIZE, height: GLOW_SIZE, borderRadius: GLOW_SIZE / 2,
     backgroundColor: COLORS.navyDark,
   },
-  ringLayer: {
-    position: 'absolute', top: 0, left: 0,
-    width: RING_SIZE, height: RING_SIZE,
+  // sonar-style pulse rings that expand outward from the card and fade
+  pulseRing: {
+    position: 'absolute',
+    top: centerOffset(RING_SIZE, CARD_SIZE),
+    left: centerOffset(RING_SIZE, CARD_SIZE),
+    width: CARD_SIZE,
+    height: CARD_SIZE,
+    borderRadius: CARD_SIZE / 2,
+    borderWidth: 2,
+    borderColor: COLORS.navyDark,
+    backgroundColor: 'transparent',
   },
   logoCard: {
     position: 'absolute',

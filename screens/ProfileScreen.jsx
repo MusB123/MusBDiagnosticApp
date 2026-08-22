@@ -685,7 +685,7 @@ export default function ProfileScreen({ navigation }) {
               <View style={styles.deleteCard}>
                 <Text style={styles.deleteWarningText}>
                   Your account will be scheduled for deletion. You'll have 45 days to
-                  change your mind — just log back in during that time and your
+                  change your mind,just log back in during that time and your
                   account will be automatically restored. If you don't log in within
                   45 days, your account and data will be permanently deleted.
                 </Text>

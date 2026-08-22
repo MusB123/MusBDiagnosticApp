@@ -1,8 +1,5 @@
-// screens/RoleSelectScreen.jsx
-// Role picker shown after "Create account" on the Splash screen.
-// Patient -> short registration. Phlebotomist -> multi-step registration
-// (document upload, account details, etc.)
-import React from 'react';
+
+import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -12,7 +9,21 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-export default function RoleSelectScreen({ navigation }) {
+export default function RoleSelectScreen({ navigation, route }) {
+  const [agreed, setAgreed] = useState(false);
+
+  // Sync agreement flag when returning from TermsScreen
+  useEffect(() => {
+    if (route?.params?.agreedTerms) {
+      setAgreed(true);
+    }
+  }, [route?.params?.agreedTerms]);
+
+  const requireAgreement = (action) => {
+    if (!agreed) return;
+    action();
+  };
+
   return (
     <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       <StatusBar barStyle="dark-content" backgroundColor="#F6F8FC" />
@@ -37,14 +48,13 @@ export default function RoleSelectScreen({ navigation }) {
           <Text style={styles.subtitle}>
             Choose an option below.
           </Text>
-          
         </View>
 
         {/* Patient card */}
         <TouchableOpacity
-          style={styles.card}
+          style={[styles.card, !agreed && styles.cardDisabled]}
           activeOpacity={0.85}
-          onPress={() => navigation.navigate('PatientCreateAccount')}
+          onPress={() => requireAgreement(() => navigation.navigate('PatientCreateAccount'))}
         >
           <View style={[styles.iconCircle, styles.iconCirclePatient]}>
             <Text style={styles.iconGlyph}>🩸</Text>
@@ -62,9 +72,9 @@ export default function RoleSelectScreen({ navigation }) {
 
         {/* Phlebotomist card */}
         <TouchableOpacity
-          style={styles.card}
+          style={[styles.card, !agreed && styles.cardDisabled]}
           activeOpacity={0.85}
-          onPress={() => navigation.navigate('Register')}
+          onPress={() => requireAgreement(() => navigation.navigate('Register'))}
         >
           <View style={[styles.iconCircle, styles.iconCirclePhleb]}>
             <Text style={styles.iconGlyph}>🧪</Text>
@@ -79,6 +89,33 @@ export default function RoleSelectScreen({ navigation }) {
             <Text style={styles.arrow}>›</Text>
           </View>
         </TouchableOpacity>
+
+        {/* Agreement checkbox */}
+        <View style={styles.agreeRow}>
+          <TouchableOpacity
+            style={[styles.checkbox, agreed && styles.checkboxChecked]}
+            onPress={() => setAgreed((prev) => !prev)}
+            activeOpacity={0.7}
+          >
+            {agreed && <Text style={styles.checkboxTick}>✓</Text>}
+          </TouchableOpacity>
+
+          <Text style={styles.agreeText}>
+            I agree to the{' '}
+            <Text
+              style={styles.agreeLink}
+              onPress={() => navigation.navigate('Terms')}
+            >
+              Terms & Privacy Policy
+            </Text>
+          </Text>
+        </View>
+
+        {!agreed && (
+          <Text style={styles.warnText}>
+            Please accept the Terms & Privacy Policy to continue
+          </Text>
+        )}
 
         {/* Existing account */}
         <View style={styles.footerRow}>
@@ -178,6 +215,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#EDF1F7',
   },
+  cardDisabled: {
+    opacity: 0.45,
+  },
   iconCircle: {
     width: 52,
     height: 52,
@@ -225,11 +265,53 @@ const styles = StyleSheet.create({
     marginTop: -1,
   },
 
+  // ── Agreement checkbox ──
+  agreeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 6,
+    marginBottom: 4,
+  },
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderRadius: 5,
+    borderWidth: 1.5,
+    borderColor: '#B7C1D6',
+    marginRight: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkboxChecked: {
+    backgroundColor: '#22c55e',
+    borderColor: '#22c55e',
+  },
+  checkboxTick: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  agreeText: {
+    fontSize: 12.5,
+    color: '#6B7690',
+    flexShrink: 1,
+  },
+  agreeLink: {
+    color: NAVY_DEEP,
+    fontWeight: '700',
+    textDecorationLine: 'underline',
+  },
+  warnText: {
+    fontSize: 11,
+    color: '#dc2626',
+    marginBottom: 8,
+  },
+
   // ── Footer ──
   footerRow: {
     flexDirection: 'row',
     justifyContent: 'center',
-    marginTop: 20,
+    marginTop: 16,
   },
   footerText: {
     fontSize: 13.5,

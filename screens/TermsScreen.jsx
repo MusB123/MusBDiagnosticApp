@@ -203,7 +203,7 @@ export default function TermsScreen({ navigation }) {
   }, [loadDocuments]);
 
   const handleBack = () => {
-    navigation.navigate('Splash', { agreedTerms: readAgreed });
+    navigation.navigate('RoleSelect', { agreedTerms: readAgreed });
   };
 
   const toggleCheck = () => {
@@ -237,7 +237,7 @@ export default function TermsScreen({ navigation }) {
 
       {/* Header */}
       <LinearGradient colors={[NAVY, BRAND]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.navigate('Splash')} style={styles.backBtn}>
+        <TouchableOpacity onPress={() => navigation.navigate('RoleSelect')} style={styles.backBtn}>
           <Ionicons name="chevron-back" size={20} color="#FFFFFF" />
           <Text style={styles.backText}>Back</Text>
         </TouchableOpacity>
