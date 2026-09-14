@@ -57,14 +57,12 @@ const BackArrowIcon = ({ color = '#0A1F5C', size = 20 }) => (
 );
 
 // ── Theme — matched to the Splash screen's navy-blue palette ──
-// (keys kept the same as before so every usage below still works; only the
-// hex values changed, so this is a drop-in re-theme rather than a rewrite.)
 const COLORS = {
-  navy: '#0A1F5C',        // Splash brand blue — focus borders, links, accents
-  navyDark: '#0A1F5C',    // brand navy — buttons, headings (same as Splash bg)
+  navy: '#0A1F5C',
+  navyDark: '#0A1F5C',
   navyLight: '#3E5CA3',
   white: '#FFFFFF',
-  offWhite: '#F2F4FA',    // soft blue-tinted off-white background
+  offWhite: '#F2F4FA',
   lightGray: '#DDE3F0',
   gray: '#8992A8',
   bodyText: '#2B3350',
@@ -72,18 +70,20 @@ const COLORS = {
   inputBg: '#FFFFFF',
   error: '#C0392B',
   errorBorder: '#C0392B',
-  success: '#16A34A',     // same green family as Splash's accreditation dot
+  success: '#16A34A',
 };
 
 // ── Reusable animated primitives ────────────────────────────────────────────
-function FadeInUp({ delay = 0, distance = 18, children, style }) {
+// Kept short (250ms) and with a small travel distance so screen entry feels
+// quick and light rather than "watching an animation play out."
+function FadeInUp({ delay = 0, distance = 10, children, style }) {
   const anim = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     Animated.timing(anim, {
       toValue: 1,
-      duration: 520,
+      duration: 260,
       delay,
-      easing: Easing.out(Easing.cubic),
+      easing: Easing.out(Easing.quad),
       useNativeDriver: true,
     }).start();
   }, []);
@@ -102,10 +102,12 @@ function FadeInUp({ delay = 0, distance = 18, children, style }) {
   );
 }
 
-function AnimatedPressable({ style, onPress, children, scaleTo = 0.96, disabled, ...rest }) {
+// This is the actual "touch and feel" — a quick, tight scale on press so
+// every button/card feels responsive. Kept snappy (fast in, fast out).
+function AnimatedPressable({ style, onPress, children, scaleTo = 0.97, disabled, ...rest }) {
   const scale = useRef(new Animated.Value(1)).current;
-  const pressIn = () => Animated.spring(scale, { toValue: scaleTo, useNativeDriver: true, speed: 40, bounciness: 6 }).start();
-  const pressOut = () => Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 30, bounciness: 8 }).start();
+  const pressIn = () => Animated.timing(scale, { toValue: scaleTo, duration: 90, useNativeDriver: true }).start();
+  const pressOut = () => Animated.timing(scale, { toValue: 1, duration: 120, useNativeDriver: true }).start();
   return (
     <Animated.View style={{ transform: [{ scale }] }}>
       <TouchableOpacity
@@ -123,112 +125,24 @@ function AnimatedPressable({ style, onPress, children, scaleTo = 0.96, disabled,
   );
 }
 
-/** Small bounce-pop used on the eye icon whenever visibility is toggled. */
-function usePopOnChange(dep) {
-  const scale = useRef(new Animated.Value(1)).current;
-  useEffect(() => {
-    scale.setValue(0.6);
-    Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 30, bounciness: 14 }).start();
-  }, [dep]);
-  return scale;
-}
-
-// Sizing for the logo mark — every layer is positioned with explicit
-// top/left math (not flex auto-centering) so the glow, pulses, and card are
-// guaranteed to sit perfectly concentric, on every platform.
-const RING_SIZE = 122;
-const GLOW_SIZE = 104;
-const CARD_SIZE = 92;
-const centerOffset = (outer, inner) => (outer - inner) / 2;
-
-/**
- * Compact, medical-feeling logo mark: a soft ambient glow, two staggered
- * sonar/heartbeat-monitor pulse rings expanding outward from the card, and
- * the logo card gently bobbing in the middle. Reads like a vitals monitor
- * "ping" rather than a generic spinning ring — fits the diagnostics/
- * phlebotomy theme.
- */
+/** Simple, calm fade+scale in for the logo. No glow, no pulses, no bobbing. */
 function LogoCard() {
   const pop = useRef(new Animated.Value(0)).current;
-  const glow = useRef(new Animated.Value(0)).current;
-  const pulse1 = useRef(new Animated.Value(0)).current;
-  const pulse2 = useRef(new Animated.Value(0)).current;
-  const bob = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    Animated.spring(pop, { toValue: 1, useNativeDriver: true, speed: 10, bounciness: 10 }).start();
-
-    const glowLoop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(glow, { toValue: 1, duration: 1700, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-        Animated.timing(glow, { toValue: 0, duration: 1700, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-      ])
-    );
-
-    const makePulse = (anim, delay) =>
-      Animated.loop(
-        Animated.sequence([
-          Animated.delay(delay),
-          Animated.timing(anim, {
-            toValue: 1,
-            duration: 2000,
-            easing: Easing.out(Easing.ease),
-            useNativeDriver: true,
-          }),
-          Animated.timing(anim, { toValue: 0, duration: 0, useNativeDriver: true }),
-        ])
-      );
-
-    const pulseLoop1 = makePulse(pulse1, 0);
-    const pulseLoop2 = makePulse(pulse2, 1000);
-
-    const bobLoop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(bob, { toValue: 1, duration: 1800, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-        Animated.timing(bob, { toValue: 0, duration: 1800, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-      ])
-    );
-
-    glowLoop.start();
-    pulseLoop1.start();
-    pulseLoop2.start();
-    bobLoop.start();
-    return () => { glowLoop.stop(); pulseLoop1.stop(); pulseLoop2.stop(); bobLoop.stop(); };
+    Animated.timing(pop, {
+      toValue: 1,
+      duration: 320,
+      easing: Easing.out(Easing.quad),
+      useNativeDriver: true,
+    }).start();
   }, []);
 
-  const bobTranslate = bob.interpolate({ inputRange: [0, 1], outputRange: [0, -4] });
-
-  const pulseStyle = (anim) => ({
-    opacity: anim.interpolate({ inputRange: [0, 1], outputRange: [0.32, 0] }),
-    transform: [{ scale: anim.interpolate({ inputRange: [0, 1], outputRange: [1, 1.55] }) }],
-  });
+  const scale = pop.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1] });
 
   return (
     <View style={styles.logoWrap}>
-      {/* soft ambient glow, centered behind everything */}
-      <Animated.View
-        style={[
-          styles.logoGlow,
-          {
-            opacity: glow.interpolate({ inputRange: [0, 1], outputRange: [0.10, 0.22] }),
-            transform: [{ scale: glow.interpolate({ inputRange: [0, 1], outputRange: [1, 1.08] }) }],
-          },
-        ]}
-      />
-
-      {/* sonar-style pulse rings — like a heartbeat monitor ping */}
-      <Animated.View style={[styles.pulseRing, pulseStyle(pulse1)]} />
-      <Animated.View style={[styles.pulseRing, pulseStyle(pulse2)]} />
-
-      <Animated.View
-        style={[
-          styles.logoCard,
-          {
-            opacity: pop,
-            transform: [{ scale: pop }, { translateY: bobTranslate }],
-          },
-        ]}
-      >
+      <Animated.View style={[styles.logoCard, { opacity: pop, transform: [{ scale }] }]}>
         <Image
           source={require('../assets/logo.png')}
           style={styles.logoImage}
@@ -239,70 +153,22 @@ function LogoCard() {
   );
 }
 
-/**
- * Thin ECG/heartbeat trace with a glowing dot that travels left-to-right
- * along the spike, looping continuously. Purely decorative — sits above
- * the logo to reinforce the vitals-monitor feel without being loud.
- */
-function HeartbeatLine() {
-  const dot = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    const loop = Animated.loop(
-      Animated.timing(dot, { toValue: 1, duration: 2600, easing: Easing.linear, useNativeDriver: true })
-    );
-    loop.start();
-    return () => loop.stop();
-  }, []);
-
-  const translateX = dot.interpolate({ inputRange: [0, 1], outputRange: [-140, 140] });
-  const opacity = dot.interpolate({ inputRange: [0, 0.05, 0.95, 1], outputRange: [0, 1, 1, 0] });
-
-  return (
-    <View style={styles.ecgWrap}>
-      <Svg width="100%" height={36} viewBox="0 0 280 36">
-        <Path
-          d="M0 18 L95 18 L108 4 L120 32 L132 18 L280 18"
-          stroke={COLORS.navy}
-          strokeWidth={1.75}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          fill="none"
-          opacity={0.18}
-        />
-      </Svg>
-      <Animated.View style={[styles.ecgDot, { opacity, transform: [{ translateX }] }]} />
-    </View>
-  );
-}
-
-/** Error text that pops/shakes in instead of just appearing. */
+/** Plain fade-in error text. No shake/bounce — reads calmer, less alarming. */
 function ErrorText({ children }) {
   const anim = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     anim.setValue(0);
-    Animated.sequence([
-      Animated.timing(anim, { toValue: 1, duration: 90, useNativeDriver: true }),
-      Animated.spring(anim, { toValue: 1, useNativeDriver: true, speed: 40, bounciness: 18 }),
-    ]).start();
+    Animated.timing(anim, { toValue: 1, duration: 150, useNativeDriver: true }).start();
   }, [children]);
   return (
-    <Animated.Text
-      style={[
-        styles.errorText,
-        {
-          opacity: anim,
-          transform: [{ translateY: anim.interpolate({ inputRange: [0, 1], outputRange: [-4, 0] }) }],
-        },
-      ]}
-    >
+    <Animated.Text style={[styles.errorText, { opacity: anim }]}>
       ⚠ {children}
     </Animated.Text>
   );
 }
 
 // ── Feature flag: Google/Apple sign-in are now enabled ──
-const SHOW_SOCIAL_LOGIN = false ;
+const SHOW_SOCIAL_LOGIN = false;
 
 export default function LoginScreen({ navigation }) {
   const [email, setEmail]           = useState('');
@@ -316,7 +182,6 @@ export default function LoginScreen({ navigation }) {
 
   const emailBorder = useRef(new Animated.Value(0)).current;
   const passwordBorder = useRef(new Animated.Value(0)).current;
-  const eyeScale = usePopOnChange(showPassword);
 
   // ── Keyboard-safe scrolling ──
   const scrollRef = useRef(null);
@@ -336,8 +201,9 @@ export default function LoginScreen({ navigation }) {
     }, 50);
   };
 
-  const focusIn = (anim) => Animated.timing(anim, { toValue: 1, duration: 180, useNativeDriver: false }).start();
-  const focusOut = (anim) => Animated.timing(anim, { toValue: 0, duration: 180, useNativeDriver: false }).start();
+  // Fast, linear-ish border focus transitions — feels immediate on tap.
+  const focusIn = (anim) => Animated.timing(anim, { toValue: 1, duration: 120, useNativeDriver: false }).start();
+  const focusOut = (anim) => Animated.timing(anim, { toValue: 0, duration: 120, useNativeDriver: false }).start();
 
   const validate = () => {
     const newErrors = {};
@@ -383,26 +249,7 @@ export default function LoginScreen({ navigation }) {
 // }, []);
 
   const handleGooglePress = async () => {
-   // setGoogleLoading(true);
-    //try {
-      //await GoogleSignin.hasPlayServices();
-      //const result = await GoogleSignin.signIn();
-      //const { idToken, user } = result.data ?? result;
-      //const data = await loginWithGoogle({
-        //idToken,
-        //email: user.email,
-        //name: user.name,
-        //picture: user.photo,
-      //});
-      //routeAfterLogin(data.role);
-    //} catch (err) {
-      //if (err.code !== statusCodes.SIGN_IN_CANCELLED) {
-        Alert.alert('Google sign-in failed', err.message || 'Please try again.');
-      //}
-    //} finally {
-    //  setGoogleLoading(false);
-    //}
-    Alert.alert('Coming soon', 'Google sign-in will be available soon.'); //remove after comming
+    Alert.alert('Coming soon', 'Google sign-in will be available soon.');
   };
 
   const emailBorderColor = errors.email
@@ -418,15 +265,15 @@ export default function LoginScreen({ navigation }) {
       <StatusBar barStyle="dark-content" backgroundColor={COLORS.offWhite} />
 
       {/* Fixed top back button — always reachable, doesn't scroll away */}
-      <FadeInUp distance={-8} style={styles.topHeader}>
+      <View style={styles.topHeader}>
         <AnimatedPressable
           style={styles.backCircle}
           onPress={() => navigation.navigate('Splash')}
-          scaleTo={0.9}
+          scaleTo={0.92}
         >
           <BackArrowIcon color={COLORS.navyDark} size={19} />
         </AnimatedPressable>
-      </FadeInUp>
+      </View>
 
       <KeyboardAvoidingView
         style={{ flex: 1 }}
@@ -445,16 +292,15 @@ export default function LoginScreen({ navigation }) {
         >
           {/* ── Logo + heading ── */}
           <View style={styles.headerArea}>
-            <HeartbeatLine />
             <LogoCard />
-            <FadeInUp delay={120}>
+            <FadeInUp delay={80}>
               <Text style={styles.headerTitle}>Welcome back</Text>
               <Text style={styles.headerSub}>Sign in to continue to MusB Diagnostics</Text>
             </FadeInUp>
           </View>
 
           {/* ── Form card ── */}
-          <FadeInUp delay={200} style={styles.formCard}>
+          <View style={styles.formCard}>
             {/* Email */}
             <View style={styles.fieldWrap}>
               <Text style={styles.label}>
@@ -523,11 +369,9 @@ export default function LoginScreen({ navigation }) {
                     activeOpacity={0.6}
                     hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                   >
-                    <Animated.View style={{ transform: [{ scale: eyeScale }] }}>
-                      {showPassword
-                        ? <EyeOffIcon color={COLORS.gray} size={20} />
-                        : <EyeIcon    color={COLORS.gray} size={20} />}
-                    </Animated.View>
+                    {showPassword
+                      ? <EyeOffIcon color={COLORS.gray} size={20} />
+                      : <EyeIcon    color={COLORS.gray} size={20} />}
                   </TouchableOpacity>
                 </Animated.View>
               </View>
@@ -556,7 +400,7 @@ export default function LoginScreen({ navigation }) {
               style={[styles.signInBtn, loading && { opacity: 0.7 }]}
               onPress={handleSignIn}
               disabled={loading}
-              scaleTo={0.97}
+              scaleTo={0.98}
             >
               {loading
                 ? <ActivityIndicator color="#FFF" size="small" />
@@ -566,19 +410,17 @@ export default function LoginScreen({ navigation }) {
             {/* ── Google / Apple sign-in ── */}
             {SHOW_SOCIAL_LOGIN && (
               <>
-                {/* Divider */}
                 <View style={styles.dividerRow}>
                   <View style={styles.dividerLine} />
                   <Text style={styles.dividerText}>OR CONTINUE WITH</Text>
                   <View style={styles.dividerLine} />
                 </View>
 
-                {/* Google */}
                 <AnimatedPressable
                   style={[styles.socialBtn, googleLoading && { opacity: 0.6 }]}
                   onPress={handleGooglePress}
                   disabled={googleLoading}
-                  scaleTo={0.97}
+                  scaleTo={0.98}
                 >
                   {googleLoading
                     ? <ActivityIndicator color={COLORS.navyDark} size="small" />
@@ -590,17 +432,16 @@ export default function LoginScreen({ navigation }) {
                     )}
                 </AnimatedPressable>
 
-                {/* Apple */}
-                <AnimatedPressable style={[styles.socialBtn, { marginTop: 12 }]} scaleTo={0.97}>
+                <AnimatedPressable style={[styles.socialBtn, { marginTop: 12 }]} scaleTo={0.98}>
                   <Text style={styles.appleIcon}></Text>
                   <Text style={styles.socialBtnText}>Continue with Apple</Text>
                 </AnimatedPressable>
               </>
             )}
-          </FadeInUp>
+          </View>
 
           {/* Sign up */}
-          <FadeInUp delay={280} style={styles.signupRow}>
+          <View style={styles.signupRow}>
             <Text style={styles.signupText}>Don't have an account? </Text>
             <TouchableOpacity
               onPress={() => navigation.navigate('PatientCreateAccount')}
@@ -608,10 +449,10 @@ export default function LoginScreen({ navigation }) {
             >
               <Text style={styles.signupLink}>Sign up</Text>
             </TouchableOpacity>
-          </FadeInUp>
+          </View>
 
           {/* Back to splash */}
-          <FadeInUp delay={320} style={{ alignItems: 'center' }}>
+          <View style={{ alignItems: 'center' }}>
             <AnimatedPressable
               style={styles.backBtn}
               onPress={() => navigation.navigate('Splash')}
@@ -620,7 +461,7 @@ export default function LoginScreen({ navigation }) {
               <BackArrowIcon color={COLORS.bodyText} size={15} />
               <Text style={styles.backBtnText}>Back to home</Text>
             </AnimatedPressable>
-          </FadeInUp>
+          </View>
 
           {/* Spacer so the last fields have room to scroll clear of the keyboard */}
           <View style={{ height: 160 }} />
@@ -648,7 +489,7 @@ function ForgotPasswordModal({ visible, onClose }) {
   useEffect(() => {
     if (visible) {
       cardAnim.setValue(0);
-      Animated.spring(cardAnim, { toValue: 1, useNativeDriver: true, speed: 16, bounciness: 8 }).start();
+      Animated.timing(cardAnim, { toValue: 1, duration: 200, easing: Easing.out(Easing.quad), useNativeDriver: true }).start();
     }
   }, [visible]);
 
@@ -704,7 +545,7 @@ function ForgotPasswordModal({ visible, onClose }) {
               fpStyles.card,
               {
                 opacity: cardAnim,
-                transform: [{ scale: cardAnim.interpolate({ inputRange: [0, 1], outputRange: [0.92, 1] }) }],
+                transform: [{ scale: cardAnim.interpolate({ inputRange: [0, 1], outputRange: [0.96, 1] }) }],
               },
             ]}
           >
@@ -750,7 +591,7 @@ function ForgotPasswordModal({ visible, onClose }) {
                   style={[fpStyles.primaryBtn, loading && { opacity: 0.7 }]}
                   onPress={handleRequestCode}
                   disabled={loading}
-                  scaleTo={0.97}
+                  scaleTo={0.98}
                 >
                   {loading
                     ? <ActivityIndicator color="#FFF" size="small" />
@@ -796,7 +637,7 @@ function ForgotPasswordModal({ visible, onClose }) {
                   style={[fpStyles.primaryBtn, loading && { opacity: 0.7 }]}
                   onPress={handleResetPassword}
                   disabled={loading}
-                  scaleTo={0.97}
+                  scaleTo={0.98}
                 >
                   {loading
                     ? <ActivityIndicator color="#FFF" size="small" />
@@ -887,64 +728,20 @@ const styles = StyleSheet.create({
 
   headerArea: { alignItems: 'center', marginBottom: 28, marginTop: 8 },
 
-  // ECG / heartbeat trace above the logo
-  ecgWrap: {
-    width: '100%',
-    height: 36,
-    marginBottom: 4,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-    position: 'relative',
-  },
-  ecgDot: {
-    position: 'absolute',
-    top: 13,
-    width: 9,
-    height: 9,
-    borderRadius: 4.5,
-    backgroundColor: COLORS.navyDark,
-    shadowColor: COLORS.navyDark,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.6,
-    shadowRadius: 6,
-    elevation: 4,
-  },
-
   logoWrap: {
-    width: RING_SIZE, height: RING_SIZE,
+    width: 92, height: 92,
     alignSelf: 'center',
-    marginBottom: 16,
-  },
-  logoGlow: {
-    position: 'absolute',
-    top: centerOffset(RING_SIZE, GLOW_SIZE), left: centerOffset(RING_SIZE, GLOW_SIZE),
-    width: GLOW_SIZE, height: GLOW_SIZE, borderRadius: GLOW_SIZE / 2,
-    backgroundColor: COLORS.navyDark,
-  },
-  // sonar-style pulse rings that expand outward from the card and fade
-  pulseRing: {
-    position: 'absolute',
-    top: centerOffset(RING_SIZE, CARD_SIZE),
-    left: centerOffset(RING_SIZE, CARD_SIZE),
-    width: CARD_SIZE,
-    height: CARD_SIZE,
-    borderRadius: CARD_SIZE / 2,
-    borderWidth: 2,
-    borderColor: COLORS.navyDark,
-    backgroundColor: 'transparent',
+    marginBottom: 20,
   },
   logoCard: {
-    position: 'absolute',
-    top: centerOffset(RING_SIZE, CARD_SIZE), left: centerOffset(RING_SIZE, CARD_SIZE),
-    width: CARD_SIZE, height: CARD_SIZE, borderRadius: 24,
+    width: 92, height: 92, borderRadius: 24,
     backgroundColor: COLORS.white,
     alignItems: 'center', justifyContent: 'center',
-    elevation: 8,
+    elevation: 6,
     shadowColor: '#0A1F5C',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
   },
   logoImage: { width: 76, height: 76 },
 

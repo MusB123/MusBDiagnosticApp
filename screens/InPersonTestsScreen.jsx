@@ -866,15 +866,11 @@ export default function InPersonTestsScreen({ navigation, route }) {
   };
 
   // Keep the walk-in fee preview (collection charge + authoritative total)
-  // fresh as soon as we know the test total / scheduling fee, so the summary
-  // card can show the real "In-centre collection charge" line and total
-  // BEFORE the patient ever taps "Book appointment".
+  // fresh whenever the test total / scheduling fee changes — including when
+  // no tests are selected (test_total: 0) so the flat in-centre collection
+  // charge is ALWAYS visible on the summary card even before any test is chosen.
   useEffect(() => {
     const base = testsTotal + schedulingFee;
-    if (base <= 0) {
-      setWalkinFeePreview({ collectionFee: 0, totalPatientFee: null });
-      return;
-    }
     let cancelled = false;
     (async () => {
       try {
@@ -892,11 +888,9 @@ export default function InPersonTestsScreen({ navigation, route }) {
   // Accepts an optional guest object so it can be called right after
   // GuestInfoScreen returns — reading `guestInfo` state at that exact
   // moment would still show the old (empty) value since setState is async.
+  // Tests are optional — patients can walk in and only pay the collection
+  // charge (test selection can happen at the center).
   const promptPaymentOptions = async (guestOverride) => {
-    if (selectedTestsData.length === 0) {
-      Alert.alert('No tests selected', 'Please select at least one test before booking.');
-      return;
-    }
     if (!center) {
       Alert.alert('Center unavailable', "We couldn't load our walk-in center. Please try again.");
       fetchCenters();
@@ -917,11 +911,8 @@ export default function InPersonTestsScreen({ navigation, route }) {
   };
 
   const handleBookAppointment = () => {
-    if (selectedTestsData.length === 0) {
-      Alert.alert('No tests selected', 'Please select at least one test before booking.');
-      return;
-    }
-
+    // Tests are optional — patients can walk in and only pay the collection
+    // charge; test selection can happen at the center.
     if (!center) {
       Alert.alert('Center unavailable', "We couldn't load our walk-in center. Please try again.");
       fetchCenters();
@@ -958,10 +949,12 @@ export default function InPersonTestsScreen({ navigation, route }) {
     const info = guestOverride || guestInfo;
     navigation.navigate('Checkout', {
       mobileVisitTotal: 0, // no visit fee for in-person
-      labTestsTotal: testsTotal + schedulingFee, 
-      walkinCollectionFee: collectionFee,       
-      totalPatientFee: estimatedTotal,  
-      labTestsNames: selectedTestsData.map((t) => t.name).join(', '),
+      labTestsTotal: testsTotal + schedulingFee,
+      walkinCollectionFee: collectionFee,
+      totalPatientFee: estimatedTotal,
+      labTestsNames: selectedTestsData.length > 0
+        ? selectedTestsData.map((t) => t.name).join(', ')
+        : 'Walk-in visit (tests selected at center)',
       address: center?.address || '',
       visitType: 'walkin',
       preferredDate: schedule.isoDate,
@@ -984,7 +977,9 @@ export default function InPersonTestsScreen({ navigation, route }) {
       const doctorOrderDoc = await uploadPrescriptionDoc();
 
       const result = await bookAppointment({
-        test_name: selectedTestsData.map((t) => t.name).join(', '),
+        test_name: selectedTestsData.length > 0
+          ? selectedTestsData.map((t) => t.name).join(', ')
+          : 'Walk-in visit (tests selected at center)',
         test_price: grandTotal,
         full_name: info?.fullName || patientUser?.name || '',
         email: info?.email || patientUser?.email || '',
@@ -1319,10 +1314,14 @@ export default function InPersonTestsScreen({ navigation, route }) {
               <Text style={styles.summaryLabel}>{appliedOffer ? 'Offer total' : 'Tests subtotal'}</Text>
               <Text style={styles.summaryValue}>${testsTotal.toFixed(0)}</Text>
             </View>
-            {collectionFee > 0 && (
+            {/* In-centre collection charge — always shown so patients know
+                the flat fee applies whether or not they pre-select tests. */}
+            {collectionFee >= 0 && (
               <View style={styles.summaryRow}>
                 <Text style={styles.summaryLabel}>In-centre collection charge</Text>
-                <Text style={styles.summaryValue}>${collectionFee.toFixed(0)}</Text>
+                <Text style={styles.summaryValue}>
+                  {collectionFee > 0 ? `$${collectionFee.toFixed(0)}` : 'Loading…'}
+                </Text>
               </View>
             )}
             {schedulingFee > 0 && (
@@ -1340,12 +1339,12 @@ export default function InPersonTestsScreen({ navigation, route }) {
         </FadeInUp>
       </ScrollView>
 
-      {/* Footer */}
+      {/* Footer — always enabled; tests are optional for walk-in visits */}
       <View style={styles.footer}>
         <AnimatedPressable
-          style={[styles.bookBtn, (selectedTestsData.length === 0 || submitting) && styles.bookBtnDisabled]}
+          style={[styles.bookBtn, submitting && styles.bookBtnDisabled]}
           scaleTo={0.97}
-          disabled={selectedTestsData.length === 0 || submitting}
+          disabled={submitting}
           onPress={handleBookAppointment}
         >
           {submitting ? (
