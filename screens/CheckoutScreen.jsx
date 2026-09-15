@@ -5,6 +5,7 @@ import {
   Animated, Easing, Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import { useStripe } from '@stripe/stripe-react-native';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import { getStoredPatientUser, getStoredPatientToken, bookAppointment, uploadDocument, fetchWalkinFeePreview, markAppointmentPaid, authPost } from '../utils/auth';
@@ -513,10 +514,13 @@ export default function CheckoutScreen({ navigation, route }) {
         <View style={{ width: 38 }} />
       </View>
 
-      <ScrollView
+      <KeyboardAwareScrollView
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        enableOnAndroid={true}
+        extraScrollHeight={80}
       >
         {/* ── Order Summary (main focus) ── */}
         <FadeInUp delay={0}>
@@ -681,7 +685,7 @@ export default function CheckoutScreen({ navigation, route }) {
             </Text>
           </View>
         </FadeInUp>
-      </ScrollView>
+      </KeyboardAwareScrollView>
 
       {/* ── Footer / Pay Button ── */}
       <View style={styles.footer}>
@@ -730,7 +734,7 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 18, fontWeight: '900', color: COLORS.navyDark, textAlign: 'center' },
   headerSub: { fontSize: 12, color: COLORS.gray, marginTop: 1, textAlign: 'center' },
   scroll: { flex: 1 },
-  scrollContent: { padding: 20, paddingBottom: 20 },
+  scrollContent: { padding: 20, paddingBottom: 100 },
 
   summaryCard: {
     backgroundColor: COLORS.offWhite, borderRadius: 18, padding: 18,

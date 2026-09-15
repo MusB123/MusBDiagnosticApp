@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
   StatusBar, Platform, Alert, ActivityIndicator, Linking,
+  KeyboardAvoidingView, ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as SecureStore from 'expo-secure-store';
@@ -129,7 +130,10 @@ export default function VerifyArrivalScreen({ route, navigation }) {
   };
 
   return (
-    <View style={styles.outer}>
+    <KeyboardAvoidingView
+      style={styles.outer}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
       <StatusBar barStyle="light-content" backgroundColor={PRIMARY} />
       <View style={styles.header}>
         <TouchableOpacity
@@ -144,7 +148,11 @@ export default function VerifyArrivalScreen({ route, navigation }) {
         <Text style={styles.headerTitle}>Verify Code</Text>
       </View>
 
-      <View style={styles.body}>
+      <ScrollView
+        contentContainerStyle={styles.body}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
         <Text style={styles.instructions}>
           Ask the patient for the 4-digit code sent to their email, then enter it below to start the collection.
         </Text>
@@ -197,8 +205,8 @@ export default function VerifyArrivalScreen({ route, navigation }) {
           <Ionicons name="help-circle-outline" size={16} color="#8A9BB0" />
           <Text style={styles.supportText}>Need help? Contact Support</Text>
         </TouchableOpacity>
-      </View>
-    </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 

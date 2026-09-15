@@ -16,6 +16,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import { Ionicons } from '@expo/vector-icons'; // swap for your icon lib if different
 import { uploadDocument } from '../utils/auth';
 
@@ -317,9 +318,12 @@ export default function RegisterStep2({ navigation, route }) {
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView
-        contentContainerStyle={{ paddingBottom: 40 }}
+      <KeyboardAwareScrollView
+        contentContainerStyle={{ paddingBottom: 60 }}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        enableOnAndroid={true}
+        extraScrollHeight={60}
       >
         {/* Back button */}
         <TouchableOpacity
@@ -369,7 +373,7 @@ export default function RegisterStep2({ navigation, route }) {
         <TouchableOpacity style={styles.button} onPress={handleContinue}>
           <Text style={styles.buttonText}>Continue</Text>
         </TouchableOpacity>
-      </ScrollView>
+      </KeyboardAwareScrollView>
 
       {/* Confirmation modal — shown after a photo/PDF is picked & cropped,
           before it's actually saved into `documents`. */}

@@ -292,7 +292,7 @@ export default function AddressBar({ value, onChange }) {
       >
         <KeyboardAvoidingView
           style={{ flex: 1 }}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           keyboardVerticalOffset={0}
         >
           <TouchableOpacity
@@ -315,7 +315,7 @@ export default function AddressBar({ value, onChange }) {
                 ref={scrollRef}
                 keyboardShouldPersistTaps="handled"
                 showsVerticalScrollIndicator={false}
-                contentContainerStyle={{ paddingBottom: 8 }}
+                contentContainerStyle={{ paddingBottom: 120 }}
               >
                 <Text style={styles.modalTitle}>Set your address</Text>
 

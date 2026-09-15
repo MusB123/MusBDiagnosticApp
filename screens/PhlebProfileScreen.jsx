@@ -16,6 +16,7 @@ import {
   Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
@@ -578,9 +579,12 @@ export default function ProfileScreen({ navigation, route }) {
         <View style={{ width: 38 }} />
       </FadeInUp>
 
-      <ScrollView
+      <KeyboardAwareScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: 140, paddingHorizontal: 20 }}
+        keyboardShouldPersistTaps="handled"
+        enableOnAndroid={true}
+        extraScrollHeight={80}
       >
         {/* ── Avatar hero ── */}
         <FadeInUp delay={70}>
@@ -773,7 +777,7 @@ export default function ProfileScreen({ navigation, route }) {
               )}
           </AnimatedPressable>
         </FadeInUp>
-      </ScrollView>
+      </KeyboardAwareScrollView>
 
       {/* ── Bottom Nav (Home / History / Profile only) ── */}
       <BottomTabBar

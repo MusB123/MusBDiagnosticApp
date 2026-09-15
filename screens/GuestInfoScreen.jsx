@@ -220,7 +220,7 @@ export default function GuestInfoScreen() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         enableOnAndroid={true}
-        extraScrollHeight={30}
+        extraScrollHeight={80}
         keyboardOpeningTime={0}
       >
         <FadeInUp delay={0}>

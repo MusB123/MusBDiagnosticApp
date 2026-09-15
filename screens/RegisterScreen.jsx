@@ -362,7 +362,7 @@ export default function RegisterScreen({ navigation }) {
       <StatusBar barStyle="dark-content" backgroundColor="#F5F6FA" />
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
       >
         <ScrollView
@@ -603,46 +603,51 @@ export default function RegisterScreen({ navigation }) {
         animationType="slide"
         onRequestClose={() => setShowPicker(false)}
       >
-        <TouchableOpacity
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPress={() => setShowPicker(false)}
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
-          <View style={styles.modalSheet}>
-            <View style={styles.modalHandle} />
-            <Text style={styles.modalTitle}>Select Country Code</Text>
-            <TextInput
-              placeholder="Search country or code..."
-              placeholderTextColor="#8A92A6"
-              value={countrySearch}
-              onChangeText={setCountrySearch}
-              style={styles.searchInput}
-            />
-            <FlatList
-              data={filteredCountries}
-              keyExtractor={(item) => item.code}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={[
-                    styles.modalItem,
-                    item.code === countryCode.code && styles.modalItemActive,
-                  ]}
-                  onPress={() => handleSelectCountryCode(item)}
-                >
-                  <Text style={styles.modalItemCountry}>{item.country}</Text>
-                  <Text
+          <TouchableOpacity
+            style={styles.modalOverlay}
+            activeOpacity={1}
+            onPress={() => setShowPicker(false)}
+          >
+            <View style={styles.modalSheet}>
+              <View style={styles.modalHandle} />
+              <Text style={styles.modalTitle}>Select Country Code</Text>
+              <TextInput
+                placeholder="Search country or code..."
+                placeholderTextColor="#8A92A6"
+                value={countrySearch}
+                onChangeText={setCountrySearch}
+                style={styles.searchInput}
+              />
+              <FlatList
+                data={filteredCountries}
+                keyExtractor={(item) => item.code}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
                     style={[
-                      styles.modalItemCode,
-                      item.code === countryCode.code && styles.modalItemCodeActive,
+                      styles.modalItem,
+                      item.code === countryCode.code && styles.modalItemActive,
                     ]}
+                    onPress={() => handleSelectCountryCode(item)}
                   >
-                    {item.code}
-                  </Text>
-                </TouchableOpacity>
-              )}
-            />
-          </View>
-        </TouchableOpacity>
+                    <Text style={styles.modalItemCountry}>{item.country}</Text>
+                    <Text
+                      style={[
+                        styles.modalItemCode,
+                        item.code === countryCode.code && styles.modalItemCodeActive,
+                      ]}
+                    >
+                      {item.code}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              />
+            </View>
+          </TouchableOpacity>
+        </KeyboardAvoidingView>
       </Modal>
     </SafeAreaView>
   );

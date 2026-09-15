@@ -7,18 +7,10 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "splash": {
-      "image": "./assets/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#0A1F5C"
-    },
     "ios": {
       "buildNumber": "1",
       "supportsTablet": true,
       "bundleIdentifier": "com.musb.diagnostics",
-      "config": {
-        "googleMapsApiKey": "AIzaSyCBFk6FQn6TERV3kJhGDoqOXxX2FpczerM"
-      },
       "infoPlist": {
         "NSCameraUsageDescription": "MusB Diagnostics needs camera access so you can take photos of documents like prescriptions and insurance cards.",
         "NSPhotoLibraryUsageDescription": "MusB Diagnostics needs photo library access so you can upload documents like prescriptions and insurance cards.",
@@ -37,7 +29,6 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true,
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.ACCESS_FINE_LOCATION",
@@ -89,9 +80,31 @@
           "locationWhenInUsePermission": "MusB Diagnostics needs your location to show nearby phlebotomy requests and let patients see your live location."
         }
       ],
-      "@react-native-google-signin/google-signin",
+      [
+        "@react-native-google-signin/google-signin",
+        {
+          "iosUrlScheme": "com.googleusercontent.apps.419738471832-8bmiolhcc8tpbo12gi8vlktvd27mpu9a"
+        }
+      ],
       "expo-sharing",
-      "expo-status-bar"
+      "expo-status-bar",
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "deploymentTarget": "16.4"
+          }
+        }
+      ],
+      "expo-font",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#0A1F5C"
+        }
+      ]
     ],
     "extra": {
       "eas": {

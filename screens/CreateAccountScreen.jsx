@@ -379,11 +379,7 @@ export default function CreateAccountScreen({ navigation }) {
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="dark-content" backgroundColor={COLORS.white} />
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
-        {/* Header */}
+      {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity
             style={styles.backButton}
@@ -652,7 +648,6 @@ export default function CreateAccountScreen({ navigation }) {
           </TouchableOpacity>
           
         </KeyboardAwareScrollView>
-      </KeyboardAvoidingView>
 
       {/* Country Code Picker Modal - phone */}
       <Modal
@@ -661,49 +656,54 @@ export default function CreateAccountScreen({ navigation }) {
         animationType="slide"
         onRequestClose={() => setShowPicker(false)}
       >
-        <TouchableOpacity
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPress={() => setShowPicker(false)}
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
-          <View style={styles.modalSheet}>
-            <View style={styles.modalHandle} />
-            <Text style={styles.modalTitle}>Select Country Code</Text>
-            <TextInput
-              placeholder="Search country or code..."
-              placeholderTextColor={COLORS.gray}
-              value={countrySearch}
-              onChangeText={setCountrySearch}
-              style={styles.searchInput}
-            />
-            <FlatList
-              data={filteredCountries}
-              keyExtractor={(item) => item.code}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={[
-                    styles.modalItem,
-                    item.code === countryCode.code && styles.modalItemActive,
-                  ]}
-                  onPress={() => {
-                    setCountryCode(item);
-                    const clean = form.phone.replace(/\D/g, '');
-                    setForm({ ...form, phone: item.code === '+1' ? formatUsPhoneNumber(clean) : clean });
-                    setShowPicker(false);
-                  }}
-                >
-                  <Text style={styles.modalItemCountry}>{item.country}</Text>
-                  <Text style={[
-                    styles.modalItemCode,
-                    item.code === countryCode.code && styles.modalItemCodeActive,
-                  ]}>
-                    {item.code}
-                  </Text>
-                </TouchableOpacity>
-              )}
-            />
-          </View>
-        </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.modalOverlay}
+            activeOpacity={1}
+            onPress={() => setShowPicker(false)}
+          >
+            <View style={styles.modalSheet}>
+              <View style={styles.modalHandle} />
+              <Text style={styles.modalTitle}>Select Country Code</Text>
+              <TextInput
+                placeholder="Search country or code..."
+                placeholderTextColor={COLORS.gray}
+                value={countrySearch}
+                onChangeText={setCountrySearch}
+                style={styles.searchInput}
+              />
+              <FlatList
+                data={filteredCountries}
+                keyExtractor={(item) => item.code}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={[
+                      styles.modalItem,
+                      item.code === countryCode.code && styles.modalItemActive,
+                    ]}
+                    onPress={() => {
+                      setCountryCode(item);
+                      const clean = form.phone.replace(/\D/g, '');
+                      setForm({ ...form, phone: item.code === '+1' ? formatUsPhoneNumber(clean) : clean });
+                      setShowPicker(false);
+                    }}
+                  >
+                    <Text style={styles.modalItemCountry}>{item.country}</Text>
+                    <Text style={[
+                      styles.modalItemCode,
+                      item.code === countryCode.code && styles.modalItemCodeActive,
+                    ]}>
+                      {item.code}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              />
+            </View>
+          </TouchableOpacity>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Country Code Picker Modal - emergency contact */}
@@ -713,49 +713,54 @@ export default function CreateAccountScreen({ navigation }) {
         animationType="slide"
         onRequestClose={() => setShowEmergencyPicker(false)}
       >
-        <TouchableOpacity
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPress={() => setShowEmergencyPicker(false)}
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
-          <View style={styles.modalSheet}>
-            <View style={styles.modalHandle} />
-            <Text style={styles.modalTitle}>Select Country Code</Text>
-            <TextInput
-              placeholder="Search country or code..."
-              placeholderTextColor={COLORS.gray}
-              value={emergencyCountrySearch}
-              onChangeText={setEmergencyCountrySearch}
-              style={styles.searchInput}
-            />
-            <FlatList
-              data={filteredEmergencyCountries}
-              keyExtractor={(item) => item.code}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={[
-                    styles.modalItem,
-                    item.code === emergencyCountryCode.code && styles.modalItemActive,
-                  ]}
-                  onPress={() => {
-                    setEmergencyCountryCode(item);
-                    const clean = form.emergencyContactPhone.replace(/\D/g, '');
-                    setForm({ ...form, emergencyContactPhone: item.code === '+1' ? formatUsPhoneNumber(clean) : clean });
-                    setShowEmergencyPicker(false);
-                  }}
-                >
-                  <Text style={styles.modalItemCountry}>{item.country}</Text>
-                  <Text style={[
-                    styles.modalItemCode,
-                    item.code === emergencyCountryCode.code && styles.modalItemCodeActive,
-                  ]}>
-                    {item.code}
-                  </Text>
-                </TouchableOpacity>
-              )}
-            />
-          </View>
-        </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.modalOverlay}
+            activeOpacity={1}
+            onPress={() => setShowEmergencyPicker(false)}
+          >
+            <View style={styles.modalSheet}>
+              <View style={styles.modalHandle} />
+              <Text style={styles.modalTitle}>Select Country Code</Text>
+              <TextInput
+                placeholder="Search country or code..."
+                placeholderTextColor={COLORS.gray}
+                value={emergencyCountrySearch}
+                onChangeText={setEmergencyCountrySearch}
+                style={styles.searchInput}
+              />
+              <FlatList
+                data={filteredEmergencyCountries}
+                keyExtractor={(item) => item.code}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={[
+                      styles.modalItem,
+                      item.code === emergencyCountryCode.code && styles.modalItemActive,
+                    ]}
+                    onPress={() => {
+                      setEmergencyCountryCode(item);
+                      const clean = form.emergencyContactPhone.replace(/\D/g, '');
+                      setForm({ ...form, emergencyContactPhone: item.code === '+1' ? formatUsPhoneNumber(clean) : clean });
+                      setShowEmergencyPicker(false);
+                    }}
+                  >
+                    <Text style={styles.modalItemCountry}>{item.country}</Text>
+                    <Text style={[
+                      styles.modalItemCode,
+                      item.code === emergencyCountryCode.code && styles.modalItemCodeActive,
+                    ]}>
+                      {item.code}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              />
+            </View>
+          </TouchableOpacity>
+        </KeyboardAvoidingView>
       </Modal>
     </SafeAreaView>
   );

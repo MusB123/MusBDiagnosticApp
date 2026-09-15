@@ -15,6 +15,7 @@ import {
   RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import { Ionicons } from '@expo/vector-icons';
 import {
   fetchPatientProfile,
@@ -439,10 +440,13 @@ export default function ProfileScreen({ navigation }) {
         </TouchableOpacity>
       </View>
 
-      <ScrollView
+      <KeyboardAwareScrollView
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        enableOnAndroid={true}
+        extraScrollHeight={80}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={COLORS.navy} />
         }
@@ -776,7 +780,7 @@ export default function ProfileScreen({ navigation }) {
             <Text style={styles.logoutBtnText}>{isGuest ? 'Exit guest session' : 'Log out'}</Text>
           </TouchableOpacity>
         )}
-      </ScrollView>
+      </KeyboardAwareScrollView>
     </SafeAreaView>
   );
 }
@@ -846,7 +850,7 @@ const styles = StyleSheet.create({
   headerAction: { fontSize: 15, fontWeight: '700', color: COLORS.navy },
 
   scroll: { flex: 1 },
-  scrollContent: { padding: 20, paddingBottom: 40 },
+  scrollContent: { padding: 20, paddingBottom: 80 },
 
   avatarSection: { alignItems: 'center', marginBottom: 28 },
   avatar: {
