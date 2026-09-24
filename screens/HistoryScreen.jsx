@@ -32,6 +32,7 @@ const STATUS_CONFIG = {
   completed: { label: 'Completed', color: COLORS.green, bg: COLORS.greenLight, icon: 'checkmark-circle' },
   cancelled: { label: 'Cancelled', color: COLORS.red, bg: COLORS.redLight, icon: 'close-circle' },
   declined: { label: 'Declined', color: COLORS.orange, bg: COLORS.orangeLight, icon: 'alert-circle' },
+  expired: { label: 'Time Passed', color: '#B45309', bg: '#FEF3C7', icon: 'time' },
 };
 
 // ── Shared animation primitives (same language as the rest of the app) ──
@@ -363,11 +364,18 @@ function ErrorState({ error, onRetry }) {
 
 // ── Screen ──
 
-export default function HistoryScreen({ navigation }) {
+export default function HistoryScreen({ navigation, route }) {
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [selected, setSelected] = useState(null);
+
+  // Walk-in appointments whose scheduled date has passed, passed from HomeScreen.
+  const expiredWalkins = (route?.params?.expiredWalkins || []).map((a) => ({
+    ...a,
+    status: 'expired',
+    _expiredNote: true,
+  }));
 
   const load = () => {
     setLoading(true);
@@ -400,6 +408,9 @@ export default function HistoryScreen({ navigation }) {
     return () => { alive = false; };
   }, []);
 
+  // Merge expired walk-ins at the top of whatever the backend returns.
+  const displayList = [...expiredWalkins, ...history];
+
   return (
     <SafeAreaView style={styles.safe}>
       <StatusBar barStyle="dark-content" backgroundColor={COLORS.offWhite} />
@@ -415,15 +426,29 @@ export default function HistoryScreen({ navigation }) {
         </View>
       </FadeInUp>
 
+      {/* Banner when viewing expired walk-in appointments */}
+      {expiredWalkins.length > 0 && (
+        <FadeInUp delay={60} distance={8}>
+          <View style={styles.expiredHeaderBanner}>
+            <Ionicons name="time" size={15} color="#B45309" style={{ marginRight: 8 }} />
+            <Text style={styles.expiredHeaderText}>
+              {expiredWalkins.length === 1
+                ? 'Your walk-in appointment time has passed. Please rebook if needed.'
+                : `${expiredWalkins.length} walk-in appointment times have passed. Please rebook if needed.`}
+            </Text>
+          </View>
+        </FadeInUp>
+      )}
+
       {loading ? (
         <SkeletonList />
       ) : error ? (
         <ErrorState error={error} onRetry={load} />
-      ) : history.length === 0 ? (
+      ) : displayList.length === 0 ? (
         <EmptyState />
       ) : (
         <FlatList
-          data={history}
+          data={displayList}
           keyExtractor={(item) => String(item.id ?? item._id ?? Math.random())}
           renderItem={({ item, index }) => (
             <AppointmentCard item={item} onPress={setSelected} delay={Math.min(index, 8) * 50} />
@@ -589,4 +614,22 @@ const styles = StyleSheet.create({
   totalValue: { fontSize: 19, fontWeight: '900', color: COLORS.green },
 
   modalFooterRow: { marginTop: 14, alignItems: 'flex-start' },
+
+  // Expired walk-in header banner (shown when navigated from HomeScreen expired nudge)
+  expiredHeaderBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FEF3C7',
+    borderBottomWidth: 1,
+    borderBottomColor: '#FCD34D',
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+  },
+  expiredHeaderText: {
+    flex: 1,
+    fontSize: 12.5,
+    color: '#92400E',
+    fontWeight: '600',
+    lineHeight: 17,
+  },
 });

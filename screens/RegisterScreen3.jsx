@@ -18,12 +18,20 @@ import {
   Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import { Ionicons } from '@expo/vector-icons'; // swap for your icon lib if different
 import { applyPhleb, uploadDocument } from '../utils/auth'; // adjust path if your folder structure differs
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const W9_FORM_URL = 'https://www.irs.gov/pub/irs-pdf/fw9.pdf';
 const SAF_DIR_KEY = 'musb_saf_download_dir';
+
+// US ABA routing numbers are always exactly 9 digits.
+const ROUTING_NUMBER_LENGTH = 9;
+// US bank account numbers have no single fixed length, but in practice run
+// from about 4 to 17 digits — this range covers virtually every US bank.
+const ACCOUNT_NUMBER_MIN_LENGTH = 4;
+const ACCOUNT_NUMBER_MAX_LENGTH = 17;
 
 export default function RegisterStep3({ navigation, route }) {
   // Everything collected across Step 1 (personal info) and Step 2 (licence /
@@ -66,6 +74,19 @@ export default function RegisterStep3({ navigation, route }) {
     const clean = uri.split('?')[0];
     const parts = clean.split('/');
     return parts[parts.length - 1] || 'document';
+  };
+
+  // Digits-only, length-capped input handlers for the two bank number
+  // fields — strips anything non-numeric as it's typed (handles paste too)
+  // and hard-caps at each field's real-world US max length.
+  const handleRoutingNumberChange = (text) => {
+    const digitsOnly = text.replace(/\D/g, '').slice(0, ROUTING_NUMBER_LENGTH);
+    setRoutingNumber(digitsOnly);
+  };
+
+  const handleAccountNumberChange = (text) => {
+    const digitsOnly = text.replace(/\D/g, '').slice(0, ACCOUNT_NUMBER_MAX_LENGTH);
+    setAccountNumber(digitsOnly);
   };
 
 
@@ -358,6 +379,23 @@ export default function RegisterStep3({ navigation, route }) {
       Alert.alert('Missing details', 'Please fill in all bank details to continue.');
       return;
     }
+    if (routingNumber.length !== ROUTING_NUMBER_LENGTH) {
+      Alert.alert(
+        'Invalid routing number',
+        `US routing numbers are exactly ${ROUTING_NUMBER_LENGTH} digits. Yours has ${routingNumber.length}.`
+      );
+      return;
+    }
+    if (
+      accountNumber.length < ACCOUNT_NUMBER_MIN_LENGTH ||
+      accountNumber.length > ACCOUNT_NUMBER_MAX_LENGTH
+    ) {
+      Alert.alert(
+        'Invalid account number',
+        `Account numbers should be between ${ACCOUNT_NUMBER_MIN_LENGTH} and ${ACCOUNT_NUMBER_MAX_LENGTH} digits.`
+      );
+      return;
+    }
     if (bankStatement?.busy) {
       Alert.alert('Please wait', 'Your bank statement is still uploading.');
       return;
@@ -418,16 +456,16 @@ export default function RegisterStep3({ navigation, route }) {
 
   return (
     <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView
+      <KeyboardAwareScrollView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+        contentContainerStyle={{ paddingBottom: 40 }}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        enableOnAndroid={false}
+        enableAutomaticScroll={true}
+        extraScrollHeight={15}
+        keyboardOpeningTime={250}
       >
-        <ScrollView
-          contentContainerStyle={{ paddingBottom: 40 }}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-        >
           {/* Back button */}
           <TouchableOpacity
             style={styles.backButton}
@@ -485,9 +523,13 @@ export default function RegisterStep3({ navigation, route }) {
             placeholder="021000021"
             placeholderTextColor="#A9AFBC"
             value={routingNumber}
-            onChangeText={setRoutingNumber}
+            onChangeText={handleRoutingNumberChange}
             keyboardType="numeric"
+            maxLength={ROUTING_NUMBER_LENGTH}
           />
+          <Text style={styles.helperText}>
+            {routingNumber.length}/{ROUTING_NUMBER_LENGTH} digits — the 9-digit ABA number on the bottom-left of a US check
+          </Text>
 
           <Text style={styles.label}>Account number</Text>
           <TextInput
@@ -495,9 +537,13 @@ export default function RegisterStep3({ navigation, route }) {
             placeholder="••••••4892"
             placeholderTextColor="#A9AFBC"
             value={accountNumber}
-            onChangeText={setAccountNumber}
+            onChangeText={handleAccountNumberChange}
             keyboardType="numeric"
+            maxLength={ACCOUNT_NUMBER_MAX_LENGTH}
           />
+          <Text style={styles.helperText}>
+            {accountNumber.length}/{ACCOUNT_NUMBER_MAX_LENGTH} digits (US account numbers are usually {ACCOUNT_NUMBER_MIN_LENGTH}–12 digits)
+          </Text>
 
           {/* Bank statement upload */}
           <Text style={styles.label}>Bank statement</Text>
@@ -590,8 +636,7 @@ export default function RegisterStep3({ navigation, route }) {
               <Text style={styles.continueText}>Finish Registration</Text>
             )}
           </TouchableOpacity>
-        </ScrollView>
-      </KeyboardAvoidingView>
+        </KeyboardAwareScrollView>
     </SafeAreaView>
   );
 }
@@ -692,6 +737,11 @@ const styles = StyleSheet.create({
     color: '#1A2236',
     borderWidth: 1,
     borderColor: '#E4E7EE',
+  },
+  helperText: {
+    marginTop: 6,
+    fontSize: 11.5,
+    color: '#8A92A6',
   },
 
   // Bank statement upload card (mirrors Step 2's document cards)

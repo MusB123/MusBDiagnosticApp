@@ -48,8 +48,12 @@ import CollectCompleteScreen from './screens/CollectCompleteScreen';
 
 const Stack = createNativeStackNavigator();
 
+// 🔑 Stripe publishable key — loaded from .env
+// Test:  pk_test_…  (use for development/testing)
+// Live:  pk_live_…  (use for production — set EXPO_PUBLIC_STRIPE_KEY in .env)
 const STRIPE_PUBLISHABLE_KEY =
-  'pk_test_51QvKvk086LMKPBIwE5lv6pzeGoiRQhuqL7mnI6V0RqL7YV4Hv8BGg38rU5R0W9mIaZDPvKC5SlwJyZy7bPXg6pHJ00glmQ7Ycs';
+  process.env.EXPO_PUBLIC_STRIPE_KEY ||
+  'pk_live_51QvKvk086LMKPBIwX2PUGMnTfDWCrFpOLFZvUkB71cJlOMQny9SfsvE7wH19FIcmMNQr5mF8n70sdEaqgDSSbBwf00CSr0UQRW';
 
 export default function App() {
   return (

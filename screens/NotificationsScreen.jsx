@@ -4,6 +4,7 @@ import {
   StatusBar, ScrollView, ActivityIndicator, Modal, Clipboard,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import { fetchPatientDashboard } from '../utils/auth';
 import { getReadIds, markIdsRead } from '../utils/notificationStorage';
 
@@ -43,9 +44,16 @@ function formatTestNames(raw) {
 // ── Derive notifications from dashboard payload ────────────────────────────
 function deriveNotifications(dashboard) {
   const notifs = [];
+  const seenIds = new Set();
 
-  // Upcoming appointments
-  (dashboard.upcoming ?? []).forEach((appt) => {
+  // Active & Upcoming appointments
+  const activeAndUpcoming = [...(dashboard?.active ?? []), ...(dashboard?.upcoming ?? [])];
+  activeAndUpcoming.forEach((appt) => {
+    const rawId = appt.id ?? appt._id;
+    const id = `appt-${rawId}`;
+    if (seenIds.has(id)) return;
+    seenIds.add(id);
+
     const status = (appt.status ?? '').toLowerCase();
     const testName = formatTestNames(appt.test_name ?? appt.test);
     const date = appt.month && appt.day ? `${appt.month} ${appt.day}` : (appt.preferred_date ?? '');
@@ -54,32 +62,37 @@ function deriveNotifications(dashboard) {
 
     let title = 'Upcoming Appointment';
     let message = testName;
-    let icon = '📅';
+    let iconName = 'calendar-outline';
+    let iconColor = COLORS.blue;
     let iconBg = COLORS.blueLight;
     let action = 'View Appointment';
 
     if (status === 'rejected' || status === 'declined') {
       title = 'Appointment Rejected';
       message = testName;
-      icon = '❌';
+      iconName = 'close-circle-outline';
+      iconColor = COLORS.red;
       iconBg = COLORS.redLight;
       action = null;
     } else if (status === 'assigned' || status === 'enroute' || status === 'in_progress') {
       title = 'Specialist Assigned';
       message = testName;
-      icon = '🚗';
+      iconName = 'car-outline';
+      iconColor = COLORS.purple;
       iconBg = COLORS.purpleLight;
       action = 'Track Visit';
     } else if (status === 'arrived') {
       title = 'Specialist Arrived';
       message = testName;
-      icon = '📍';
+      iconName = 'location-outline';
+      iconColor = COLORS.green;
       iconBg = COLORS.greenLight;
       action = 'View PIN';
     } else if (status === 'pending_approval' || status === 'hub_review') {
       title = 'Appointment Under Review';
       message = testName;
-      icon = '⏳';
+      iconName = 'time-outline';
+      iconColor = COLORS.orange;
       iconBg = COLORS.orangeLight;
       action = null;
     } else if (phleb) {
@@ -88,11 +101,12 @@ function deriveNotifications(dashboard) {
     }
 
     notifs.push({
-      id: `appt-${appt.id ?? appt._id}`,
+      id,
       type: 'appointment',
       title,
       message,
-      icon,
+      iconName,
+      iconColor,
       iconBg,
       action,
       date: date || 'Upcoming',
@@ -103,25 +117,56 @@ function deriveNotifications(dashboard) {
   });
 
   // Past appointments
-  (dashboard.past ?? []).forEach((appt) => {
+  (dashboard?.past ?? []).forEach((appt) => {
+    const rawId = appt.id ?? appt._id;
+    const id = `past-${rawId}`;
+    if (seenIds.has(id)) return;
+    seenIds.add(id);
+
     const status = (appt.status ?? '').toLowerCase();
     const testName = formatTestNames(appt.test_name ?? appt.test);
     const date = appt.month && appt.day ? `${appt.month} ${appt.day}` : (appt.preferred_date ?? '');
+    const completed = status === 'completed';
 
     notifs.push({
-      id: `past-${appt.id ?? appt._id}`,
+      id,
       type: 'appointment',
-      title: status === 'completed' ? 'Visit Completed' : 'Appointment Cancelled',
+      title: completed ? 'Visit Completed' : 'Appointment Cancelled',
       message: testName,
-      icon: status === 'completed' ? '✅' : '🚫',
-      iconBg: status === 'completed' ? COLORS.greenLight : COLORS.redLight,
-      action: status === 'completed' ? 'View History' : null,
+      iconName: completed ? 'checkmark-circle-outline' : 'close-circle-outline',
+      iconColor: completed ? COLORS.green : COLORS.red,
+      iconBg: completed ? COLORS.greenLight : COLORS.redLight,
+      action: completed ? 'View History' : null,
       date: date || 'Past',
       time: appt.created_at ? _relativeTime(appt.created_at) : 'Recently',
       read: true, // past = already seen
       raw: appt,
     });
   });
+
+  // General server notifications if present
+  if (Array.isArray(dashboard?.notifications)) {
+    dashboard.notifications.forEach((n, idx) => {
+      const id = n.id ? `notif-${n.id}` : `notif-${idx}`;
+      if (seenIds.has(id)) return;
+      seenIds.add(id);
+
+      notifs.push({
+        id,
+        type: n.type || 'general',
+        title: n.title || 'Notification',
+        message: n.message || n.body || '',
+        iconName: n.iconName || 'notifications-outline',
+        iconColor: COLORS.blue,
+        iconBg: COLORS.blueLight,
+        action: n.action || null,
+        date: n.created_at ? _relativeTime(n.created_at) : 'Recently',
+        time: n.created_at ? _relativeTime(n.created_at) : 'Recently',
+        read: !!n.read,
+        raw: n,
+      });
+    });
+  }
 
   // Sort: unread first, then by id descending (newest first)
   notifs.sort((a, b) => {
@@ -166,7 +211,7 @@ function BackArrow() {
   );
 }
 
-export default function NotificationsScreen({ navigation }) {
+export default function NotificationsScreen({ navigation, route }) {
   const [activeFilter, setActiveFilter] = useState('All');
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -179,17 +224,33 @@ export default function NotificationsScreen({ navigation }) {
     setError('');
     Promise.all([fetchPatientDashboard(), getReadIds()])
       .then(([data, readIds]) => {
-        const notifs = deriveNotifications(data).map((n) => ({
+        const derived = deriveNotifications(data);
+        const unreadIds = derived.filter((n) => !n.read && !readIds.has(n.id)).map((n) => n.id);
+        if (unreadIds.length > 0) {
+          markIdsRead(unreadIds);
+        }
+        const notifs = derived.map((n) => ({
           ...n,
           read: n.read || readIds.has(n.id),
         }));
         setNotifications(notifs);
       })
-      .catch((err) => setError(
-        err.message === 'NETWORK_ERROR' ? "Can't reach the server." :
-        err.message === 'NOT_LOGGED_IN' ? 'Please log in again.' :
-        err.message
-      ))
+      .catch((err) => {
+        // Guests have no backend session until they actually complete a
+        // booking, so fetchPatientDashboard() throws NOT_LOGGED_IN right
+        // away — that's expected, not a real auth failure. Show an empty
+        // notifications list instead of prompting them to log in.
+        if (err.message === 'NOT_LOGGED_IN' && route?.params?.isGuest) {
+          setNotifications([]);
+          setError('');
+          return;
+        }
+        setError(
+          err.message === 'NETWORK_ERROR' ? "Can't reach the server." :
+          err.message === 'NOT_LOGGED_IN' ? 'Please log in again.' :
+          err.message
+        );
+      })
       .finally(() => setLoading(false));
   };
 
@@ -281,7 +342,7 @@ export default function NotificationsScreen({ navigation }) {
         <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
           {filtered.length === 0 ? (
             <View style={styles.emptyState}>
-              <Text style={styles.emptyIcon}>🔔</Text>
+              <Ionicons name="notifications-outline" size={44} color={COLORS.gray} style={{ opacity: 0.4, marginBottom: 12 }} />
               <Text style={styles.emptyTitle}>All caught up</Text>
               <Text style={styles.emptySubtitle}>No {activeFilter.toLowerCase()} notifications yet.</Text>
             </View>
@@ -298,7 +359,7 @@ export default function NotificationsScreen({ navigation }) {
                     {!notif.read && <View style={styles.unreadBar} />}
                     <View style={styles.notifInner}>
                       <View style={[styles.notifIconWrap, { backgroundColor: notif.iconBg }]}>
-                        <Text style={styles.notifIcon}>{notif.icon}</Text>
+                        <Ionicons name={notif.iconName} size={21} color={notif.iconColor} />
                       </View>
                       <View style={styles.notifContent}>
                         <View style={styles.notifTopRow}>
@@ -306,7 +367,6 @@ export default function NotificationsScreen({ navigation }) {
                             {notif.title}
                           </Text>
                         </View>
-                        <Text style={styles.notifMessage}>{notif.message}</Text>
                         {notif.action && (
                           <TouchableOpacity
                             style={styles.notifActionBtn}
@@ -349,7 +409,7 @@ export default function NotificationsScreen({ navigation }) {
             {/* Header */}
             <View style={styles.pinCardHeader}>
               <View style={styles.pinIconCircle}>
-                <Text style={styles.pinIconEmoji}>🔐</Text>
+                <Ionicons name="lock-closed-outline" size={28} color={COLORS.navy} />
               </View>
               <Text style={styles.pinCardTitle}>Your Arrival PIN</Text>
               <Text style={styles.pinCardSub}>
@@ -401,16 +461,6 @@ export default function NotificationsScreen({ navigation }) {
                 );
               })()}
             </View>
-
-            {/* Appointment detail */}
-            {pinModalNotif?.raw && (
-              <View style={styles.pinApptRow}>
-                <Text style={styles.pinApptLabel}>Appointment</Text>
-                <Text style={styles.pinApptValue} numberOfLines={2}>
-                  {pinModalNotif.message}
-                </Text>
-              </View>
-            )}
 
             <TouchableOpacity style={styles.pinCloseBtn} onPress={() => setPinModalNotif(null)}>
               <Text style={styles.pinCloseBtnText}>Close</Text>
@@ -486,21 +536,18 @@ const styles = StyleSheet.create({
   },
   notifCardUnread: { borderColor: '#C7D6F8', backgroundColor: '#FAFBFF' },
   unreadBar: { width: 3.5, backgroundColor: COLORS.navy, borderTopLeftRadius: 14, borderBottomLeftRadius: 14 },
-  notifInner: { flex: 1, flexDirection: 'row', padding: 14, gap: 12, alignItems: 'flex-start' },
+  notifInner: { flex: 1, flexDirection: 'row', padding: 14, gap: 12, alignItems: 'center' },
   notifIconWrap: { width: 44, height: 44, borderRadius: 13, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
-  notifIcon: { fontSize: 20 },
   notifContent: { flex: 1 },
-  notifTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4, gap: 8 },
+  notifTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 },
   notifTitle: { fontSize: 14, fontWeight: '600', color: COLORS.bodyText, flex: 1 },
   notifTitleUnread: { fontWeight: '800', color: COLORS.navyDark },
   notifTime: { fontSize: 11, color: COLORS.gray, fontWeight: '500', flexShrink: 0 },
-  notifMessage: { fontSize: 13, color: COLORS.gray, lineHeight: 19 },
   notifActionBtn: { marginTop: 8, alignSelf: 'flex-start' },
   notifActionText: { fontSize: 13, fontWeight: '700', color: COLORS.navy },
   unreadDotIndicator: { width: 8, height: 8, borderRadius: 4, backgroundColor: COLORS.unreadDot, marginTop: 4, flexShrink: 0 },
 
   emptyState: { alignItems: 'center', paddingTop: 80, paddingBottom: 40 },
-  emptyIcon: { fontSize: 48, marginBottom: 12, opacity: 0.3 },
   emptyTitle: { fontSize: 17, fontWeight: '800', color: COLORS.navyDark, marginBottom: 6 },
   emptySubtitle: { fontSize: 14, color: COLORS.gray },
 
@@ -535,7 +582,6 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
     marginBottom: 12,
   },
-  pinIconEmoji: { fontSize: 28 },
   pinCardTitle: { fontSize: 20, fontWeight: '800', color: COLORS.navyDark, marginBottom: 6 },
   pinCardSub: {
     fontSize: 13, color: COLORS.gray, textAlign: 'center', lineHeight: 18, paddingHorizontal: 8,

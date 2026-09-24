@@ -36,22 +36,52 @@ const COLORS = {
 };
 
 // Backend rich-text fields (description, preparation) sometimes come back
-// as HTML from a WYSIWYG editor (e.g. `<p class="isSelectedEnd">...</p>`).
-// RN's <Text> doesn't parse HTML, so we strip tags/decode entities here,
-// once, at normalization time — not at render time.
+// as HTML from a WYSIWYG editor or ChatGPT markup (e.g. `<p data-start="..." class="...">...</p>` or encoded `&lt;p...&gt;`).
+// RN's <Text> doesn't parse HTML, so we strip tags and decode entities here.
 function stripHtml(html) {
   if (!html || typeof html !== 'string') return '';
-  return html
+  let text = html;
+
+  // Step 1: Multi-pass HTML entity decoding.
+  // Handles double-encoded or entity-encoded HTML (e.g., &lt;p data-start=...&gt; returned on iOS/proxies)
+  // BEFORE running tag stripping, so that decoded tags (<p...>) can be properly stripped.
+  for (let i = 0; i < 3; i++) {
+    const prev = text;
+    text = text
+      .replace(/&lt;/gi, '<')
+      .replace(/&gt;/gi, '>')
+      .replace(/&quot;/gi, '"')
+      .replace(/&#39;/gi, "'")
+      .replace(/&amp;/gi, '&');
+    if (text === prev) break;
+  }
+
+  // Step 2: Convert structural paragraph and break tags into newlines
+  text = text
     .replace(/<\/p>\s*<p[^>]*>/gi, '\n\n')
     .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/?(p|div)[^>]*>/gi, '')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
+    .replace(/<\/(div|li|tr|h[1-6])>/gi, '\n');
+
+  // Step 3: Strip all HTML/XML tags (including tags with attributes like data-start, data-end, class, etc.)
+  text = text.replace(/<[^>]+>/g, '');
+
+  // Step 4: Decode remaining special text entities
+  text = text
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&mdash;/gi, '—')
+    .replace(/&ndash;/gi, '–')
+    .replace(/&bull;/gi, '•')
+    .replace(/&middot;/gi, '·')
+    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, code) => String.fromCharCode(parseInt(code, 16)));
+
+  // Step 5: Final sweep to strip any remaining HTML/XML tags created during entity decoding
+  text = text.replace(/<[^>]+>/g, '').replace(/<\/[^>]+>/g, '');
+
+  // Step 6: Clean up extra spaces and blank lines
+  return text
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n\s*\n\s*\n+/g, '\n\n')
     .trim();
 }
 
@@ -314,7 +344,7 @@ function TestRow({ test, isSelected, onToggle, onViewDetails, delay }) {
 
              <Pressable
               onPress={(e) => {
-                e.stopPropagation?.();
+                if (e && typeof e.stopPropagation === 'function') e.stopPropagation();
                 onViewDetails();
               }}
               hitSlop={8}
@@ -705,16 +735,16 @@ export default function SelectTestsScreen({ navigation, route }) {
 
           return {
             id: String(t.id ?? t._id ?? ''),
-            name: t.title || 'Untitled Test',
+            name: stripHtml(t.title || 'Untitled Test'),
             desc: stripHtml(t.description || ''),
             preparation: stripHtml(t.preparation || ''),
             price,
             discountPrice: hasDiscount ? discountPrice : null,
             hidePrice,
-            category: t.category_name || 'General Wellness',
+            category: stripHtml(t.category_name || 'General Wellness'),
             iconName: t.icon_name || '',
-            sampleType: t.sample_type || '',
-            turnaround: t.turnaround || '',
+            sampleType: stripHtml(t.sample_type || ''),
+            turnaround: stripHtml(t.turnaround || ''),
             fastingRequired: !!t.fasting_required,
             doctorOrderRequired: !!t.doctor_order_required,
           };
@@ -751,7 +781,12 @@ export default function SelectTestsScreen({ navigation, route }) {
       try {
         const data = await fetchOffers(hasInsurance);
         console.log('RAW OFFERS FROM API:', JSON.stringify(data, null, 2));
-        if (isMounted) setOffers(data || []);
+        const normalizedOffers = (data || []).map((o) => ({
+          ...o,
+          title: stripHtml(o.title || ''),
+          includes: (o.includes || []).map((inc) => stripHtml(inc || '')),
+        }));
+        if (isMounted) setOffers(normalizedOffers);
       } catch (err) {
         if (isMounted) setOffersError(err.message || 'Could not load offers.');
       } finally {

@@ -127,8 +127,14 @@ const CATEGORY_ICONS = {
   cleanliness: 'sparkles-outline',
 };
 const OVERALL_RATING_LABELS = ['', 'Poor', 'Fair', 'Good', 'Very good', 'Excellent'];
- 
+
 let hasAskedLocationThisSession = false;
+// Guests must never inherit a location left in the shared bookingDraft
+// singleton by a previous logged-in user (or an earlier guest) on this
+// device/app-session. We only want to clear it once per guest entry —
+// not on every Home re-mount while the guest keeps using the app — so
+// this mirrors the hasAskedLocationThisSession "once per JS session" flag.
+let hasResetGuestLocationThisSession = false;
 
 function isInPersonVisit(appt) {
   const vt = (appt.visit_type || appt.visitType || '').toLowerCase();
@@ -136,6 +142,24 @@ function isInPersonVisit(appt) {
 }
 function isPaid(appt) {
   return (appt.payment_status || '').toLowerCase() === 'paid' || (appt.payment_method || '').toLowerCase() === 'card';
+}
+
+/**
+ * Returns true if a walk-in/in-person appointment's scheduled date has
+ * already passed (strictly before today in the device's local date).
+ * Only applies to walk-in visits — mobile phlebotomy is managed by the
+ * backend and must not be client-side expired.
+ */
+function isWalkinExpired(appt) {
+  if (!isInPersonVisit(appt)) return false;
+  const raw = appt.preferred_date || appt.scheduled_date || appt.date || '';
+  if (!raw) return false;
+  // Normalise to YYYY-MM-DD (the backend returns ISO dates or similar)
+  const iso = raw.slice(0, 10); // '2026-09-15'
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return false;
+  const today = new Date();
+  const todayIso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  return iso < todayIso; // strictly before today → expired
 }
 
 function getApptHeading(appt) {
@@ -349,7 +373,7 @@ function formatTimeLeft(value) {
 
   const date = new Date(value);
   if (isNaN(date.getTime())) {
-   
+
     return /^\d+\s*\w+$/.test(value) ? value : null;
   }
 
@@ -468,17 +492,30 @@ function OfferCard({ offer, index, onPress }) {
 
 export default function HomeScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
-  const [isGuest, setIsGuest] = useState(false);
-  useEffect(() => {
-    (async () => {
-      const storedUser = await getStoredPatientUser();
-      setIsGuest(!!storedUser?.isGuest);
-    })();
-  }, []);
+  const [isGuest, setIsGuest] = useState(route?.params?.isGuest === true);
 
-  const [locationData, setLocationDataState] = useState(() => getBookingDraft());
+  const [locationData, setLocationDataState] = useState(() => {
+    const draft = getBookingDraft();
+    const isGuestEntry = route?.params?.isGuest === true;
 
-  
+    if (isGuestEntry && !hasResetGuestLocationThisSession) {
+      hasResetGuestLocationThisSession = true;
+      const cleared = {
+        ...draft,
+        address: '',
+        zipCode: '',
+        latitude: null,
+        longitude: null,
+        useGps: false,
+      };
+      setBookingDraft(cleared);
+      return cleared;
+    }
+
+    return draft;
+  });
+
+
   const setLocationData = (data) => {
     setLocationDataState((prev) => {
       const next = typeof data === 'function' ? data(prev) : data;
@@ -507,10 +544,13 @@ export default function HomeScreen({ navigation, route }) {
 
         if (status !== 'granted') return; // don't pop the OS dialog on Home load
 
-        const position = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Balanced,
-        });
-        if (cancelled) return;
+        let position = await Location.getLastKnownPositionAsync({});
+        if (!position) {
+          position = await Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.Balanced,
+          });
+        }
+        if (cancelled || !position?.coords) return;
 
         const geocode = await Location.reverseGeocodeAsync({
           latitude: position.coords.latitude,
@@ -533,15 +573,34 @@ export default function HomeScreen({ navigation, route }) {
           zipCode: postal,
         });
       } catch (err) {
-        console.warn('Auto address fetch failed:', err);
+        // Device Location (GPS toggle) is disabled or unavailable — log debug info instead of noisy warning
+        console.log('Auto address fetch skipped (Location services disabled on device):', err.message);
       }
     }
 
     autoFetchAddress();
     return () => { cancelled = true; };
   }, []);
-  const [firstName, setFirstName] = useState(route?.params?.firstName || 'there');
+  const [firstName, setFirstName] = useState(
+    route?.params?.firstName || (route?.params?.isGuest ? 'Guest' : 'there')
+  );
+
+  // Resolve guest status from stored session (covers the case where the
+  // screen wasn't navigated to directly with an isGuest param) and make
+  // sure the greeting reads "Guest" rather than the old "there" fallback.
+  useEffect(() => {
+    (async () => {
+      const storedUser = await getStoredPatientUser();
+      const guest = !!storedUser?.isGuest || route?.params?.isGuest === true;
+      setIsGuest(guest);
+      if (guest && !route?.params?.firstName) {
+        setFirstName('Guest');
+      }
+    })();
+  }, []);
+
   const [dashboard, setDashboard] = useState(null);
+  const [expiredWalkins, setExpiredWalkins] = useState([]);
   const [loadingDashboard, setLoadingDashboard] = useState(true);
   const [dashboardError, setDashboardError] = useState('');
   const [hasUnreadNotifs, setHasUnreadNotifs] = useState(false);
@@ -615,7 +674,12 @@ export default function HomeScreen({ navigation, route }) {
       if (isMountedRef.current) {
         const combined = [...(data.active || []), ...(data.upcoming || [])];
         combined.sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
-        setDashboard({ ...data, upcoming: combined });
+        // Split walk-in appointments whose date has already passed — they
+        // should no longer appear in "Upcoming" on the home page.
+        const expired = combined.filter(isWalkinExpired);
+        const active = combined.filter((a) => !isWalkinExpired(a));
+        setExpiredWalkins(expired);
+        setDashboard({ ...data, upcoming: active });
       }
     } catch (err) {
       if (isMountedRef.current) {
@@ -624,14 +688,14 @@ export default function HomeScreen({ navigation, route }) {
           setDashboardError('');
         } else {
           setDashboardError(
-           err.message === 'NETWORK_ERROR'
-            ? "Can't reach the server."
-            : err.message === 'NOT_LOGGED_IN'
-            ? 'Please log in again.'
-            : err.message
-        );
-       }
-     }
+            err.message === 'NETWORK_ERROR'
+              ? "Can't reach the server."
+              : err.message === 'NOT_LOGGED_IN'
+                ? 'Please log in again.'
+                : err.message
+          );
+        }
+      }
     } finally {
       if (isMountedRef.current) setLoadingDashboard(false);
     }
@@ -641,12 +705,19 @@ export default function HomeScreen({ navigation, route }) {
   // time the screen regains focus (e.g. coming back from Notifications).
   useEffect(() => {
     const checkUnread = async () => {
-      if (!dashboard?.upcoming) return;
+      if (!dashboard) return;
+      const combined = [...(dashboard.active || []), ...(dashboard.upcoming || [])];
       const readIds = await getReadIds();
-      const anyUnread = dashboard.upcoming.some((appt) => {
+      let anyUnread = combined.some((appt) => {
         const id = `appt-${appt.id ?? appt._id}`;
         return !readIds.has(id);
       });
+      if (!anyUnread && Array.isArray(dashboard.notifications)) {
+        anyUnread = dashboard.notifications.some((n) => {
+          const id = n.id ? `notif-${n.id}` : null;
+          return id ? (!readIds.has(id) && !n.read) : false;
+        });
+      }
       setHasUnreadNotifs(anyUnread);
     };
 
@@ -772,7 +843,7 @@ export default function HomeScreen({ navigation, route }) {
             <View style={styles.topBarRight}>
               <AnimatedPressable
                 style={styles.bellBtn}
-                onPress={() => navigation.navigate('PatientNotifications')}
+                onPress={() => navigation.navigate('PatientNotifications', { isGuest: route?.params?.isGuest === true })}
                 scaleTo={0.88}
               >
                 <BellIcon hasUnread={hasUnreadNotifs} />
@@ -884,10 +955,12 @@ export default function HomeScreen({ navigation, route }) {
           <FadeInUp delay={0}>
             <Text style={styles.dashboardError}>⚠ {dashboardError}</Text>
           </FadeInUp>
-        ) : dashboard?.upcoming?.length > 0 ? (
+        ) : dashboard?.upcoming?.length > 0 || expiredWalkins.length > 0 ? (
           <FadeInUp delay={340}>
-            <Text style={styles.sectionLabel}>UPCOMING APPOINTMENTS</Text>
-            {dashboard.upcoming.slice(0, 3).map((appt, index) => {
+            {dashboard?.upcoming?.length > 0 && (
+              <Text style={styles.sectionLabel}>UPCOMING APPOINTMENTS</Text>
+            )}
+            {(dashboard?.upcoming || []).slice(0, 3).map((appt, index) => {
               const status = (appt.status || '').toLowerCase();
               const isLive = LIVE_STATUSES.includes(status);
               const isCompleted = status === 'completed';
@@ -919,7 +992,7 @@ export default function HomeScreen({ navigation, route }) {
                                   {t}
                                 </Text>
                               ))}
-                            </View>
+                          </View>
                           {isLive && <PulseDot color={statusColor} />}
                         </View>
                         <Text style={styles.apptMeta}>
@@ -966,6 +1039,34 @@ export default function HomeScreen({ navigation, route }) {
                 </FadeInUp>
               );
             })}
+
+            {/* Expired walk-in nudge banner */}
+            {expiredWalkins.length > 0 && (
+              <FadeInUp delay={400}>
+                <TouchableOpacity
+                  activeOpacity={0.85}
+                  onPress={() =>
+                    navigation.navigate('PatientHistory', { expiredWalkins })
+                  }
+                  style={styles.expiredBanner}
+                >
+                  <View style={styles.expiredBannerIcon}>
+                    <Ionicons name="time-outline" size={18} color="#B45309" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.expiredBannerTitle}>
+                      {expiredWalkins.length === 1
+                        ? '1 walk-in appointment time has passed'
+                        : `${expiredWalkins.length} walk-in appointment times have passed`}
+                    </Text>
+                    <Text style={styles.expiredBannerSub}>
+                      Tap to view in Appointment History
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={16} color="#B45309" />
+                </TouchableOpacity>
+              </FadeInUp>
+            )}
           </FadeInUp>
         ) : null}
 
@@ -1045,7 +1146,7 @@ export default function HomeScreen({ navigation, route }) {
                       totalPatientFee: totalFee,
                       labTestsNames: appt.test || '',
                       address: appt.address || '',
-                      visitType: 'walkin',      
+                      visitType: 'walkin',
                       preferredDate: appt.preferred_date || appt.date || '',
                       preferredTime: 'Walk-in',
                       appointmentId: appt.id,
@@ -1141,9 +1242,9 @@ export default function HomeScreen({ navigation, route }) {
                         return fee > 0 ? `$${fee.toFixed(2)}` : 'Not available';
                       }
 
-  // Mobile visit total = visit fee (backend-authoritative) + lab test cost.
-  // These are stored as two separate fields — total_patient_fee never
-  // includes test_price, so it must be added, not treated as the full total.
+                      // Mobile visit total = visit fee (backend-authoritative) + lab test cost.
+                      // These are stored as two separate fields — total_patient_fee never
+                      // includes test_price, so it must be added, not treated as the full total.
                       const visitFee = Number(appt.total_patient_fee ?? appt.totalPatientFee ?? 0);
                       const testCost = Number(appt.test_price) || 0;
 
@@ -1151,7 +1252,7 @@ export default function HomeScreen({ navigation, route }) {
                       if (visitFee > 0 || testCost > 0) {
                         fee = visitFee + testCost;
                       } else {
-    // Legacy fallback for old records with no stored breakdown.
+                        // Legacy fallback for old records with no stored breakdown.
                         const base = Number(appt.baseFee) || 0;
                         const distance = Number(appt.distanceFee) || 0;
                         const driversReserve = Number(appt.driversReserveFee) || 0;
@@ -1165,7 +1266,7 @@ export default function HomeScreen({ navigation, route }) {
                   </Text>
                 </View>
               </View>
-              
+
               <View style={styles.detailDivider} />
 
               <View style={[styles.detailPrepRow, appt.fasting_required && styles.detailPrepRowFasting]}>
@@ -1483,11 +1584,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center', alignItems: 'center', padding: 24,
   },
   ratingCard: {
-   width: '100%', maxHeight: '90%', backgroundColor: COLORS.white,
-   borderRadius: 28, padding: 24, paddingTop: 36, paddingBottom: 28,
-   elevation: 12,
-   shadowColor: '#000', shadowOffset: { width: 0, height: 12 },
-   shadowOpacity: 0.28, shadowRadius: 24,
+    width: '100%', maxHeight: '90%', backgroundColor: COLORS.white,
+    borderRadius: 28, padding: 24, paddingTop: 36, paddingBottom: 28,
+    elevation: 12,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.28, shadowRadius: 24,
   },
   ratingHeaderIconWrap: {
     position: 'absolute', top: -28, alignSelf: 'center',
@@ -1546,7 +1647,7 @@ const styles = StyleSheet.create({
     marginTop: 8, marginBottom: 4, backgroundColor: COLORS.offWhite,
   },
 
-  ratingButtonRow: { flexDirection: 'row', gap: 12, marginTop: 24,marginBottom: 8},
+  ratingButtonRow: { flexDirection: 'row', gap: 12, marginTop: 24, marginBottom: 8 },
   ratingCancelBtn: {
     flex: 1,
     borderWidth: 1.5, borderColor: COLORS.border, borderRadius: 18,
@@ -1664,6 +1765,40 @@ const styles = StyleSheet.create({
   payStatusText: { fontSize: 10, fontWeight: '800' },
   payStatusTextPaid: { color: '#15803D' },
   payStatusTextUnpaid: { color: '#92400E' },
+
+  // Expired walk-in nudge banner
+  expiredBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: '#FEF3C7',
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: '#FCD34D',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginHorizontal: 20,
+    marginTop: 12,
+  },
+  expiredBannerIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#FDE68A',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  expiredBannerTitle: {
+    fontSize: 13.5,
+    fontWeight: '700',
+    color: '#92400E',
+    flexWrap: 'wrap',
+  },
+  expiredBannerSub: {
+    fontSize: 11.5,
+    color: '#B45309',
+    marginTop: 2,
+  },
 });
 
 const offerStyles = StyleSheet.create({

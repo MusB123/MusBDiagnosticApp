@@ -25,6 +25,7 @@ import {
   fetchPatientDashboard,
   deletePatientAccount,
 } from '../utils/auth';
+import { formatDob, validateDob } from '../utils/dobHelper';
 
 const COLORS = {
   navy: '#1B3A8C',
@@ -114,7 +115,6 @@ function ProfileSkeleton() {
 
       {/* My Care section */}
       <SkeletonBlock width={80} height={11} style={{ marginBottom: 12 }} />
-      <SkeletonLinkRow />
       <SkeletonLinkRow />
 
       {/* Documents section */}
@@ -273,11 +273,19 @@ export default function ProfileScreen({ navigation }) {
     setRefreshing(false);
   };
 
-  const updateField = (field, value) => {
-    setForm((prev) => ({ ...prev, [field]: value }));
+  const handleDobChange = (value) => {
+    const formatted = formatDob(value, form.dob);
+    updateField('dob', formatted);
   };
 
   const handleSave = async () => {
+    if (form.dob && form.dob.trim()) {
+      const dobError = validateDob(form.dob, false);
+      if (dobError) {
+        Alert.alert('Invalid Date of Birth', dobError);
+        return;
+      }
+    }
     setSaving(true);
     try {
       await updatePatientProfile(form);
@@ -304,7 +312,7 @@ export default function ProfileScreen({ navigation }) {
       Alert.alert(
         'Account scheduled for deletion',
         res.message ||
-          "Your account will be permanently deleted in 45 days. If you log back in before then, your account will be automatically restored — nothing will be deleted."
+          "Your account will be permanently deleted in 45 days. If you log back in before then, your account will be automatically restored. — nothing will be deleted."
       );
       navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
     } catch (err) {
@@ -345,14 +353,12 @@ export default function ProfileScreen({ navigation }) {
 
   const handleLogout = () => {
     Alert.alert(
-      isGuest ? 'Exit guest session' : 'Log out',
-      isGuest
-        ? 'You can always come back and book again as a guest, or create an account to save your info.'
-        : 'Are you sure you want to log out?',
+      'Log out',
+      'Are you sure you want to log out?',
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: isGuest ? 'Exit' : 'Log out',
+          text: 'Log out',
           style: 'destructive',
           onPress: async () => {
             await logoutPatient();
@@ -483,17 +489,6 @@ export default function ProfileScreen({ navigation }) {
           <Ionicons name="chevron-forward" size={18} color={COLORS.gray} />
         </TouchableOpacity>
 
-        <TouchableOpacity
-          style={styles.linkRow}
-          onPress={() => navigation.navigate('PatientResults')}
-        >
-          <View style={styles.linkIconWrap}>
-            <Ionicons name="document-text-outline" size={20} color={COLORS.navy} />
-          </View>
-          <Text style={styles.linkText}>Test results</Text>
-          <Ionicons name="chevron-forward" size={18} color={COLORS.gray} />
-        </TouchableOpacity>
-
         {/* Documents — shows the DOCS_PREVIEW_COUNT most recent, newest
             first, with a "View all" toggle for the rest. Auto-refreshes on
             screen focus and pull-to-refresh, so a newly uploaded document
@@ -568,7 +563,7 @@ export default function ProfileScreen({ navigation }) {
         <Text style={styles.sectionLabel}>PERSONAL INFO</Text>
         <Field label="Full name" value={form.name} editable={editing} onChangeText={(t) => updateField('name', t)} />
         <Field label="Phone" value={form.phone} editable={editing} onChangeText={(t) => updateField('phone', t)} keyboardType="phone-pad" />
-        <Field label="Date of birth" value={form.dob} editable={editing} onChangeText={(t) => updateField('dob', t)} placeholder="MM/DD/YYYY" />
+        <Field label="Date of birth" value={form.dob} editable={editing} onChangeText={handleDobChange} placeholder="MM/DD/YYYY" keyboardType="numeric" maxLength={10} />
 
         {/* Gender selector */}
         <Text style={styles.fieldLabel}>Gender</Text>
@@ -775,9 +770,13 @@ export default function ProfileScreen({ navigation }) {
           </>
         )}
 
-        {!editing && (
+        {/* Logout — only for a real logged-in session. Guests never
+            authenticated, so there's nothing to "log out" of; their only
+            exit path is creating an account (above) or just leaving/backing
+            out of the app. */}
+        {!editing && !isGuest && (
           <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
-            <Text style={styles.logoutBtnText}>{isGuest ? 'Exit guest session' : 'Log out'}</Text>
+            <Text style={styles.logoutBtnText}>Log out</Text>
           </TouchableOpacity>
         )}
       </KeyboardAwareScrollView>
@@ -785,7 +784,7 @@ export default function ProfileScreen({ navigation }) {
   );
 }
 
-function Field({ label, value, editable, onChangeText, placeholder, keyboardType, multiline, secureTextEntry }) {
+function Field({ label, value, editable, onChangeText, placeholder, keyboardType, multiline, secureTextEntry, maxLength }) {
   return (
     <View style={styles.fieldWrap}>
       <Text style={styles.fieldLabel}>{label}</Text>
@@ -799,6 +798,7 @@ function Field({ label, value, editable, onChangeText, placeholder, keyboardType
           keyboardType={keyboardType || 'default'}
           multiline={multiline}
           secureTextEntry={secureTextEntry}
+          maxLength={maxLength}
         />
       ) : (
         <View style={styles.staticField}>

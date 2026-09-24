@@ -16,8 +16,10 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons'; 
+import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
+import { Ionicons } from '@expo/vector-icons';
 import { checkPhlebEmailExists } from '../utils/auth';
+import { formatDob, validateDob } from '../utils/dobHelper';
 
 const COUNTRY_CODES = [
   { code: '+1', country: '🇺🇸 USA / Canada' },
@@ -86,7 +88,7 @@ export default function RegisterScreen({ navigation }) {
   const [addressSearchLoading, setAddressSearchLoading] = useState(false);
   const [addressSearchError, setAddressSearchError] = useState('');
   const sessionTokenRef = useRef(generateSessionToken());
-  const isValidEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  const isValidEmail = (email) => /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(email);
   const debounceRef = useRef(null);
   const abortRef = useRef(null);
   const [showPassword, setShowPassword] = useState(false);
@@ -119,15 +121,9 @@ export default function RegisterScreen({ navigation }) {
     setForm({ ...form, [field]: value });
   };
 
-  // Auto-formats digits into MM/DD/YYYY as the user types
+  // Auto-formats digits into MM/DD/YYYY cleanly as the user types or edits
   const handleDobChange = (value) => {
-    const digits = value.replace(/\D/g, '').slice(0, 8);
-    let formatted = digits;
-    if (digits.length > 4) {
-      formatted = `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
-    } else if (digits.length > 2) {
-      formatted = `${digits.slice(0, 2)}/${digits.slice(2)}`;
-    }
+    const formatted = formatDob(value, form.dob);
     handleChange('dob', formatted);
   };
 
@@ -143,11 +139,14 @@ export default function RegisterScreen({ navigation }) {
   };
 
   const handlePhoneChange = (value) => {
-    const digits = value.replace(/\D/g, '');
+    let clean = value.replace(/\D/g, '');
+    if (countryCode.code === '+1' && clean.length === 11 && clean.startsWith('1')) {
+      clean = clean.slice(1);
+    }
     if (countryCode.code === '+1') {
-      handleChange('phone', formatUsPhoneNumber(digits));
+      handleChange('phone', formatUsPhoneNumber(clean.slice(0, 10)));
     } else {
-      handleChange('phone', digits);
+      handleChange('phone', clean);
     }
   };
 
@@ -271,28 +270,9 @@ export default function RegisterScreen({ navigation }) {
   };
 
 
-  // Returns null if valid, or an error message string
-  const validateDob = (value) => {
-    if (!value.trim()) return null; // DOB is optional on this screen
-    const digits = value.replace(/\D/g, '');
-    if (digits.length < 8) return 'Please enter a complete date of birth.';
-
-    const month = parseInt(digits.slice(0, 2), 10);
-    const day = parseInt(digits.slice(2, 4), 10);
-    const year = parseInt(digits.slice(4, 8), 10);
-    const dateObj = new Date(year, month - 1, day);
-    const isRealDate =
-      dateObj.getFullYear() === year &&
-      dateObj.getMonth() === month - 1 &&
-      dateObj.getDate() === day;
-
-    if (month < 1 || month > 12 || day < 1 || day > 31 || !isRealDate) {
-      return 'Please enter a valid date of birth.';
-    }
-    if (year < MIN_DOB_YEAR || year > MAX_DOB_YEAR || dateObj > new Date()) {
-      return 'Please enter a valid date of birth.';
-    }
-    return null;
+  const validateDobLocal = (value) => {
+    if (!value || !value.trim()) return null; // DOB is optional on this step unless provided
+    return validateDob(value, false);
   };
 
   const handleContinue = () => {
@@ -304,13 +284,21 @@ export default function RegisterScreen({ navigation }) {
       Alert.alert('Last name required', 'Please enter your last name to continue.');
       return;
     }
-    const dobError = validateDob(form.dob);
+    const dobError = validateDobLocal(form.dob);
     if (dobError) {
       Alert.alert('Invalid date of birth', dobError);
       return;
     }
-    const phoneDigits = form.phone.replace(/\D/g, '');
-    if (!phoneDigits || phoneDigits.length < 7) {
+    let phoneDigits = form.phone.replace(/\D/g, '');
+    if (countryCode.code === '+1' && phoneDigits.length === 11 && phoneDigits.startsWith('1')) {
+      phoneDigits = phoneDigits.slice(1);
+    }
+    if (countryCode.code === '+1') {
+      if (phoneDigits.length !== 10) {
+        Alert.alert('Phone number invalid', 'Please enter a valid 10-digit US phone number.');
+        return;
+      }
+    } else if (!phoneDigits || phoneDigits.length < 7) {
       Alert.alert('Phone number required', 'Please enter a valid phone number to continue.');
       return;
     }
@@ -325,12 +313,12 @@ export default function RegisterScreen({ navigation }) {
 
     if (emailTaken) {
       Alert.alert('Email already registered', emailCheckError || 'This email is already registered. Please log in instead.');
-    return;
-  }
-  if (emailChecking) {
-    Alert.alert('Please wait', 'Still verifying your email, try again in a second.');
-    return;
-  }
+      return;
+    }
+    if (emailChecking) {
+      Alert.alert('Please wait', 'Still verifying your email, try again in a second.');
+      return;
+    }
     const failedPasswordRule = PASSWORD_RULES.find((rule) => !rule.test(form.password));
     if (!form.password.trim()) {
       Alert.alert('Password required', 'Please choose a password to continue.');
@@ -360,241 +348,240 @@ export default function RegisterScreen({ navigation }) {
   return (
     <SafeAreaView style={styles.safeArea}>
       <StatusBar barStyle="dark-content" backgroundColor="#F5F6FA" />
-      <KeyboardAvoidingView
+      <KeyboardAwareScrollView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        enableOnAndroid={false}
+        enableAutomaticScroll={true}
+        extraScrollHeight={15}
+        keyboardOpeningTime={250}
       >
-        <ScrollView
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
+        {/* Back button */}
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => navigation.goBack()}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >
-          {/* Back button */}
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => navigation.goBack()}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          >
-            <Ionicons name="arrow-back" size={22} color="#0D2156" />
-          </TouchableOpacity>
+          <Ionicons name="arrow-back" size={22} color="#0D2156" />
+        </TouchableOpacity>
 
-          {/* Header */}
-          <View style={styles.header}>
-            <Image
-              source={require('../assets/logo.png')}
-              style={styles.logoImage}
-              resizeMode="contain"
-            />
-            <View style={styles.headerText}>
-              <Text style={styles.stepTitle}>Register — step 1{'\n'}of 3</Text>
-              <Text style={styles.stepSubtitle}>Personal information</Text>
-            </View>
-            <View style={styles.progressDots}>
-              <View style={[styles.dot, styles.dotActive]} />
-              <View style={styles.dot} />
-              <View style={styles.dot} />
-            </View>
+        {/* Header */}
+        <View style={styles.header}>
+          <Image
+            source={require('../assets/logo.png')}
+            style={styles.logoImage}
+            resizeMode="contain"
+          />
+          <View style={styles.headerText}>
+            <Text style={styles.stepTitle}>Register — step 1{'\n'}of 3</Text>
+            <Text style={styles.stepSubtitle}>Personal information</Text>
           </View>
+          <View style={styles.progressDots}>
+            <View style={[styles.dot, styles.dotActive]} />
+            <View style={styles.dot} />
+            <View style={styles.dot} />
+          </View>
+        </View>
 
-          {/* Form */}
-          <View style={styles.form}>
-            <Text style={styles.label}>
-              First name <Text style={styles.required}>*</Text>
-            </Text>
+        {/* Form */}
+        <View style={styles.form}>
+          <Text style={styles.label}>
+            First name <Text style={styles.required}>*</Text>
+          </Text>
+          <TextInput
+            style={styles.input}
+            placeholder="First name"
+            placeholderTextColor="#BBBDC4"
+            value={form.firstName}
+            onChangeText={(v) => handleChange('firstName', v)}
+            autoCapitalize="words"
+          />
+
+          <Text style={styles.label}>Middle name</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Middle name (optional)"
+            placeholderTextColor="#BBBDC4"
+            value={form.middleName}
+            onChangeText={(v) => handleChange('middleName', v)}
+            autoCapitalize="words"
+          />
+
+          <Text style={styles.label}>
+            Last name <Text style={styles.required}>*</Text>
+          </Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Last name"
+            placeholderTextColor="#BBBDC4"
+            value={form.lastName}
+            onChangeText={(v) => handleChange('lastName', v)}
+            autoCapitalize="words"
+          />
+
+          <Text style={styles.label}>Date of birth</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="MM/DD/YYYY"
+            placeholderTextColor="#BBBDC4"
+            value={form.dob}
+            onChangeText={handleDobChange}
+            keyboardType="numeric"
+            maxLength={10}
+          />
+
+          <Text style={styles.label}>Home address</Text>
+          <View style={styles.inputWithIconWrap}>
             <TextInput
               style={styles.input}
-              placeholder="First name"
+              placeholder="123 Main St, Tampa, FL"
               placeholderTextColor="#BBBDC4"
-              value={form.firstName}
-              onChangeText={(v) => handleChange('firstName', v)}
-              autoCapitalize="words"
+              value={form.address}
+              onChangeText={(v) => handleChange('address', v)}
             />
-
-            <Text style={styles.label}>Middle name</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Middle name (optional)"
-              placeholderTextColor="#BBBDC4"
-              value={form.middleName}
-              onChangeText={(v) => handleChange('middleName', v)}
-              autoCapitalize="words"
-            />
-
-            <Text style={styles.label}>
-              Last name <Text style={styles.required}>*</Text>
-            </Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Last name"
-              placeholderTextColor="#BBBDC4"
-              value={form.lastName}
-              onChangeText={(v) => handleChange('lastName', v)}
-              autoCapitalize="words"
-            />
-
-            <Text style={styles.label}>Date of birth</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="MM/DD/YYYY"
-              placeholderTextColor="#BBBDC4"
-              value={form.dob}
-              onChangeText={handleDobChange}
-              keyboardType="numeric"
-              maxLength={10}
-            />
-
-            <Text style={styles.label}>Home address</Text>
-            <View style={styles.inputWithIconWrap}>
-              <TextInput
-                style={styles.input}
-                placeholder="123 Main St, Tampa, FL"
-                placeholderTextColor="#BBBDC4"
-                value={form.address}
-                onChangeText={(v) => handleChange('address', v)}
-              />
-              {addressSearchLoading && (
-                <ActivityIndicator color="#0D2156" size="small" style={styles.inputSpinner} />
-              )}
-            </View>
-            {addressSuggestions.length > 0 && (
-              <View style={styles.suggestionsBox}>
-                {addressSuggestions.map((item) => (
-                  <TouchableOpacity
-                    key={item.place_id}
-                    style={styles.suggestionRow}
-                    onPress={() => handleSelectAddressSuggestion(item)}
-                    activeOpacity={0.7}
-                  >
-                    <Ionicons name="location-outline" size={16} color="#8A92A6" />
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.suggestionMain} numberOfLines={1}>
-                        {item.structured_formatting?.main_text || item.description}
-                      </Text>
-                      {item.structured_formatting?.secondary_text ? (
-                        <Text style={styles.suggestionSecondary} numberOfLines={1}>
-                          {item.structured_formatting.secondary_text}
-                        </Text>
-                      ) : null}
-                    </View>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            )}
-            {addressSearchError ? <Text style={{ color: '#E0453D', fontSize: 12, marginTop: 6, fontWeight: '500' }}>⚠ {addressSearchError}</Text> : null}
-
-            <Text style={styles.label}>
-              Phone number <Text style={styles.required}>*</Text>
-            </Text>
-            <View style={styles.phoneRow}>
-              <TouchableOpacity
-                style={styles.countryCodeBtn}
-                onPress={() => setShowPicker(true)}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.countryCodeText}>{countryCode.code} ▾</Text>
-              </TouchableOpacity>
-              <View style={styles.phoneDivider} />
-              <TextInput
-                style={styles.phoneInput}
-                value={form.phone}
-                onChangeText={handlePhoneChange}
-                placeholder={countryCode.code === '+1' ? '(555) 123-4567' : 'Enter phone number'}
-                placeholderTextColor="#BBBDC4"
-                keyboardType="phone-pad"
-                maxLength={countryCode.code === '+1' ? 14 : 15}
-              />
-            </View>
-
-            <Text style={styles.label}>
-              Email address <Text style={styles.required}>*</Text>
-            </Text>
-            <View style={styles.inputWithIconWrap}>
-              <TextInput
-                style={styles.input}
-                placeholder="you@example.com"
-                placeholderTextColor="#BBBDC4"
-                value={form.email}
-                onChangeText={(v) => handleChange('email', v)}
-                keyboardType="email-address"
-                autoCapitalize="none"
-              />
-              {emailChecking && (
-                <ActivityIndicator color="#0D2156" size="small" style={styles.inputSpinner} />
-              )}
-            </View>
-            {emailTaken ? (
-              <Text style={{ color: '#E0453D', fontSize: 12, marginTop: 6, fontWeight: '500' }}>
-                ⚠ {emailCheckError || 'This email is already registered.'}
-              </Text>
-            ) : null}
-            {!emailTaken && emailCheckError ? (
-              <Text style={{ color: '#E0453D', fontSize: 12, marginTop: 6, fontWeight: '500' }}>
-                ⚠ {emailCheckError}
-              </Text>
-            ) : null}
-
-            <Text style={styles.label}>
-              Create a password <Text style={styles.required}>*</Text>
-            </Text>
-            <View style={styles.passwordWrapper}>
-              <TextInput
-                style={styles.passwordInput}
-                placeholder="At least 10 characters"
-                placeholderTextColor="#BBBDC4"
-                value={form.password}
-                onChangeText={(v) => handleChange('password', v)}
-                secureTextEntry={!showPassword}
-                autoCapitalize="none"
-                onFocus={() => setPasswordFocused(true)}
-                onBlur={() => setPasswordFocused(false)}
-              />
-              <TouchableOpacity
-                style={styles.eyeButton}
-                onPress={() => setShowPassword((prev) => !prev)}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              >
-                <Ionicons
-                  name={showPassword ? 'eye-off-outline' : 'eye-outline'}
-                  size={20}
-                  color="#8A92A6"
-                />
-              </TouchableOpacity>
-            </View>
-
-            {/* Password requirements checklist */}
-            {(passwordFocused || form.password.length > 0) && (
-              <View style={styles.rulesBox}>
-                <Text style={styles.rulesTitle}>Password must contain:</Text>
-                {PASSWORD_RULES.map((rule) => {
-                  const passed = rule.test(form.password);
-                  return (
-                    <View key={rule.key} style={styles.ruleRow}>
-                      <Ionicons
-                        name={passed ? 'checkmark-circle' : 'ellipse-outline'}
-                        size={14}
-                        color={passed ? '#2E7D32' : '#8A92A6'}
-                      />
-                      <Text style={[styles.ruleText, passed && styles.ruleTextPassed]}>
-                        {rule.label}
-                      </Text>
-                    </View>
-                  );
-                })}
-              </View>
+            {addressSearchLoading && (
+              <ActivityIndicator color="#0D2156" size="small" style={styles.inputSpinner} />
             )}
           </View>
+          {addressSuggestions.length > 0 && (
+            <View style={styles.suggestionsBox}>
+              {addressSuggestions.map((item) => (
+                <TouchableOpacity
+                  key={item.place_id}
+                  style={styles.suggestionRow}
+                  onPress={() => handleSelectAddressSuggestion(item)}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="location-outline" size={16} color="#8A92A6" />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.suggestionMain} numberOfLines={1}>
+                      {item.structured_formatting?.main_text || item.description}
+                    </Text>
+                    {item.structured_formatting?.secondary_text ? (
+                      <Text style={styles.suggestionSecondary} numberOfLines={1}>
+                        {item.structured_formatting.secondary_text}
+                      </Text>
+                    ) : null}
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+          {addressSearchError ? <Text style={{ color: '#E0453D', fontSize: 12, marginTop: 6, fontWeight: '500' }}>⚠ {addressSearchError}</Text> : null}
 
-          {/* Continue Button */}
-          <TouchableOpacity
-            style={styles.nextButton}
-            onPress={handleContinue}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.nextButtonText}>Continue</Text>
-          </TouchableOpacity>
-        </ScrollView>
-      </KeyboardAvoidingView>
+          <Text style={styles.label}>
+            Phone number <Text style={styles.required}>*</Text>
+          </Text>
+          <View style={styles.phoneRow}>
+            <TouchableOpacity
+              style={styles.countryCodeBtn}
+              onPress={() => setShowPicker(true)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.countryCodeText}>{countryCode.code} ▾</Text>
+            </TouchableOpacity>
+            <View style={styles.phoneDivider} />
+            <TextInput
+              style={styles.phoneInput}
+              value={form.phone}
+              onChangeText={handlePhoneChange}
+              placeholder={countryCode.code === '+1' ? '(555) 123-4567' : 'Enter phone number'}
+              placeholderTextColor="#BBBDC4"
+              keyboardType="phone-pad"
+              maxLength={countryCode.code === '+1' ? 14 : 15}
+            />
+          </View>
+
+          <Text style={styles.label}>
+            Email address <Text style={styles.required}>*</Text>
+          </Text>
+          <View style={styles.inputWithIconWrap}>
+            <TextInput
+              style={styles.input}
+              placeholder="you@example.com"
+              placeholderTextColor="#BBBDC4"
+              value={form.email}
+              onChangeText={(v) => handleChange('email', v)}
+              keyboardType="email-address"
+              autoCapitalize="none"
+            />
+            {emailChecking && (
+              <ActivityIndicator color="#0D2156" size="small" style={styles.inputSpinner} />
+            )}
+          </View>
+          {emailTaken ? (
+            <Text style={{ color: '#E0453D', fontSize: 12, marginTop: 6, fontWeight: '500' }}>
+              ⚠ {emailCheckError || 'This email is already registered.'}
+            </Text>
+          ) : null}
+          {!emailTaken && emailCheckError ? (
+            <Text style={{ color: '#E0453D', fontSize: 12, marginTop: 6, fontWeight: '500' }}>
+              ⚠ {emailCheckError}
+            </Text>
+          ) : null}
+
+          <Text style={styles.label}>
+            Create a password <Text style={styles.required}>*</Text>
+          </Text>
+          <View style={styles.passwordWrapper}>
+            <TextInput
+              style={styles.passwordInput}
+              placeholder="At least 10 characters"
+              placeholderTextColor="#BBBDC4"
+              value={form.password}
+              onChangeText={(v) => handleChange('password', v)}
+              secureTextEntry={!showPassword}
+              autoCapitalize="none"
+              onFocus={() => setPasswordFocused(true)}
+              onBlur={() => setPasswordFocused(false)}
+            />
+            <TouchableOpacity
+              style={styles.eyeButton}
+              onPress={() => setShowPassword((prev) => !prev)}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Ionicons
+                name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                size={20}
+                color="#8A92A6"
+              />
+            </TouchableOpacity>
+          </View>
+
+          {/* Password requirements checklist */}
+          {(passwordFocused || form.password.length > 0) && (
+            <View style={styles.rulesBox}>
+              <Text style={styles.rulesTitle}>Password must contain:</Text>
+              {PASSWORD_RULES.map((rule) => {
+                const passed = rule.test(form.password);
+                return (
+                  <View key={rule.key} style={styles.ruleRow}>
+                    <Ionicons
+                      name={passed ? 'checkmark-circle' : 'ellipse-outline'}
+                      size={14}
+                      color={passed ? '#2E7D32' : '#8A92A6'}
+                    />
+                    <Text style={[styles.ruleText, passed && styles.ruleTextPassed]}>
+                      {rule.label}
+                    </Text>
+                  </View>
+                );
+              })}
+            </View>
+          )}
+        </View>
+
+        {/* Continue Button */}
+        <TouchableOpacity
+          style={styles.nextButton}
+          onPress={handleContinue}
+          activeOpacity={0.85}
+        >
+          <Text style={styles.nextButtonText}>Continue</Text>
+        </TouchableOpacity>
+      </KeyboardAwareScrollView>
 
       {/* Country Code Picker Modal */}
       <Modal
@@ -932,25 +919,25 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
   },
   inputWithIconWrap: { position: 'relative', justifyContent: 'center' },
-inputSpinner: { position: 'absolute', right: 14 },
-suggestionsBox: {
-  borderWidth: 1,
-  borderColor: '#E8EAF0',
-  borderRadius: 12,
-  marginTop: 6,
-  backgroundColor: '#FFFFFF',
-  overflow: 'hidden',
-  maxHeight: 220,
-},
-suggestionRow: {
-  flexDirection: 'row',
-  alignItems: 'center',
-  gap: 10,
-  paddingHorizontal: 14,
-  paddingVertical: 12,
-  borderBottomWidth: 1,
-  borderBottomColor: '#E8EAF0',
-},
-suggestionMain: { fontSize: 14, fontWeight: '600', color: '#0D2156' },
-suggestionSecondary: { fontSize: 12, color: '#8A92A6', marginTop: 1 },
+  inputSpinner: { position: 'absolute', right: 14 },
+  suggestionsBox: {
+    borderWidth: 1,
+    borderColor: '#E8EAF0',
+    borderRadius: 12,
+    marginTop: 6,
+    backgroundColor: '#FFFFFF',
+    overflow: 'hidden',
+    maxHeight: 220,
+  },
+  suggestionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E8EAF0',
+  },
+  suggestionMain: { fontSize: 14, fontWeight: '600', color: '#0D2156' },
+  suggestionSecondary: { fontSize: 12, color: '#8A92A6', marginTop: 1 },
 });

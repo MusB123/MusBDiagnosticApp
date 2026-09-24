@@ -17,6 +17,7 @@ import {
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { requestOtp } from '../utils/auth';
+import { formatDob, validateDob } from '../utils/dobHelper';
 import { Ionicons } from '@expo/vector-icons';
 
 const COLORS = {
@@ -149,19 +150,22 @@ export default function CreateAccountScreen({ navigation }) {
   );
 
   const handleDOB = (text) => {
-    const clean = text.replace(/\D/g, '');
-    let formatted = clean;
-    if (clean.length >= 3 && clean.length <= 4) {
-      formatted = clean.slice(0, 2) + ' / ' + clean.slice(2);
-    } else if (clean.length > 4) {
-      formatted = clean.slice(0, 2) + ' / ' + clean.slice(2, 4) + ' / ' + clean.slice(4, 8);
+    const formatted = formatDob(text, form.dob);
+    setForm((prev) => ({ ...prev, dob: formatted }));
+    const cleanDigits = formatted.replace(/\D/g, '');
+    if (cleanDigits.length === 8) {
+      const dobError = validateDob(formatted, true);
+      setErrors((prev) => ({ ...prev, dob: dobError || '' }));
+    } else if (errors.dob) {
+      setErrors((prev) => ({ ...prev, dob: '' }));
     }
-    setForm({ ...form, dob: formatted });
-    if (errors.dob) setErrors({ ...errors, dob: '' });
   };
 
   const handlePhone = (text) => {
-    const clean = text.replace(/\D/g, '');
+    let clean = text.replace(/\D/g, '');
+    if (countryCode.code === '+1' && clean.length === 11 && clean.startsWith('1')) {
+      clean = clean.slice(1);
+    }
     const digits = countryCode.code === '+1' ? clean.slice(0, 10) : clean;
     const formatted = countryCode.code === '+1' ? formatUsPhoneNumber(digits) : digits;
     setForm({ ...form, phone: formatted });
@@ -169,7 +173,10 @@ export default function CreateAccountScreen({ navigation }) {
   };
 
   const handleEmergencyPhone = (text) => {
-    const clean = text.replace(/\D/g, '');
+    let clean = text.replace(/\D/g, '');
+    if (emergencyCountryCode.code === '+1' && clean.length === 11 && clean.startsWith('1')) {
+      clean = clean.slice(1);
+    }
     const digits = emergencyCountryCode.code === '+1' ? clean.slice(0, 10) : clean;
     const formatted = emergencyCountryCode.code === '+1' ? formatUsPhoneNumber(digits) : digits;
     setForm({ ...form, emergencyContactPhone: formatted });
@@ -257,10 +264,17 @@ export default function CreateAccountScreen({ navigation }) {
 
   const validate = () => {
     const newErrors = {};
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    const dobClean = form.dob.replace(/\D/g, '');
-    const phoneDigits = form.phone.replace(/\D/g, '');
-    const emergencyPhoneDigits = form.emergencyContactPhone.replace(/\D/g, '');
+    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+
+    let phoneDigits = form.phone.replace(/\D/g, '');
+    if (countryCode.code === '+1' && phoneDigits.length === 11 && phoneDigits.startsWith('1')) {
+      phoneDigits = phoneDigits.slice(1);
+    }
+
+    let emergencyPhoneDigits = form.emergencyContactPhone.replace(/\D/g, '');
+    if (emergencyCountryCode.code === '+1' && emergencyPhoneDigits.length === 11 && emergencyPhoneDigits.startsWith('1')) {
+      emergencyPhoneDigits = emergencyPhoneDigits.slice(1);
+    }
 
     if (!form.firstName.trim()) {
       newErrors.firstName = 'First name is required';
@@ -278,37 +292,29 @@ export default function CreateAccountScreen({ navigation }) {
       newErrors.lastName = 'Last name can only contain letters and spaces';
     }
 
-    if (!form.dob.trim() || dobClean.length < 8) {
-      newErrors.dob = 'Enter a valid date of birth';
-    } else {
-      const month = parseInt(dobClean.slice(0, 2), 10);
-      const day = parseInt(dobClean.slice(2, 4), 10);
-      const year = parseInt(dobClean.slice(4, 8), 10);
-      const dateObj = new Date(year, month - 1, day);
-      const isRealDate =
-        dateObj.getFullYear() === year &&
-        dateObj.getMonth() === month - 1 &&
-        dateObj.getDate() === day;
-
-      if (month < 1 || month > 12 || day < 1 || day > 31 || !isRealDate) {
-        newErrors.dob = 'Enter a valid date of birth';
-      } else if (year < MIN_DOB_YEAR || year > MAX_DOB_YEAR || dateObj > new Date()) {
-        newErrors.dob = `Year must be between ${MIN_DOB_YEAR} and ${MAX_DOB_YEAR}`;
-      }
+    const dobError = validateDob(form.dob, true);
+    if (dobError) {
+      newErrors.dob = dobError;
     }
 
-    if (countryCode.code === '+1') {
+    if (!phoneDigits) {
+      newErrors.phone = 'Phone number is required';
+    } else if (countryCode.code === '+1') {
       if (phoneDigits.length !== 10) {
         newErrors.phone = 'Please enter a valid 10-digit US phone number';
       }
-    } else if (!phoneDigits || phoneDigits.length < 7) {
-      newErrors.phone = 'Enter a valid phone number';
+    } else if (countryCode.code === '+91') {
+      if (phoneDigits.length !== 10) {
+        newErrors.phone = 'Please enter a valid 10-digit Indian phone number';
+      }
+    } else if (phoneDigits.length < 7 || phoneDigits.length > 15) {
+      newErrors.phone = 'Please enter a valid phone number (7 to 15 digits)';
     }
 
     if (!form.email.trim()) {
-      newErrors.email = 'Email is required';
-    } else if (!emailRegex.test(form.email)) {
-      newErrors.email = 'Enter a valid email address';
+      newErrors.email = 'Email address is required';
+    } else if (!emailRegex.test(form.email.trim())) {
+      newErrors.email = 'Please enter a valid email address (e.g. name@domain.com)';
     }
 
     if (!form.emergencyContactName.trim()) {
@@ -317,12 +323,18 @@ export default function CreateAccountScreen({ navigation }) {
       newErrors.emergencyContactName = 'Emergency contact name can only contain letters and spaces';
     }
 
-    if (emergencyCountryCode.code === '+1') {
+    if (!emergencyPhoneDigits) {
+      newErrors.emergencyContactPhone = 'Emergency contact phone number is required';
+    } else if (emergencyCountryCode.code === '+1') {
       if (emergencyPhoneDigits.length !== 10) {
         newErrors.emergencyContactPhone = 'Please enter a valid 10-digit US phone number';
       }
-    } else if (!emergencyPhoneDigits || emergencyPhoneDigits.length < 7) {
-      newErrors.emergencyContactPhone = 'Enter a valid emergency contact number';
+    } else if (emergencyCountryCode.code === '+91') {
+      if (emergencyPhoneDigits.length !== 10) {
+        newErrors.emergencyContactPhone = 'Please enter a valid 10-digit Indian phone number';
+      }
+    } else if (emergencyPhoneDigits.length < 7 || emergencyPhoneDigits.length > 15) {
+      newErrors.emergencyContactPhone = 'Please enter a valid emergency contact number';
     } else if (
       emergencyCountryCode.code === countryCode.code &&
       emergencyPhoneDigits === phoneDigits
@@ -404,15 +416,15 @@ export default function CreateAccountScreen({ navigation }) {
         </View>
 
         <KeyboardAwareScrollView
-        style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-        enableOnAndroid={true}
-        enableAutomaticScroll={true}
-        extraScrollHeight={Platform.OS === 'ios' ? 20 : 80}
-        keyboardOpeningTime={0}
-      >
+          style={styles.scroll}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          enableOnAndroid={false}
+          enableAutomaticScroll={true}
+          extraScrollHeight={15}
+          keyboardOpeningTime={250}
+        >
           {/* First Name - required */}
           <InputField
             label="First name"
@@ -441,15 +453,15 @@ export default function CreateAccountScreen({ navigation }) {
             error={errors.lastName}
           />
 
-          {/* Date of Birth - required, year limited to past 100 years */}
+          {/* Date of Birth - required, year limited to past 100 years (1926-2026) */}
           <InputField
             label="Date of birth"
             required
             value={form.dob}
             onChangeText={handleDOB}
-            placeholder="MM / DD / YYYY"
+            placeholder="MM/DD/YYYY"
             keyboardType="numeric"
-            maxLength={14}
+            maxLength={10}
             error={errors.dob}
           />
 

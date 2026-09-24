@@ -302,7 +302,7 @@ export default function RegisterStep2({ navigation, route }) {
           <Text style={styles.cardTitle}>{doc.title}</Text>
           <Text
             style={[styles.cardSubtitle, isDone && { color: '#1E9E5A' }]}
-            numberOfLines={1}
+            numberOfLines={isDone ? 1 : undefined}
           >
             {isDone ? doc.fileName : doc.subtitle}
           </Text>
@@ -322,8 +322,10 @@ export default function RegisterStep2({ navigation, route }) {
         contentContainerStyle={{ paddingBottom: 60 }}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
-        enableOnAndroid={true}
-        extraScrollHeight={60}
+        enableOnAndroid={false}
+        enableAutomaticScroll={true}
+        extraScrollHeight={15}
+        keyboardOpeningTime={250}
       >
         {/* Back button */}
         <TouchableOpacity

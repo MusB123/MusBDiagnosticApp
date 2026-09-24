@@ -1,16 +1,13 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, StatusBar,
-  ScrollView, Animated, Easing, ActivityIndicator, LayoutAnimation, Platform, UIManager, Dimensions,
+  ScrollView, Animated, Easing, ActivityIndicator, LayoutAnimation, Platform, Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { fetchPricing } from '../utils/auth';
 
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
-}
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 

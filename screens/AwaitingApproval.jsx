@@ -5,6 +5,7 @@ import {
   StyleSheet,
   ScrollView,
   ActivityIndicator,
+  TouchableOpacity,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { getApplicationStatus, login } from '../utils/auth';
@@ -87,6 +88,29 @@ export default function AwaitingApproval({ navigation, route }) {
     handleApproved();
   };
 
+  // Stop polling and send the user to the login screen. Using reset (not
+  // navigate/goBack) so this screen and the registration steps are cleared
+  // from the stack — they shouldn't be able to swipe/back into a pending
+  // application once they've chosen to leave.
+  const goToLogin = () => {
+    stoppedRef.current = true;
+    clearInterval(pollRef.current);
+    navigation.reset({
+      index: 0,
+      routes: [{ name: 'Login' }],
+    });
+  };
+
+  const BackToLoginLink = () => (
+    <TouchableOpacity
+      onPress={goToLogin}
+      style={styles.backToLoginButton}
+      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+    >
+      <Text style={styles.backToLoginText}>Back to login</Text>
+    </TouchableOpacity>
+  );
+
   if (reviewState === 'rejected') {
     return (
       <SafeAreaView style={styles.container}>
@@ -99,6 +123,7 @@ export default function AwaitingApproval({ navigation, route }) {
             Your application didn't pass verification. Please contact support
             for details, or submit a new application with updated documents.
           </Text>
+          <BackToLoginLink />
         </ScrollView>
       </SafeAreaView>
     );
@@ -113,6 +138,7 @@ export default function AwaitingApproval({ navigation, route }) {
           </View>
           <Text style={styles.title}>Something went wrong</Text>
           <Text style={styles.description}>{errorMessage}</Text>
+          <BackToLoginLink />
         </ScrollView>
       </SafeAreaView>
     );
@@ -141,18 +167,16 @@ export default function AwaitingApproval({ navigation, route }) {
             ? 'Your account has been approved. Logging you in…'
             : "MusB Diagnostics admin is verifying your credentials. You'll be notified by email and push notification once approved."}
         </Text>
-         
+
         {__DEV__ && (
           <Text style={{ fontSize: 11, color: '#999', marginBottom: 10 }}>
            DEBUG: specialistId = {String(specialistId)}
           </Text>
-        )} 
+        )}
 
         {!!errorMessage && (
            <Text style={styles.errorText}>{errorMessage}</Text>
         )}
-        
-
 
         <View style={styles.card}>
           <View style={styles.row}>
@@ -202,6 +226,8 @@ export default function AwaitingApproval({ navigation, route }) {
             </Text>
           </View>
         )}
+
+        {reviewState !== 'active' && <BackToLoginLink />}
 
       </ScrollView>
     </SafeAreaView>
@@ -334,5 +360,16 @@ const styles = StyleSheet.create({
   noticeText: {
     marginTop: 6,
     color: '#A86B00',
+  },
+  backToLoginButton: {
+    marginTop: 22,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+  },
+  backToLoginText: {
+    color: '#0D2156',
+    fontWeight: '700',
+    fontSize: 15,
+    textDecorationLine: 'underline',
   },
 });
